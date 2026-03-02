@@ -5,9 +5,9 @@ transformers==4.51.3
 accelerate==1.6.0
 torch==2.6.0
 torchvision==0.21.0
-Pillow==11.2.1
+Pillow==12.1.1
 huggingface_hub==0.30.2
 requests==2.32.3
-python-multipart==0.0.20
+python-multipart==0.0.22
 safetensors==0.5.3
 omegaconf==2.3.0
