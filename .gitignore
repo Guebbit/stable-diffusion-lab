@@ -1,0 +1,17 @@
+# Frontend build artifacts and dependencies
+frontend/node_modules/
+frontend/dist/
+
+# Backend virtual environment and cache
+backend/.venv/
+backend/venv/
+backend/models_cache/
+backend/__pycache__/
+backend/*.pyc
+
+# Environment files
+.env
+.env.local
+
+# OS
+.DS_Store
