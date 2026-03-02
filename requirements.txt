@@ -1,0 +1,9 @@
+accelerate>=0.28.0
+diffusers>=0.30.0
+huggingface_hub>=0.24.0
+Pillow>=10.0.0
+python-dotenv>=1.0.1
+requests>=2.32.0
+safetensors>=0.4.0
+torch>=2.2.0
+transformers>=4.40.0

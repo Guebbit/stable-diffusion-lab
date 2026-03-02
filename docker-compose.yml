@@ -1,0 +1,21 @@
+services:
+  model-downloader:
+    build: .
+    command: download_models.py
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      CIV_TOKEN: ${CIV_TOKEN:-}
+    volumes:
+      - ./models:/models
+
+  cli:
+    build: .
+    command: generate_cli.py
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      CIV_TOKEN: ${CIV_TOKEN:-}
+    volumes:
+      - ./models:/models
+      - ./generated:/generated
+    stdin_open: true
+    tty: true
