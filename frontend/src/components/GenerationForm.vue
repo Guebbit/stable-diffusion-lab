@@ -1,101 +1,138 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useDiffusionStore } from '../stores/diffusion'
-import type { ModelOption, ModelSource } from '../types'
+import {ref, computed} from 'vue'
+import {useDiffusionStore} from '../stores/diffusion'
+import type {ModelOption, ModelSource} from '../types'
 
 const store = useDiffusionStore()
 
+/**
+ * 
+ */
 const huggingfaceModels: ModelOption[] = [
   {
     id: 'runwayml/stable-diffusion-v1-5',
     name: 'Stable Diffusion v1.5',
     source: 'huggingface',
-    description: 'Classic SD 1.5 by RunwayML',
+    description: 'Bad and fast (2022)',
   },
   {
-    id: 'stabilityai/stable-diffusion-2-1',
-    name: 'Stable Diffusion v2.1',
+    id: 'stabilityai/sdxl-turbo',
+    name: 'Stable Diffusion SDXL',
     source: 'huggingface',
-    description: 'SD 2.1 by Stability AI',
+    description: 'SDXL Turbo',
   },
   {
     id: 'stabilityai/stable-diffusion-xl-base-1.0',
     name: 'Stable Diffusion XL 1.0',
     source: 'huggingface',
-    description: 'SDXL base model by Stability AI',
+    description: 'SDXL Quality',
   },
 ]
 
+/**
+ * 
+ */
 const civitaiModels: ModelOption[] = [
   {
-    id: '4201',
-    name: 'Realistic Vision V6.0',
-    source: 'civitai',
-    description: 'Photorealistic model from CivitAI',
-  },
-  {
-    id: '7240',
+    id: '128713',
     name: 'DreamShaper',
     source: 'civitai',
     description: 'Versatile art/photo model from CivitAI',
   },
 ]
 
-const modelSourceOptions = [
-  { title: 'HuggingFace', value: 'huggingface' as ModelSource },
-  { title: 'CivitAI', value: 'civitai' as ModelSource },
+/**
+ * 
+ */
+const modelSourceSelection = ref<ModelSource>('huggingface')
+const modelSourceItems = [
+  {title: 'HuggingFace', value: 'huggingface' as ModelSource},
+  {title: 'CivitAI', value: 'civitai' as ModelSource},
 ]
 
-const modelSource = ref<ModelSource>('huggingface')
-const selectedModelId = ref(huggingfaceModels[0]?.id ?? '')
-const customModelId = ref('')
+
+/**
+ * 
+ */
 const useCustomModel = ref(false)
 
-const prompt = ref('')
-const negativePrompt = ref('blurry, bad quality, nsfw, watermark')
-const width = ref(512)
-const height = ref(512)
-const numInferenceSteps = ref(20)
-const guidanceScale = ref(7.5)
-const seed = ref<number | null>(null)
-const numImages = ref(1)
+interface IForm {
+  prompt: string
+  negativePrompt: string
+  width: number
+  height: number
+  numInferenceSteps: number
+  guidanceScale: number
+  seed: number | null
+  numImages: number
+}
 
+/**
+ * 
+ */
+const form = ref<IForm>({
+  prompt: '',
+  negativePrompt: '',
+  width: 512,
+  height: 512,
+  numInferenceSteps: 20,
+  guidanceScale: 7.5,
+  seed: null,
+  numImages: 1,
+})
+
+/**
+ * 
+ */
 const dimensionOptions = [256, 512, 768, 1024]
 
+/**
+ * 
+ */
 const availableModels = computed(() =>
-  modelSource.value === 'huggingface' ? huggingfaceModels : civitaiModels,
+    modelSourceSelection.value === 'huggingface' ? huggingfaceModels : civitaiModels,
 )
 
+/**
+ * 
+ */
+const modelIdSelected = ref(huggingfaceModels[0]?.id ?? '')
+const customModelId = ref('')
 const activeModelId = computed(() =>
-  useCustomModel.value ? customModelId.value : selectedModelId.value,
+    useCustomModel.value ? customModelId.value : modelIdSelected.value,
 )
 
+/**
+ * 
+ */
 const formValid = computed(
-  () => prompt.value.trim().length > 0 && activeModelId.value.trim().length > 0,
+    () => form.value.prompt.trim().length > 0 && activeModelId.value.trim().length > 0,
 )
 
-function onModelSourceChange() {
-  selectedModelId.value = availableModels.value[0]?.id ?? ''
-}
-
-async function handleLoadModel() {
+/**
+ *  
+ */
+function handleLoadModel() {
   if (!activeModelId.value) return
-  await store.loadModel(activeModelId.value, modelSource.value)
+  return store.loadModel(activeModelId.value, modelSourceSelection.value)
 }
 
-async function handleGenerate() {
+/**
+ * Send request to generate images based on the form data.
+ */
+function handleGenerate() {
   if (!formValid.value) return
-  await store.generate({
-    prompt: prompt.value.trim(),
-    negative_prompt: negativePrompt.value.trim() || undefined,
+  return store.generate({
+    prompt: form.value.prompt.trim(),
+    negative_prompt: form.value.prompt.trim() || undefined,
     model_id: activeModelId.value,
-    model_source: modelSource.value,
-    width: width.value,
-    height: height.value,
-    num_inference_steps: numInferenceSteps.value,
-    guidance_scale: guidanceScale.value,
-    seed: seed.value ?? undefined,
-    num_images: numImages.value,
+    model_source: modelSourceSelection.value,
+    width: form.value.width,
+    height: form.value.height,
+    num_inference_steps: form.value.numInferenceSteps,
+    guidance_scale: form.value.guidanceScale,
+    seed: form.value.seed ?? undefined,
+    num_images: form.value.numImages,
   })
 }
 </script>
@@ -103,136 +140,134 @@ async function handleGenerate() {
 <template>
   <v-card class="pa-4" elevation="2">
     <v-card-title class="text-h5 mb-2">
-      <v-icon icon="mdi-image-sparkle" class="mr-2" />
+      <v-icon icon="mdi-image-sparkle" class="mr-2"/>
       Image Generation
     </v-card-title>
 
     <v-card-text>
-      <!-- Prompt -->
+      
       <v-textarea
-        v-model="prompt"
-        label="Prompt"
-        placeholder="a beautiful landscape painting, oil on canvas, highly detailed..."
-        rows="3"
-        auto-grow
-        variant="outlined"
-        prepend-inner-icon="mdi-pencil"
-        class="mb-3"
+          v-model="form.prompt"
+          label="Prompt"
+          rows="3"
+          auto-grow
+          variant="outlined"
+          prepend-inner-icon="mdi-pencil"
+          class="mb-3"
       />
 
-      <!-- Negative Prompt -->
       <v-textarea
-        v-model="negativePrompt"
-        label="Negative Prompt"
-        rows="2"
-        auto-grow
-        variant="outlined"
-        prepend-inner-icon="mdi-pencil-off"
-        class="mb-4"
+          v-model="form.negativePrompt"
+          label="Negative Prompt"
+          rows="2"
+          auto-grow
+          variant="outlined"
+          prepend-inner-icon="mdi-pencil-off"
+          class="mb-4"
       />
 
-      <v-divider class="mb-4" />
+      <v-divider class="mb-4"/>
 
       <!-- Model Source -->
       <v-row>
-        <v-col cols="12" sm="4">
+        <v-col cols="12">
           <v-select
-            v-model="modelSource"
-            :items="modelSourceOptions"
-            label="Model Source"
-            variant="outlined"
-            prepend-inner-icon="mdi-database"
-            @update:model-value="onModelSourceChange"
+              v-model="modelSourceSelection"
+              :items="modelSourceItems"
+              label="Model Source"
+              variant="outlined"
+              prepend-inner-icon="mdi-database"
+              @update:model-value="() => modelIdSelected = availableModels[0]?.id ?? ''"
           />
         </v-col>
 
-        <v-col cols="12" sm="8">
+        <v-col cols="12">
           <v-select
-            v-if="!useCustomModel"
-            v-model="selectedModelId"
-            :items="availableModels"
-            item-title="name"
-            item-value="id"
-            label="Model"
-            variant="outlined"
-            prepend-inner-icon="mdi-brain"
+              v-if="!useCustomModel"
+              v-model="modelIdSelected"
+              :items="availableModels"
+              item-title="name"
+              item-value="id"
+              label="Model"
+              variant="outlined"
+              prepend-inner-icon="mdi-brain"
           >
             <template #item="{ item, props: itemProps }">
-              <v-list-item v-bind="itemProps" :subtitle="item.raw.description" />
+              <v-list-item v-bind="itemProps" :subtitle="item.raw.description"/>
             </template>
           </v-select>
           <v-text-field
-            v-else
-            v-model="customModelId"
-            :label="modelSource === 'huggingface' ? 'HuggingFace repo ID' : 'CivitAI model ID'"
-            :placeholder="
-              modelSource === 'huggingface'
+              v-else
+              v-model="customModelId"
+              :label="modelSourceSelection === 'huggingface' ? 'HuggingFace repo ID' : 'CivitAI model ID'"
+              :placeholder="
+              modelSourceSelection === 'huggingface'
                 ? 'e.g. runwayml/stable-diffusion-v1-5'
                 : 'e.g. 4201'
             "
-            variant="outlined"
-            prepend-inner-icon="mdi-identifier"
+              variant="outlined"
+              prepend-inner-icon="mdi-identifier"
           />
         </v-col>
       </v-row>
 
       <v-checkbox
-        v-model="useCustomModel"
-        label="Enter custom model ID"
-        density="compact"
-        class="mb-2"
+          v-model="useCustomModel"
+          label="Enter custom model ID"
+          density="compact"
+          class="mb-2"
       />
 
       <v-btn
-        color="secondary"
-        variant="tonal"
-        :loading="store.isLoadingModel"
-        :disabled="!activeModelId || store.isGenerating"
-        prepend-icon="mdi-download"
-        class="mb-4"
-        @click="handleLoadModel"
+          color="secondary"
+          variant="tonal"
+          :loading="store.isLoadingModel"
+          :disabled="!activeModelId || store.isGenerating"
+          prepend-icon="mdi-download"
+          class="mb-4"
+          @click="handleLoadModel"
       >
         Load Model
       </v-btn>
 
-      <v-divider class="mb-4" />
+      <v-divider class="mb-4"/>
 
       <!-- Generation Parameters -->
       <v-row>
-        <v-col cols="6" sm="3">
+        <v-col cols="6">
           <v-select
-            v-model="width"
-            :items="dimensionOptions"
-            label="Width"
-            variant="outlined"
-            suffix="px"
+              v-model="form.width"
+              :items="dimensionOptions"
+              label="Width"
+              variant="outlined"
+              suffix="px"
           />
         </v-col>
-        <v-col cols="6" sm="3">
+        <v-col cols="6">
           <v-select
-            v-model="height"
-            :items="dimensionOptions"
-            label="Height"
-            variant="outlined"
-            suffix="px"
+              v-model="form.height"
+              :items="dimensionOptions"
+              label="Height"
+              variant="outlined"
+              suffix="px"
           />
         </v-col>
-        <v-col cols="6" sm="3">
+        <v-col cols="6">
           <v-select
-            v-model="numImages"
-            :items="[1, 2, 4]"
-            label="Images"
-            variant="outlined"
+              v-model="form.numImages"
+              :items="[1, 2, 4]"
+              label="Images"
+              variant="outlined"
           />
         </v-col>
-        <v-col cols="6" sm="3">
+        <v-col cols="6">
           <v-text-field
-            v-model.number="seed"
-            label="Seed"
-            type="number"
-            variant="outlined"
-            placeholder="Random"
-            clearable
+              v-model.number="form.seed"
+              label="Seed"
+              type="number"
+              variant="outlined"
+              placeholder="Random"
+              clearable
           />
         </v-col>
       </v-row>
@@ -240,28 +275,40 @@ async function handleGenerate() {
       <v-row>
         <v-col cols="12" sm="6">
           <div class="text-caption text-medium-emphasis mb-1">
-            Steps: {{ numInferenceSteps }}
+            Steps: {{ form.numInferenceSteps }}
+            <p>
+              <small>
+                inference steps refer to the process of drawing conclusions based on evidence and reasoning. This typically involves gathering relevant information, identifying patterns, and synthesizing these details to reach a logical conclusion.
+              </small>
+            </p>
           </div>
           <v-slider
-            v-model="numInferenceSteps"
-            :min="10"
-            :max="100"
-            :step="1"
-            thumb-label
-            color="primary"
+              v-model="form.numInferenceSteps"
+              :min="10"
+              :max="100"
+              :step="1"
+              thumb-label
+              color="primary"
           />
         </v-col>
         <v-col cols="12" sm="6">
           <div class="text-caption text-medium-emphasis mb-1">
-            CFG Scale: {{ guidanceScale }}
+            CFG Scale: {{ form.guidanceScale }}
+            <p>
+              <small>
+                controls how closely the generated image follows the text prompt. A higher CFG scale value means the
+                image will adhere more strictly to the prompt, while a lower value allows for more creative freedom and
+                variation in the output.
+              </small>
+            </p>
           </div>
           <v-slider
-            v-model="guidanceScale"
-            :min="1"
-            :max="20"
-            :step="0.5"
-            thumb-label
-            color="primary"
+              v-model="form.guidanceScale"
+              :min="1"
+              :max="20"
+              :step="0.5"
+              thumb-label
+              color="primary"
           />
         </v-col>
       </v-row>
@@ -269,13 +316,13 @@ async function handleGenerate() {
 
     <v-card-actions class="pa-4 pt-0">
       <v-btn
-        color="primary"
-        size="large"
-        :loading="store.isGenerating"
-        :disabled="!formValid || store.isLoadingModel"
-        prepend-icon="mdi-creation"
-        block
-        @click="handleGenerate"
+          color="primary"
+          size="large"
+          :loading="store.isGenerating"
+          :disabled="!formValid || store.isLoadingModel"
+          prepend-icon="mdi-creation"
+          block
+          @click="handleGenerate"
       >
         {{ store.isGenerating ? 'Generating...' : 'Generate' }}
       </v-btn>

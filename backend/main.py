@@ -1,9 +1,5 @@
 """
 Stable Diffusion Lab - FastAPI Backend
-
-Provides REST API endpoints to:
-- Load models from HuggingFace Hub or CivitAI
-- Generate images via Stable Diffusion pipelines
 """
 
 from __future__ import annotations
@@ -19,7 +15,7 @@ from typing import Literal, Optional
 
 import requests
 import torch
-from diffusers import DiffusionPipeline, StableDiffusionPipeline
+from diffusers import DiffusionPipeline
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -42,12 +38,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------------------------
-# Model registry
-# ---------------------------------------------------------------------------
-
 MODELS_CACHE_DIR = Path(os.environ.get("MODELS_CACHE_DIR", "/app/models_cache"))
-CIVITAI_API_KEY = os.environ.get("CIVITAI_API_KEY", "")
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
+CIV_TOKEN = os.environ.get("CIV_TOKEN", "")
 
 _pipeline: Optional[DiffusionPipeline] = None
 _loaded_model_id: Optional[str] = None
@@ -117,14 +110,15 @@ class BackendStatus(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _load_huggingface_pipeline(model_id: str) -> DiffusionPipeline:
-    logger.info("Loading HuggingFace model: %s", model_id)
     dtype = torch.float16 if _device == "cuda" else torch.float32
-    pipeline = StableDiffusionPipeline.from_pretrained(
-        model_id,
+    local_path = MODELS_CACHE_DIR / model_id
+    source = str(local_path) if local_path.exists() else model_id
+    logger.info("Loading HuggingFace model from: %s", source)
+    pipeline = DiffusionPipeline.from_pretrained(
+        source,
         torch_dtype=dtype,
         cache_dir=str(MODELS_CACHE_DIR),
-        safety_checker=None,
-        requires_safety_checker=False,
+        token=HF_TOKEN or None,
     )
     pipeline = pipeline.to(_device)
     if _device == "cuda":
@@ -133,7 +127,6 @@ def _load_huggingface_pipeline(model_id: str) -> DiffusionPipeline:
 
 
 def _download_civitai_model(model_version_id: str) -> Path:
-    """Download a CivitAI model checkpoint and return its local path."""
     MODELS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     dest = MODELS_CACHE_DIR / f"civitai_{model_version_id}.safetensors"
     if dest.exists():
@@ -142,8 +135,8 @@ def _download_civitai_model(model_version_id: str) -> Path:
 
     url = f"https://civitai.com/api/download/models/{model_version_id}"
     headers: dict[str, str] = {}
-    if CIVITAI_API_KEY:
-        headers["Authorization"] = f"Bearer {CIVITAI_API_KEY}"
+    if CIV_TOKEN:
+        headers["Authorization"] = f"Bearer {CIV_TOKEN}"
 
     logger.info("Downloading CivitAI model version %s …", model_version_id)
     response = requests.get(url, headers=headers, stream=True, timeout=600)
@@ -160,16 +153,57 @@ def _download_civitai_model(model_version_id: str) -> Path:
     return dest
 
 
+def _detect_pipeline_class(checkpoint_path: Path):
+    """
+    Inspect checkpoint tensor keys to detect SD 1.x vs SDXL.
+    SDXL checkpoints always contain 'conditioner.*' keys; SD 1.x/2.x do not.
+    Falls back to StableDiffusionPipeline when detection is inconclusive.
+    """
+    from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
+
+    keys: list[str] = []
+
+    # Prefer safetensors (fast, no pickle)
+    try:
+        from safetensors import safe_open
+        with safe_open(str(checkpoint_path), framework="pt", device="cpu") as f:
+            keys = list(f.keys())
+    except Exception:
+        pass
+
+    # Fallback: load ckpt (pickle), inspect state_dict keys only
+    if not keys:
+        try:
+            ckpt = torch.load(str(checkpoint_path), map_location="cpu")
+            state_dict = ckpt.get("state_dict", ckpt)
+            keys = list(state_dict.keys())
+        except Exception:
+            logger.warning(
+                "Could not inspect checkpoint keys; defaulting to StableDiffusionPipeline"
+            )
+            return StableDiffusionPipeline
+
+    if any("conditioner" in k for k in keys):
+        return StableDiffusionXLPipeline
+
+    return StableDiffusionPipeline
+
+
 def _load_civitai_pipeline(model_version_id: str) -> DiffusionPipeline:
     checkpoint_path = _download_civitai_model(model_version_id)
     dtype = torch.float16 if _device == "cuda" else torch.float32
     logger.info("Loading CivitAI checkpoint from %s", checkpoint_path)
-    pipeline = StableDiffusionPipeline.from_single_file(
-        str(checkpoint_path),
-        torch_dtype=dtype,
-        safety_checker=None,
-        requires_safety_checker=False,
-    )
+
+    pipeline_class = _detect_pipeline_class(checkpoint_path)
+    logger.info("Auto-detected pipeline class: %s", pipeline_class.__name__)
+
+    kwargs: dict = {"torch_dtype": dtype}
+    # SDXL pipelines do not accept safety_checker args
+    if pipeline_class.__name__ != "StableDiffusionXLPipeline":
+        kwargs["safety_checker"] = None
+        kwargs["requires_safety_checker"] = False
+
+    pipeline = pipeline_class.from_single_file(str(checkpoint_path), **kwargs)
     pipeline = pipeline.to(_device)
     if _device == "cuda":
         pipeline.enable_attention_slicing()
@@ -236,7 +270,7 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
     try:
         output = _pipeline(
             prompt=request.prompt,
-            negative_prompt=request.negative_prompt,
+            negative_prompt=request.negative_prompt or "",
             width=request.width,
             height=request.height,
             num_inference_steps=request.num_inference_steps,
