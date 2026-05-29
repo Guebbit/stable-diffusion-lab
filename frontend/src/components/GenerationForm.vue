@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import {computed, onBeforeUnmount, ref} from 'vue'
-import {useDiffusionStore} from '../stores/diffusion'
-import type {GenerationMode, GenerationTask, ModelOption, ModelSource} from '../types'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { useDiffusionStore } from '../stores/diffusion'
+import type { GenerationMode, GenerationTask, ImageWorkflowPreset, ModelOption, ModelSource } from '../types'
 
 const store = useDiffusionStore()
 
 /**
- * 
+ * Built-in model list for common Hugging Face workflows.
  */
 const huggingfaceModels: ModelOption[] = [
   {
@@ -30,7 +30,7 @@ const huggingfaceModels: ModelOption[] = [
 ]
 
 /**
- * 
+ * Built-in model list for CivitAI task support.
  */
 const civitaiModels: ModelOption[] = [
   {
@@ -42,25 +42,31 @@ const civitaiModels: ModelOption[] = [
 ]
 
 /**
- * 
+ * Current model source and available source options.
  */
 const modelSourceSelection = ref<ModelSource>('huggingface')
 const modelSourceItems = [
-  {title: 'HuggingFace', value: 'huggingface' as ModelSource},
-  {title: 'CivitAI', value: 'civitai' as ModelSource},
+  { title: 'HuggingFace', value: 'huggingface' as ModelSource },
+  { title: 'CivitAI', value: 'civitai' as ModelSource },
 ]
 
+/**
+ * Mode selector now includes practical Phase 3 image workflows.
+ */
 const generationMode = ref<GenerationMode>('text-to-image')
 const generationModeItems = [
-  {title: 'Text to Image', value: 'text-to-image' as GenerationMode},
-  {title: 'Image to Image', value: 'image-to-image' as GenerationMode},
-  {title: 'Sketch to Ink', value: 'sketch-to-ink' as GenerationMode},
+  { title: 'Text to Image', value: 'text-to-image' as GenerationMode },
+  { title: 'Image to Image', value: 'image-to-image' as GenerationMode },
+  { title: 'Recolor Image', value: 'recolor-image' as GenerationMode },
+  { title: 'Style Transfer', value: 'style-transfer' as GenerationMode },
+  { title: 'Upscale Image', value: 'upscale-image' as GenerationMode },
+  { title: 'Sketch to Ink', value: 'sketch-to-ink' as GenerationMode },
 ]
 const imageFile = ref<File | null>(null)
 const imagePreviewUrl = ref<string | null>(null)
 
 /**
- * 
+ * Toggle for custom model ID input.
  */
 const useCustomModel = ref(false)
 
@@ -96,52 +102,126 @@ const sketchDefaultSteps = 28
 const sketchDefaultGuidanceScale = 8
 
 /**
- * 
+ * Prompt + parameter presets for Phase 3 image-guided workflows.
  */
-const form = ref<IForm>({...defaultForm})
+const phaseThreeWorkflowPresets: Record<
+  Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'>,
+  {
+    workflowPreset: ImageWorkflowPreset
+    prompt: string
+    negativePrompt: string
+    strength: number
+    numInferenceSteps: number
+    guidanceScale: number
+    width?: number
+    height?: number
+    helperText: string
+  }
+> = {
+  'image-to-image': {
+    workflowPreset: 'general',
+    prompt: 'refine details, preserve composition, clean textures',
+    negativePrompt: 'low quality, blur, distorted anatomy, artifacts',
+    strength: 0.6,
+    numInferenceSteps: 20,
+    guidanceScale: 7.5,
+    helperText: 'Balanced transformation while preserving original composition.',
+  },
+  'recolor-image': {
+    workflowPreset: 'recolor',
+    prompt: 'recolor image with cohesive palette, preserve shapes and edges',
+    negativePrompt: 'muddy colors, grayscale, oversaturated, color bleeding',
+    strength: 0.45,
+    numInferenceSteps: 24,
+    guidanceScale: 7,
+    helperText: 'Best when you want new colors but stable line work.',
+  },
+  'style-transfer': {
+    workflowPreset: 'style-transfer',
+    prompt: 'apply stylized painterly look with detailed brushwork',
+    negativePrompt: 'blurry, deformed, low detail, washed out',
+    strength: 0.72,
+    numInferenceSteps: 30,
+    guidanceScale: 8,
+    helperText: 'Higher creativity mode for major style changes.',
+  },
+  'upscale-image': {
+    workflowPreset: 'upscale',
+    prompt: 'highly detailed upscale, sharp edges, clean textures',
+    negativePrompt: 'pixelated, blurry, noise, compression artifacts',
+    strength: 0.3,
+    numInferenceSteps: 18,
+    guidanceScale: 6.5,
+    width: 1024,
+    height: 1024,
+    helperText: 'Gentle denoise setting intended for resolution/detail upgrades.',
+  },
+}
 
 /**
- * 
+ * Form state is shared across all modes so users can switch without losing context.
+ */
+const form = ref<IForm>({ ...defaultForm })
+
+/**
+ * Allowed image sizes expected by the backend.
  */
 const dimensionOptions = [256, 512, 768, 1024]
 
 /**
- * 
+ * Select model list based on current source.
  */
 const availableModels = computed(() =>
-    modelSourceSelection.value === 'huggingface' ? huggingfaceModels : civitaiModels,
+  modelSourceSelection.value === 'huggingface' ? huggingfaceModels : civitaiModels,
 )
 const isSketchToInkMode = computed(() => generationMode.value === 'sketch-to-ink')
 const isImageGuidedMode = computed(() => generationMode.value !== 'text-to-image')
+const isPhaseThreeImg2ImgMode = computed(
+  () => isImageGuidedMode.value && !isSketchToInkMode.value,
+)
 const availableModelSourceItems = computed(() =>
-    isSketchToInkMode.value ? [modelSourceItems[0]] : modelSourceItems,
+  isSketchToInkMode.value ? [modelSourceItems[0]] : modelSourceItems,
+)
+const selectedPhaseThreePreset = computed(() =>
+  isPhaseThreeImg2ImgMode.value
+    ? phaseThreeWorkflowPresets[generationMode.value as Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'>]
+    : null,
 )
 
 /**
- * 
+ * Model selection controls.
  */
 const modelIdSelected = ref(huggingfaceModels[0]?.id ?? '')
 const customModelId = ref('')
 const activeModelId = computed(() =>
-    useCustomModel.value ? customModelId.value : modelIdSelected.value,
+  useCustomModel.value ? customModelId.value : modelIdSelected.value,
 )
 
 /**
- * 
+ * Keep generate button disabled until required fields are valid.
  */
 const formValid = computed(
-    () =>
-      form.value.prompt.trim().length > 0 &&
-      activeModelId.value.trim().length > 0 &&
-      (!isImageGuidedMode.value || !!imageFile.value),
+  () =>
+    form.value.prompt.trim().length > 0 &&
+    activeModelId.value.trim().length > 0 &&
+    (!isImageGuidedMode.value || !!imageFile.value),
 )
 
+/**
+ * Map UI generation mode to backend model-loading task.
+ */
 function resolveGenerationTask(mode: GenerationMode): GenerationTask {
   if (mode === 'image-to-image') return 'img2img'
+  if (mode === 'recolor-image') return 'img2img'
+  if (mode === 'style-transfer') return 'img2img'
+  if (mode === 'upscale-image') return 'img2img'
   if (mode === 'sketch-to-ink') return 'sketch2ink'
   return 'text2img'
 }
 
+/**
+ * Apply default prompt/inference values when the user switches generation mode.
+ */
 function handleGenerationModeChange(mode: GenerationMode) {
   if (mode === 'sketch-to-ink') {
     modelSourceSelection.value = 'huggingface'
@@ -159,33 +239,47 @@ function handleGenerationModeChange(mode: GenerationMode) {
     form.value.numInferenceSteps = sketchDefaultSteps
     form.value.guidanceScale = sketchDefaultGuidanceScale
     form.value.controlnetConditioningScale = 1.1
+    return
+  }
+
+  if (mode !== 'text-to-image') {
+    const preset = phaseThreeWorkflowPresets[mode]
+    form.value.prompt = preset.prompt
+    form.value.negativePrompt = preset.negativePrompt
+    form.value.strength = preset.strength
+    form.value.numInferenceSteps = preset.numInferenceSteps
+    form.value.guidanceScale = preset.guidanceScale
+    if (typeof preset.width === 'number') form.value.width = preset.width
+    if (typeof preset.height === 'number') form.value.height = preset.height
   }
 }
 
 /**
- *  
+ * Load currently selected model with the task type implied by the active mode.
  */
 function handleLoadModel() {
   if (!activeModelId.value) return
   return store.loadModel(
-      activeModelId.value,
-      modelSourceSelection.value,
-      resolveGenerationTask(generationMode.value),
+    activeModelId.value,
+    modelSourceSelection.value,
+    resolveGenerationTask(generationMode.value),
   )
 }
 
 /**
- * Send request to generate images based on the form data.
+ * Route the request to the correct backend endpoint based on generation mode.
  */
 function handleGenerate() {
   if (!formValid.value) return
-  if (generationMode.value === 'image-to-image' && imageFile.value) {
+  if (isPhaseThreeImg2ImgMode.value && imageFile.value) {
+    const workflowPreset = selectedPhaseThreePreset.value?.workflowPreset ?? 'general'
     return store.generateFromImage({
       image: imageFile.value,
       prompt: form.value.prompt.trim(),
       negative_prompt: form.value.negativePrompt.trim() || undefined,
       model_id: activeModelId.value,
       model_source: modelSourceSelection.value,
+      workflow_preset: workflowPreset,
       width: form.value.width,
       height: form.value.height,
       strength: form.value.strength,
@@ -227,6 +321,9 @@ function handleGenerate() {
   })
 }
 
+/**
+ * Keep one uploaded file and manage its local preview URL lifecycle safely.
+ */
 function handleImageSelection(value: File | File[] | null) {
   const selected = Array.isArray(value) ? value[0] ?? null : value
   imageFile.value = selected
@@ -241,6 +338,9 @@ function handleImageSelection(value: File | File[] | null) {
   }
 }
 
+/**
+ * Cleanup object URL to avoid browser memory leaks.
+ */
 onBeforeUnmount(() => {
   if (imagePreviewUrl.value) URL.revokeObjectURL(imagePreviewUrl.value)
 })
@@ -292,6 +392,15 @@ onBeforeUnmount(() => {
           class="mb-4"
       >
         Sketch to Ink uses a built-in ControlNet scribble pipeline and currently supports HuggingFace SD 1.5 / SDXL base models.
+      </v-alert>
+      <v-alert
+          v-else-if="selectedPhaseThreePreset"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+      >
+        {{ selectedPhaseThreePreset.helperText }}
       </v-alert>
 
       <div v-if="isImageGuidedMode" class="mb-4">
