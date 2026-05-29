@@ -1,11 +1,12 @@
 import axios from 'axios'
 import type {
+  BackendStatus,
   GenerationRequest,
   GenerationResponse,
   ImageGenerationRequest,
   ModelLoadRequest,
   ModelLoadResponse,
-  BackendStatus,
+  SketchToInkRequest,
 } from '../types'
 
 const api = axios.create({
@@ -43,5 +44,24 @@ export const diffusionApi = {
     if (typeof payload.seed === 'number') formData.append('seed', String(payload.seed))
 
     return api.post<GenerationResponse>('/generate-from-image', formData).then((r) => r.data)
+  },
+
+  generateSketchToInk(payload: SketchToInkRequest): Promise<GenerationResponse> {
+    const formData = new FormData()
+    formData.append('image', payload.image)
+    formData.append('prompt', payload.prompt)
+    formData.append('model_id', payload.model_id)
+    formData.append('model_source', payload.model_source)
+    formData.append('controlnet_conditioning_scale', String(payload.controlnet_conditioning_scale))
+    formData.append('num_inference_steps', String(payload.num_inference_steps))
+    formData.append('guidance_scale', String(payload.guidance_scale))
+    formData.append('num_images', String(payload.num_images))
+
+    if (payload.negative_prompt) formData.append('negative_prompt', payload.negative_prompt)
+    if (typeof payload.width === 'number') formData.append('width', String(payload.width))
+    if (typeof payload.height === 'number') formData.append('height', String(payload.height))
+    if (typeof payload.seed === 'number') formData.append('seed', String(payload.seed))
+
+    return api.post<GenerationResponse>('/generate-sketch-to-ink', formData).then((r) => r.data)
   },
 }

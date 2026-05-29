@@ -2,11 +2,13 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { diffusionApi } from '../api/diffusion'
 import type {
-  GeneratedImage,
+  BackendStatus,
   GenerationRequest,
+  GeneratedImage,
   ImageGenerationRequest,
   ModelSource,
-  BackendStatus,
+  GenerationTask,
+  SketchToInkRequest,
 } from '../types'
 
 export const useDiffusionStore = defineStore('diffusion', () => {
@@ -24,11 +26,11 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
-  async function loadModel(modelId: string, source: ModelSource) {
+  async function loadModel(modelId: string, source: ModelSource, task: GenerationTask = 'text2img') {
     isLoadingModel.value = true
     error.value = null
     try {
-      await diffusionApi.loadModel({ model_id: modelId, model_source: source })
+      await diffusionApi.loadModel({ model_id: modelId, model_source: source, task })
       await fetchStatus()
     } catch (err: unknown) {
       error.value = err instanceof Error ? err.message : 'Failed to load model'
@@ -63,6 +65,19 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
+  async function generateSketchToInk(request: SketchToInkRequest) {
+    isGenerating.value = true
+    error.value = null
+    try {
+      const response = await diffusionApi.generateSketchToInk(request)
+      generatedImages.value = [...response.images, ...generatedImages.value]
+    } catch (err: unknown) {
+      error.value = err instanceof Error ? err.message : 'Sketch generation failed'
+    } finally {
+      isGenerating.value = false
+    }
+  }
+
   function clearImages() {
     generatedImages.value = []
   }
@@ -81,6 +96,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     loadModel,
     generate,
     generateFromImage,
+    generateSketchToInk,
     clearImages,
     clearError,
   }

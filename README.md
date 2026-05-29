@@ -23,6 +23,7 @@ A **Vue 3 + TypeScript + Vuetify** frontend connected to a **Python FastAPI** ba
 - **Prompt form** – positive and negative prompts
 - **Model selector** – pick from preset HuggingFace or CivitAI models, or enter a custom ID
 - **Generation parameters** – width, height, steps, CFG scale, seed, number of images
+- **Image-guided generation modes** – generic img2img plus sketch-to-ink with ControlNet scribble conditioning
 - **On-demand model loading** – download & cache models before generation
 - **Image gallery** – view, zoom, and download generated images
 - **Backend status** – live indicator of the connected GPU/CPU device and loaded model
@@ -89,6 +90,7 @@ The Vite dev server at **http://localhost:5173** proxies `/api/*` requests to th
 | `POST` | `/api/models/load` | Download and load a model |
 | `POST` | `/api/generate` | Generate images from a prompt |
 | `POST` | `/api/generate-from-image` | Generate images from a prompt and uploaded image |
+| `POST` | `/api/generate-sketch-to-ink` | Generate a cleaner inked image from an uploaded sketch |
 
 ### `POST /api/generate` – request body
 
@@ -123,6 +125,25 @@ The Vite dev server at **http://localhost:5173** proxies `/api/*` requests to th
 - `height` (int, optional)
 - `seed` (int, optional)
 - `num_images` (int, `1` to `4`)
+
+---
+
+### `POST /api/generate-sketch-to-ink` – multipart form fields
+
+- `image` (file, required)
+- `prompt` (string, required)
+- `negative_prompt` (string, optional)
+- `model_id` (string, required)
+- `model_source` (`huggingface`, required)
+- `controlnet_conditioning_scale` (float, `0.1` to `2.0`)
+- `num_inference_steps` (int)
+- `guidance_scale` (float)
+- `width` (int, optional)
+- `height` (int, optional)
+- `seed` (int, optional)
+- `num_images` (int, `1` to `4`)
+
+This mode uses a built-in open-source ControlNet scribble stack to preserve the uploaded sketch layout while generating cleaner line art. It currently supports HuggingFace SD 1.5 and SDXL base models.
 
 ## Environment Variables
 
