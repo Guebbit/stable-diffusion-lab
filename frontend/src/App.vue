@@ -1,4 +1,11 @@
 <script setup lang="ts">
+/**
+ * Root layout component.
+ * - Top bar: shows backend connection status + loaded model name
+ * - Left column: GenerationForm (all controls)
+ * - Right column: ImageGallery (generated results)
+ * - Error banner: displays API errors from the store
+ */
 import { onMounted } from 'vue'
 import { useDiffusionStore } from './stores/diffusion'
 import GenerationForm from './components/GenerationForm.vue'
@@ -6,6 +13,7 @@ import ImageGallery from './components/ImageGallery.vue'
 
 const store = useDiffusionStore()
 
+// Check backend health on first load (shows device + loaded model in the top bar)
 onMounted(() => {
   store.fetchStatus()
 })

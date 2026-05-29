@@ -1,4 +1,10 @@
 <script setup lang="ts">
+/**
+ * Image gallery component.
+ * Displays generated images in a responsive grid.
+ * Shows: loading spinner during generation, empty state, or image cards.
+ * Each card shows the image, its prompt, dimensions, seed, and a download button.
+ */
 import { useDiffusionStore } from '../stores/diffusion'
 
 const store = useDiffusionStore()
