@@ -18,7 +18,9 @@ import torch
 from diffusers import (
     AutoPipelineForImage2Image,
     DiffusionPipeline,
+    StableDiffusionPipeline,
     StableDiffusionImg2ImgPipeline,
+    StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
 )
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -174,8 +176,6 @@ def _detect_pipeline_class(checkpoint_path: Path):
     SDXL checkpoints always contain 'conditioner.*' keys; SD 1.x/2.x do not.
     Falls back to StableDiffusionPipeline when detection is inconclusive.
     """
-    from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
-
     keys: list[str] = []
 
     # Prefer safetensors (fast, no pickle)
@@ -219,7 +219,7 @@ def _load_civitai_pipeline(model_version_id: str, task: GenerationTask) -> Diffu
 
     kwargs: dict = {"torch_dtype": dtype}
     # SDXL pipelines do not accept safety_checker args
-    if "StableDiffusionXL" not in pipeline_class.__name__:
+    if pipeline_class not in {StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline}:
         kwargs["safety_checker"] = None
         kwargs["requires_safety_checker"] = False
 
@@ -247,8 +247,14 @@ def _ensure_model(model_id: str, model_source: ModelSource, task: GenerationTask
 
 
 def _normalize_size(value: int) -> int:
+    """Clamp to model-safe bounds and align to 8px as required by SD latent scaling."""
     bounded = max(64, min(2048, value))
-    return max(64, (bounded // 8) * 8)
+    return (bounded // 8) * 8
+
+
+def _resolve_seed(seed: Optional[int]) -> int:
+    """Return provided seed or derive a 32-bit timestamp-based seed for torch generators."""
+    return seed if seed is not None else int(time.time()) % (2**32)
 
 
 def _serialize_images(
@@ -319,7 +325,7 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
 
     assert _pipeline is not None
 
-    seed = request.seed if request.seed is not None else int(time.time()) % (2**32)
+    seed = _resolve_seed(request.seed)
     generator = torch.Generator(device=_device).manual_seed(seed)
 
     start = time.time()
@@ -388,12 +394,14 @@ async def generate_from_image(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid image upload") from exc
 
-    target_width = _normalize_size(width if width is not None else input_image.width)
-    target_height = _normalize_size(height if height is not None else input_image.height)
-    if input_image.width != target_width or input_image.height != target_height:
+    original_width = input_image.width
+    original_height = input_image.height
+    target_width = _normalize_size(width if width is not None else original_width)
+    target_height = _normalize_size(height if height is not None else original_height)
+    if original_width != target_width or original_height != target_height:
         input_image = input_image.resize((target_width, target_height))
 
-    seed_value = seed if seed is not None else int(time.time()) % (2**32)
+    seed_value = _resolve_seed(seed)
     generator = torch.Generator(device=_device).manual_seed(seed_value)
 
     start = time.time()
