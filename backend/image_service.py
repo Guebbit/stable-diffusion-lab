@@ -1,4 +1,12 @@
-"""Image preprocessing and response-serialization helpers."""
+"""
+Image preprocessing and response-serialization helpers.
+
+This file handles everything between "raw image data" and "what the AI/frontend needs":
+ - Reading uploads → PIL images
+ - Resizing to model-safe dimensions (multiples of 8, bounded)
+ - Choosing generation settings based on workflow presets
+ - Converting generated PIL images → base64 data URLs for the frontend gallery
+"""
 
 from __future__ import annotations
 
@@ -13,6 +21,10 @@ from PIL import Image
 
 from schemas import GeneratedImage, ImageWorkflowPreset
 
+# Preset defaults for different img2img workflows.
+# "strength" = how much the AI changes the input (0 = no change, 1 = completely new).
+# "num_inference_steps" = how many denoising steps (more = higher quality, slower).
+# "guidance_scale" = how strongly the prompt steers generation (higher = more literal).
 IMAGE_WORKFLOW_DEFAULTS: dict[ImageWorkflowPreset, dict[str, float | int]] = {
     "general": {"strength": 0.6, "num_inference_steps": 20, "guidance_scale": 7.5},
     "recolor": {"strength": 0.45, "num_inference_steps": 24, "guidance_scale": 7.0},
@@ -22,14 +34,17 @@ IMAGE_WORKFLOW_DEFAULTS: dict[ImageWorkflowPreset, dict[str, float | int]] = {
 
 
 def normalize_size(value: int) -> int:
-    """Clamp to model-safe bounds and align to 8px as required by SD latent scaling."""
+    """Clamp to model-safe bounds and align to 8px.
+    SD works in a "latent space" that's 8x smaller than pixel space,
+    so image dimensions MUST be divisible by 8 or you get tensor shape errors."""
 
     bounded = max(64, min(2048, value))
     return (bounded // 8) * 8
 
 
 def resolve_seed(seed: Optional[int]) -> int:
-    """Return provided seed or derive a 32-bit timestamp-based seed."""
+    """Return provided seed or derive a 32-bit timestamp-based seed.
+    Seeds make generation deterministic: same seed + same params = same image."""
 
     return seed if seed is not None else int(time.time()) % (2**32)
 
@@ -43,11 +58,13 @@ def serialize_images(
     height: int,
     seed: int,
 ) -> list[GeneratedImage]:
-    """Convert PIL images into gallery-ready base64 payloads used by the frontend."""
+    """Convert PIL images into gallery-ready base64 payloads for the frontend.
+    Each image becomes a data URL (embedded PNG) so we don't need file storage."""
 
     created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     images: list[GeneratedImage] = []
     for pil_image in output_images:
+        # Encode to PNG bytes → base64 string → data URL
         buf = io.BytesIO()
         pil_image.save(buf, format="PNG")
         data_url = "data:image/png;base64," + b64encode(buf.getvalue()).decode()
@@ -68,7 +85,8 @@ def serialize_images(
 
 
 async def read_uploaded_image(uploaded_file: UploadFile) -> Image.Image:
-    """Read an uploaded file and convert it to RGB for Diffusers image conditioning."""
+    """Read an uploaded file and convert it to RGB.
+    Diffusers expects RGB images (no alpha channel, no grayscale)."""
 
     if not uploaded_file.content_type or not uploaded_file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an image")
@@ -85,7 +103,8 @@ def prepare_input_image(
     width: Optional[int],
     height: Optional[int],
 ) -> tuple[Image.Image, int, int]:
-    """Resize uploaded image to model-safe dimensions while preserving request intent."""
+    """Resize uploaded image to model-safe dimensions.
+    Uses requested size if provided, otherwise keeps original dimensions (clamped)."""
 
     target_width = normalize_size(width if width is not None else input_image.width)
     target_height = normalize_size(height if height is not None else input_image.height)
@@ -101,7 +120,8 @@ def resolve_img2img_settings(
     num_inference_steps: Optional[int],
     guidance_scale: Optional[float],
 ) -> tuple[float, int, float]:
-    """Resolve effective img2img settings using preset defaults + explicit overrides."""
+    """Resolve effective img2img settings: preset defaults + any explicit overrides.
+    User-provided values always win over preset defaults."""
 
     defaults = IMAGE_WORKFLOW_DEFAULTS[workflow_preset]
     resolved_strength = strength if strength is not None else float(defaults["strength"])
