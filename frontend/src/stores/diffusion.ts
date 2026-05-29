@@ -4,6 +4,7 @@ import { diffusionApi } from '../api/diffusion'
 import type {
   GeneratedImage,
   GenerationRequest,
+  ImageGenerationRequest,
   ModelSource,
   BackendStatus,
 } from '../types'
@@ -49,6 +50,19 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
+  async function generateFromImage(request: ImageGenerationRequest) {
+    isGenerating.value = true
+    error.value = null
+    try {
+      const response = await diffusionApi.generateFromImage(request)
+      generatedImages.value = [...response.images, ...generatedImages.value]
+    } catch (err: unknown) {
+      error.value = err instanceof Error ? err.message : 'Image generation failed'
+    } finally {
+      isGenerating.value = false
+    }
+  }
+
   function clearImages() {
     generatedImages.value = []
   }
@@ -66,6 +80,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     fetchStatus,
     loadModel,
     generate,
+    generateFromImage,
     clearImages,
     clearError,
   }

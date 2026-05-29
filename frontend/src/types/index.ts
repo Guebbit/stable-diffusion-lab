@@ -1,4 +1,5 @@
 export type ModelSource = 'huggingface' | 'civitai'
+export type GenerationMode = 'text-to-image' | 'image-to-image'
 
 export interface ModelOption {
   id: string
@@ -16,6 +17,21 @@ export interface GenerationRequest {
   height: number
   num_inference_steps: number
   guidance_scale: number
+  seed?: number
+  num_images: number
+}
+
+export interface ImageGenerationRequest {
+  image: File
+  prompt: string
+  negative_prompt?: string
+  model_id: string
+  model_source: ModelSource
+  strength: number
+  num_inference_steps: number
+  guidance_scale: number
+  width?: number
+  height?: number
   seed?: number
   num_images: number
 }
