@@ -99,6 +99,7 @@ const sketchPromptPreset = 'clean black ink line art, crisp comic inking, bold o
 const sketchNegativePromptPreset = 'color, shading, painterly, blurry, messy sketch lines, grayscale wash, textured paper'
 const sketchDefaultSteps = 28
 const sketchDefaultGuidanceScale = 8
+const sketchDefaultStrength = 0.6
 
 /** Preset defaults for recolor transformations while preserving composition. */
 const recolorPromptPreset = 'recolor this image with clean coherent color palette, preserve shapes and composition'
@@ -124,6 +125,13 @@ const isSketchToInkMode = computed(() => generationMode.value === 'sketch-to-ink
 const isRecolorMode = computed(() => generationMode.value === 'recolor-image')
 /** Convenience flag for upscale mode-specific controls. */
 const isUpscaleMode = computed(() => generationMode.value === 'upscale-image')
+/** Strength slider is relevant only for img2img-derived (non-ControlNet) image workflows. */
+const showsStrengthControl = computed(
+    () =>
+      generationMode.value === 'image-to-image' ||
+      isRecolorMode.value ||
+      isUpscaleMode.value,
+)
 /** Every non-text mode needs an uploaded source image. */
 const isImageGuidedMode = computed(() => generationMode.value !== 'text-to-image')
 /** Sketch mode currently supports HuggingFace only, so we hide CivitAI there. */
@@ -182,7 +190,7 @@ function handleGenerationModeChange(mode: GenerationMode) {
     form.value.numInferenceSteps = sketchDefaultSteps
     form.value.guidanceScale = sketchDefaultGuidanceScale
     form.value.controlnetConditioningScale = 1.1
-    form.value.strength = 0.6
+    form.value.strength = sketchDefaultStrength
     return
   }
 
@@ -567,7 +575,7 @@ onBeforeUnmount(() => {
               color="primary"
           />
         </v-col>
-        <v-col v-if="generationMode !== 'text-to-image' && generationMode !== 'sketch-to-ink'" cols="12" sm="6">
+        <v-col v-if="showsStrengthControl" cols="12" sm="6">
           <div class="text-caption text-medium-emphasis mb-1">
             Strength: {{ form.strength }}
           </div>

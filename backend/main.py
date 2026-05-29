@@ -78,6 +78,8 @@ SKETCH_CONTROLNET_MODELS: dict[ModelFamily, str] = {
 RECOLOR_DEFAULT_STRENGTH = 0.55
 UPSCALE_DEFAULT_PROMPT = "highly detailed, sharp textures, clean edges, natural lighting, high quality"
 UPSCALE_DEFAULT_STRENGTH = 0.35
+MIN_IMAGE_DIMENSION = 64
+MAX_IMAGE_DIMENSION = 2048
 
 
 class ModelLoadRequest(BaseModel):
@@ -337,7 +339,7 @@ def _ensure_model(model_id: str, model_source: ModelSource, task: GenerationTask
 
 def _normalize_size(value: int) -> int:
     """Clamp to model-safe bounds and align to 8px as required by SD latent scaling."""
-    bounded = max(64, min(2048, value))
+    bounded = max(MIN_IMAGE_DIMENSION, min(MAX_IMAGE_DIMENSION, value))
     return (bounded // 8) * 8
 
 
@@ -684,13 +686,21 @@ async def generate_upscale(
     # Explicit width/height still win so advanced users can target exact sizes.
     requested_width = width if width is not None else input_image.width * upscale_factor
     requested_height = height if height is not None else input_image.height * upscale_factor
+    if requested_width > MAX_IMAGE_DIMENSION or requested_height > MAX_IMAGE_DIMENSION:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Requested upscale size exceeds {MAX_IMAGE_DIMENSION}px limit. "
+                "Lower upscale_factor or provide smaller width/height."
+            ),
+        )
     input_image, target_width, target_height = _prepare_target_image(
         input_image, requested_width, requested_height
     )
 
     return _run_img2img_workflow(
         workflow_name="upscale",
-        prompt=(prompt or UPSCALE_DEFAULT_PROMPT).strip(),
+        prompt=prompt.strip() if prompt and prompt.strip() else UPSCALE_DEFAULT_PROMPT,
         negative_prompt=negative_prompt,
         model_id=model_id,
         model_source=model_source,
