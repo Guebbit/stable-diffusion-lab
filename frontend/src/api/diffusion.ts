@@ -32,7 +32,7 @@ interface ImageMultipartPayload {
 /**
  * Append multipart fields only when they are explicitly set.
  */
-function appendField(formData: FormData, key: string, value?: string | number): void {
+function appendOptionalField(formData: FormData, key: string, value?: string | number): void {
   if (typeof value === 'undefined') return
   formData.append(key, String(value))
 }
@@ -46,12 +46,12 @@ function buildImageMultipartData(payload: ImageMultipartPayload): FormData {
   formData.append('prompt', payload.prompt)
   formData.append('model_id', payload.model_id)
   formData.append('model_source', payload.model_source)
-  appendField(formData, 'num_inference_steps', payload.num_inference_steps)
-  appendField(formData, 'guidance_scale', payload.guidance_scale)
-  appendField(formData, 'num_images', payload.num_images)
-  appendField(formData, 'width', payload.width)
-  appendField(formData, 'height', payload.height)
-  appendField(formData, 'seed', payload.seed)
+  appendOptionalField(formData, 'num_inference_steps', payload.num_inference_steps)
+  appendOptionalField(formData, 'guidance_scale', payload.guidance_scale)
+  appendOptionalField(formData, 'num_images', payload.num_images)
+  appendOptionalField(formData, 'width', payload.width)
+  appendOptionalField(formData, 'height', payload.height)
+  appendOptionalField(formData, 'seed', payload.seed)
 
   if (payload.negative_prompt) {
     formData.append('negative_prompt', payload.negative_prompt)
@@ -87,8 +87,8 @@ export const diffusionApi = {
    */
   generateFromImage(payload: ImageGenerationRequest): Promise<GenerationResponse> {
     const formData = buildImageMultipartData(payload)
-    appendField(formData, 'workflow_preset', payload.workflow_preset)
-    appendField(formData, 'strength', payload.strength)
+    appendOptionalField(formData, 'workflow_preset', payload.workflow_preset)
+    appendOptionalField(formData, 'strength', payload.strength)
 
     return api.post<GenerationResponse>('/generate-from-image', formData).then((r) => r.data)
   },
@@ -98,7 +98,7 @@ export const diffusionApi = {
    */
   generateSketchToInk(payload: SketchToInkRequest): Promise<GenerationResponse> {
     const formData = buildImageMultipartData(payload)
-    appendField(formData, 'controlnet_conditioning_scale', payload.controlnet_conditioning_scale)
+    appendOptionalField(formData, 'controlnet_conditioning_scale', payload.controlnet_conditioning_scale)
 
     return api.post<GenerationResponse>('/generate-sketch-to-ink', formData).then((r) => r.data)
   },

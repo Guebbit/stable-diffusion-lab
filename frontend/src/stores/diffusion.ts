@@ -69,17 +69,17 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   }
 
   /** Trigger standard text-to-image generation and prepend returned images. */
-  function generate(request: GenerationRequest) {
+  function generate(request: GenerationRequest): Promise<void> {
     return runGeneration(() => diffusionApi.generate(request), 'Generation failed')
   }
 
   /** Trigger image-to-image generation and prepend returned images. */
-  function generateFromImage(request: ImageGenerationRequest) {
+  function generateFromImage(request: ImageGenerationRequest): Promise<void> {
     return runGeneration(() => diffusionApi.generateFromImage(request), 'Image generation failed')
   }
 
   /** Trigger sketch-to-ink generation and prepend returned images. */
-  function generateSketchToInk(request: SketchToInkRequest) {
+  function generateSketchToInk(request: SketchToInkRequest): Promise<void> {
     return runGeneration(() => diffusionApi.generateSketchToInk(request), 'Sketch generation failed')
   }
 

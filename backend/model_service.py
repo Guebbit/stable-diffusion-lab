@@ -62,23 +62,23 @@ def get_active_pipeline() -> DiffusionPipeline:
     return _pipeline
 
 
-def _resolve_cache_subpath(relative_path: str) -> Path:
-    """Resolve a model cache path and block path traversal outside the cache directory."""
+def _resolve_civitai_checkpoint_path(normalized_model_version_id: int) -> Path:
+    """Return a cache path for a validated CivitAI model version ID."""
 
-    candidate = (MODELS_CACHE_DIR / relative_path).resolve()
+    checkpoint_path = (MODELS_CACHE_DIR / f"civitai_{normalized_model_version_id}.safetensors").resolve()
     cache_root = MODELS_CACHE_DIR.resolve()
-    if candidate != cache_root and cache_root not in candidate.parents:
-        raise RuntimeError(f"Model cache path escapes cache root directory: {relative_path}")
-    return candidate
+    if cache_root not in checkpoint_path.parents:
+        raise RuntimeError("Resolved CivitAI checkpoint path escaped model cache directory")
+    return checkpoint_path
 
 
-def _normalize_civitai_model_version_id(model_version_id: str) -> str:
-    """Validate and normalize CivitAI model IDs to a numeric string."""
+def _normalize_civitai_model_version_id(model_version_id: str) -> int:
+    """Validate and normalize CivitAI model IDs to an integer value."""
 
     normalized = model_version_id.strip()
     if not re.fullmatch(r"\d+", normalized):
         raise RuntimeError(f"CivitAI model version ID must be numeric, got: {model_version_id}")
-    return normalized
+    return int(normalized)
 
 
 def _resolve_model_family(model_id: str) -> ModelFamily:
@@ -96,9 +96,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
     """Load a HuggingFace Diffusers pipeline for the requested generation task."""
 
     dtype = torch.float16 if _device == "cuda" else torch.float32
-    local_path = _resolve_cache_subpath(model_id)
-    source = str(local_path) if local_path.exists() else model_id
-    logger.info("Loading HuggingFace model from: %s", source)
+    logger.info("Loading HuggingFace model from: %s", model_id)
 
     if task == "sketch2ink":
         model_family = _resolve_model_family(model_id)
@@ -112,7 +110,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
         )
         if model_family == "sdxl":
             pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
-                source,
+                model_id,
                 controlnet=controlnet,
                 torch_dtype=dtype,
                 cache_dir=str(MODELS_CACHE_DIR),
@@ -120,7 +118,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
             )
         else:
             pipeline = StableDiffusionControlNetPipeline.from_pretrained(
-                source,
+                model_id,
                 controlnet=controlnet,
                 torch_dtype=dtype,
                 cache_dir=str(MODELS_CACHE_DIR),
@@ -128,14 +126,14 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
             )
     elif task == "img2img":
         pipeline = AutoPipelineForImage2Image.from_pretrained(
-            source,
+            model_id,
             torch_dtype=dtype,
             cache_dir=str(MODELS_CACHE_DIR),
             token=HF_TOKEN or None,
         )
     else:
         pipeline = DiffusionPipeline.from_pretrained(
-            source,
+            model_id,
             torch_dtype=dtype,
             cache_dir=str(MODELS_CACHE_DIR),
             token=HF_TOKEN or None,
@@ -152,10 +150,10 @@ def _download_civitai_model(model_version_id: str) -> Path:
 
     MODELS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     normalized_model_version_id = _normalize_civitai_model_version_id(model_version_id)
-    destination = _resolve_cache_subpath(f"civitai_{normalized_model_version_id}.safetensors")
-    if destination.exists():
-        logger.info("CivitAI model already cached at %s", destination)
-        return destination
+    checkpoint_path = _resolve_civitai_checkpoint_path(normalized_model_version_id)
+    if checkpoint_path.exists():
+        logger.info("CivitAI model already cached at %s", checkpoint_path)
+        return checkpoint_path
 
     url = f"https://civitai.com/api/download/models/{normalized_model_version_id}"
     headers: dict[str, str] = {}
@@ -169,15 +167,15 @@ def _download_civitai_model(model_version_id: str) -> Path:
             f"CivitAI download failed with status {response.status_code}: {response.text[:200]}"
         )
 
-    with open(destination, "wb") as file_handle:
+    with open(checkpoint_path, "wb") as f:
         for chunk in response.iter_content(chunk_size=1024 * 1024):
-            file_handle.write(chunk)
+            f.write(chunk)
 
-    logger.info("CivitAI model downloaded to %s", destination)
-    return destination
+    logger.info("CivitAI model downloaded to %s", checkpoint_path)
+    return checkpoint_path
 
 
-def _detect_pipeline_class(checkpoint_path: Path):
+def _detect_pipeline_class(checkpoint_path: Path) -> type[DiffusionPipeline]:
     """Inspect checkpoint keys and infer whether the model is SD 1.x or SDXL."""
 
     keys: list[str] = []
@@ -185,21 +183,11 @@ def _detect_pipeline_class(checkpoint_path: Path):
     try:
         from safetensors import safe_open
 
-        with safe_open(str(checkpoint_path), framework="pt", device="cpu") as file_handle:
-            keys = list(file_handle.keys())
+        with safe_open(str(checkpoint_path), framework="pt", device="cpu") as f:
+            keys = list(f.keys())
     except Exception:
-        pass
-
-    if not keys:
-        try:
-            checkpoint = torch.load(str(checkpoint_path), map_location="cpu", weights_only=True)
-            state_dict = checkpoint.get("state_dict", checkpoint)
-            keys = list(state_dict.keys())
-        except Exception:
-            logger.warning(
-                "Could not inspect checkpoint keys; defaulting to StableDiffusionPipeline"
-            )
-            return StableDiffusionPipeline
+        logger.warning("Could not inspect checkpoint keys safely; defaulting to SD 1.x pipeline")
+        return StableDiffusionPipeline
 
     if any("conditioner" in key for key in keys):
         return StableDiffusionXLPipeline

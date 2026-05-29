@@ -48,9 +48,9 @@ def serialize_images(
     created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     images: list[GeneratedImage] = []
     for pil_image in output_images:
-        buffer = io.BytesIO()
-        pil_image.save(buffer, format="PNG")
-        data_url = "data:image/png;base64," + b64encode(buffer.getvalue()).decode()
+        buf = io.BytesIO()
+        pil_image.save(buf, format="PNG")
+        data_url = "data:image/png;base64," + b64encode(buf.getvalue()).decode()
         images.append(
             GeneratedImage(
                 id=str(uuid.uuid4()),
@@ -110,9 +110,7 @@ def resolve_img2img_settings(
         if num_inference_steps is not None
         else int(defaults["num_inference_steps"])
     )
-    resolved_guidance = (
-        guidance_scale
-        if guidance_scale is not None
-        else float(defaults["guidance_scale"])
+    resolved_guidance = guidance_scale if guidance_scale is not None else float(
+        defaults["guidance_scale"]
     )
     return resolved_strength, resolved_steps, resolved_guidance
