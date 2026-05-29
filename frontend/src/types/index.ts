@@ -1,5 +1,6 @@
 export type ModelSource = 'huggingface' | 'civitai'
-export type GenerationMode = 'text-to-image' | 'image-to-image'
+export type GenerationTask = 'text2img' | 'img2img' | 'sketch2ink'
+export type GenerationMode = 'text-to-image' | 'image-to-image' | 'sketch-to-ink'
 
 export interface ModelOption {
   id: string
@@ -36,6 +37,21 @@ export interface ImageGenerationRequest {
   num_images: number
 }
 
+export interface SketchToInkRequest {
+  image: File
+  prompt: string
+  negative_prompt?: string
+  model_id: string
+  model_source: 'huggingface'
+  controlnet_conditioning_scale: number
+  num_inference_steps: number
+  guidance_scale: number
+  width?: number
+  height?: number
+  seed?: number
+  num_images: number
+}
+
 export interface GeneratedImage {
   id: string
   url: string
@@ -57,6 +73,7 @@ export interface GenerationResponse {
 export interface ModelLoadRequest {
   model_id: string
   model_source: ModelSource
+  task?: GenerationTask
 }
 
 export interface ModelLoadResponse {

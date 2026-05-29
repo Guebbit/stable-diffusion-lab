@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, onBeforeUnmount, ref} from 'vue'
 import {useDiffusionStore} from '../stores/diffusion'
-import type {GenerationMode, ModelOption, ModelSource} from '../types'
+import type {GenerationMode, GenerationTask, ModelOption, ModelSource} from '../types'
 
 const store = useDiffusionStore()
 
@@ -54,6 +54,7 @@ const generationMode = ref<GenerationMode>('text-to-image')
 const generationModeItems = [
   {title: 'Text to Image', value: 'text-to-image' as GenerationMode},
   {title: 'Image to Image', value: 'image-to-image' as GenerationMode},
+  {title: 'Sketch to Ink', value: 'sketch-to-ink' as GenerationMode},
 ]
 const imageFile = ref<File | null>(null)
 const imagePreviewUrl = ref<string | null>(null)
@@ -71,6 +72,7 @@ interface IForm {
   numInferenceSteps: number
   guidanceScale: number
   strength: number
+  controlnetConditioningScale: number
   seed: number | null
   numImages: number
 }
@@ -86,6 +88,7 @@ const form = ref<IForm>({
   numInferenceSteps: 20,
   guidanceScale: 7.5,
   strength: 0.6,
+  controlnetConditioningScale: 1.1,
   seed: null,
   numImages: 1,
 })
@@ -100,6 +103,11 @@ const dimensionOptions = [256, 512, 768, 1024]
  */
 const availableModels = computed(() =>
     modelSourceSelection.value === 'huggingface' ? huggingfaceModels : civitaiModels,
+)
+const isSketchToInkMode = computed(() => generationMode.value === 'sketch-to-ink')
+const isImageGuidedMode = computed(() => generationMode.value !== 'text-to-image')
+const availableModelSourceItems = computed(() =>
+    isSketchToInkMode.value ? [modelSourceItems[0]] : modelSourceItems,
 )
 
 /**
@@ -118,15 +126,45 @@ const formValid = computed(
     () =>
       form.value.prompt.trim().length > 0 &&
       activeModelId.value.trim().length > 0 &&
-      (generationMode.value === 'text-to-image' || !!imageFile.value),
+      (!isImageGuidedMode.value || !!imageFile.value),
 )
+
+function resolveGenerationTask(mode: GenerationMode): GenerationTask {
+  if (mode === 'image-to-image') return 'img2img'
+  if (mode === 'sketch-to-ink') return 'sketch2ink'
+  return 'text2img'
+}
+
+function handleGenerationModeChange(mode: GenerationMode) {
+  if (mode === 'sketch-to-ink') {
+    modelSourceSelection.value = 'huggingface'
+    useCustomModel.value = false
+    modelIdSelected.value = huggingfaceModels[0]?.id ?? ''
+
+    if (!form.value.prompt.trim()) {
+      form.value.prompt = 'clean black ink lineart, crisp comic inking, bold outlines, high contrast, white background'
+    }
+
+    if (!form.value.negativePrompt.trim()) {
+      form.value.negativePrompt = 'color, shading, painterly, blurry, messy sketch lines, grayscale wash, textured paper'
+    }
+
+    if (form.value.numInferenceSteps === 20) form.value.numInferenceSteps = 28
+    if (form.value.guidanceScale === 7.5) form.value.guidanceScale = 8
+    form.value.controlnetConditioningScale = 1.1
+  }
+}
 
 /**
  *  
  */
 function handleLoadModel() {
   if (!activeModelId.value) return
-  return store.loadModel(activeModelId.value, modelSourceSelection.value)
+  return store.loadModel(
+      activeModelId.value,
+      modelSourceSelection.value,
+      resolveGenerationTask(generationMode.value),
+  )
 }
 
 /**
@@ -144,6 +182,23 @@ function handleGenerate() {
       width: form.value.width,
       height: form.value.height,
       strength: form.value.strength,
+      num_inference_steps: form.value.numInferenceSteps,
+      guidance_scale: form.value.guidanceScale,
+      seed: form.value.seed ?? undefined,
+      num_images: form.value.numImages,
+    })
+  }
+
+  if (generationMode.value === 'sketch-to-ink' && imageFile.value) {
+    return store.generateSketchToInk({
+      image: imageFile.value,
+      prompt: form.value.prompt.trim(),
+      negative_prompt: form.value.negativePrompt.trim() || undefined,
+      model_id: activeModelId.value,
+      model_source: 'huggingface',
+      width: form.value.width,
+      height: form.value.height,
+      controlnet_conditioning_scale: form.value.controlnetConditioningScale,
       num_inference_steps: form.value.numInferenceSteps,
       guidance_scale: form.value.guidanceScale,
       seed: form.value.seed ?? undefined,
@@ -199,6 +254,7 @@ onBeforeUnmount(() => {
           variant="outlined"
           prepend-inner-icon="mdi-tune-variant"
           class="mb-4"
+          @update:model-value="handleGenerationModeChange"
       />
       
       <v-textarea
@@ -221,10 +277,20 @@ onBeforeUnmount(() => {
           class="mb-4"
       />
 
-      <div v-if="generationMode === 'image-to-image'" class="mb-4">
+      <v-alert
+          v-if="isSketchToInkMode"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+      >
+        Sketch to Ink uses a built-in ControlNet scribble pipeline and currently supports HuggingFace SD 1.5 / SDXL base models.
+      </v-alert>
+
+      <div v-if="isImageGuidedMode" class="mb-4">
         <v-file-input
             accept="image/*"
-            label="Input Image"
+            :label="isSketchToInkMode ? 'Sketch Upload' : 'Input Image'"
             variant="outlined"
             prepend-icon="mdi-image-plus"
             show-size
@@ -246,7 +312,7 @@ onBeforeUnmount(() => {
         <v-col cols="12">
           <v-select
               v-model="modelSourceSelection"
-              :items="modelSourceItems"
+              :items="availableModelSourceItems"
               label="Model Source"
               variant="outlined"
               prepend-inner-icon="mdi-database"
@@ -392,6 +458,19 @@ onBeforeUnmount(() => {
               v-model="form.strength"
               :min="0.1"
               :max="1"
+              :step="0.05"
+              thumb-label
+              color="primary"
+          />
+        </v-col>
+        <v-col v-if="isSketchToInkMode" cols="12" sm="6">
+          <div class="text-caption text-medium-emphasis mb-1">
+            Sketch Guidance: {{ form.controlnetConditioningScale }}
+          </div>
+          <v-slider
+              v-model="form.controlnetConditioningScale"
+              :min="0.1"
+              :max="2"
               :step="0.05"
               thumb-label
               color="primary"

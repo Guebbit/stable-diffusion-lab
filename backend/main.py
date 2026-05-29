@@ -17,9 +17,12 @@ import requests
 import torch
 from diffusers import (
     AutoPipelineForImage2Image,
+    ControlNetModel,
     DiffusionPipeline,
     StableDiffusionPipeline,
+    StableDiffusionControlNetPipeline,
     StableDiffusionImg2ImgPipeline,
+    StableDiffusionXLControlNetPipeline,
     StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
 )
@@ -62,12 +65,19 @@ logger.info("Using device: %s", _device)
 # ---------------------------------------------------------------------------
 
 ModelSource = Literal["huggingface", "civitai"]
-GenerationTask = Literal["text2img", "img2img"]
+GenerationTask = Literal["text2img", "img2img", "sketch2ink"]
+ModelFamily = Literal["sd15", "sdxl"]
+
+SKETCH_CONTROLNET_MODELS: dict[ModelFamily, str] = {
+    "sd15": "lllyasviel/control_v11p_sd15_scribble",
+    "sdxl": "xinsir/controlnet-scribble-sdxl-1.0",
+}
 
 
 class ModelLoadRequest(BaseModel):
     model_id: str = Field(..., description="HuggingFace repo ID or CivitAI model version ID")
     model_source: ModelSource = Field("huggingface")
+    task: GenerationTask = Field("text2img")
 
 
 class ModelLoadResponse(BaseModel):
@@ -123,7 +133,33 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
     local_path = MODELS_CACHE_DIR / model_id
     source = str(local_path) if local_path.exists() else model_id
     logger.info("Loading HuggingFace model from: %s", source)
-    if task == "img2img":
+    if task == "sketch2ink":
+        model_family = _resolve_model_family(model_id)
+        controlnet_model_id = SKETCH_CONTROLNET_MODELS[model_family]
+        logger.info("Loading sketch ControlNet model from: %s", controlnet_model_id)
+        controlnet = ControlNetModel.from_pretrained(
+            controlnet_model_id,
+            torch_dtype=dtype,
+            cache_dir=str(MODELS_CACHE_DIR),
+            token=HF_TOKEN or None,
+        )
+        if model_family == "sdxl":
+            pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
+                source,
+                controlnet=controlnet,
+                torch_dtype=dtype,
+                cache_dir=str(MODELS_CACHE_DIR),
+                token=HF_TOKEN or None,
+            )
+        else:
+            pipeline = StableDiffusionControlNetPipeline.from_pretrained(
+                source,
+                controlnet=controlnet,
+                torch_dtype=dtype,
+                cache_dir=str(MODELS_CACHE_DIR),
+                token=HF_TOKEN or None,
+            )
+    elif task == "img2img":
         pipeline = AutoPipelineForImage2Image.from_pretrained(
             source,
             torch_dtype=dtype,
@@ -205,6 +241,11 @@ def _detect_pipeline_class(checkpoint_path: Path):
 
 
 def _load_civitai_pipeline(model_version_id: str, task: GenerationTask) -> DiffusionPipeline:
+    if task == "sketch2ink":
+        raise RuntimeError(
+            "Sketch to ink currently supports HuggingFace SD 1.5 and SDXL base models only."
+        )
+
     checkpoint_path = _download_civitai_model(model_version_id)
     dtype = torch.float16 if _device == "cuda" else torch.float32
     logger.info("Loading CivitAI checkpoint from %s", checkpoint_path)
@@ -228,6 +269,13 @@ def _load_civitai_pipeline(model_version_id: str, task: GenerationTask) -> Diffu
     if _device == "cuda":
         pipeline.enable_attention_slicing()
     return pipeline
+
+
+def _resolve_model_family(model_id: str) -> ModelFamily:
+    normalized = model_id.lower()
+    if "sdxl" in normalized or "-xl" in normalized or "_xl" in normalized:
+        return "sdxl"
+    return "sd15"
 
 
 def _ensure_model(model_id: str, model_source: ModelSource, task: GenerationTask = "text2img") -> None:
@@ -303,8 +351,14 @@ async def get_status() -> BackendStatus:
 
 @app.post("/api/models/load", response_model=ModelLoadResponse)
 async def load_model(request: ModelLoadRequest) -> ModelLoadResponse:
+    if request.task == "sketch2ink" and request.model_source != "huggingface":
+        raise HTTPException(
+            status_code=400,
+            detail="Sketch to ink currently supports HuggingFace SD 1.5 and SDXL base models only.",
+        )
+
     try:
-        _ensure_model(request.model_id, request.model_source)
+        _ensure_model(request.model_id, request.model_source, request.task)
         return ModelLoadResponse(
             success=True,
             model_id=request.model_id,
@@ -418,6 +472,89 @@ async def generate_from_image(
         )
     except Exception as exc:
         logger.exception("Image-to-image generation failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    elapsed = time.time() - start
+    images = _serialize_images(
+        output.images,  # type: ignore[arg-type, union-attr]
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        model_id=model_id,
+        width=target_width,
+        height=target_height,
+        seed=seed_value,
+    )
+
+    return GenerationResponse(
+        images=images,
+        model_id=model_id,
+        elapsed_seconds=round(elapsed, 2),
+    )
+
+
+@app.post("/api/generate-sketch-to-ink", response_model=GenerationResponse)
+async def generate_sketch_to_ink(
+    image: UploadFile = File(...),
+    prompt: str = Form(..., min_length=1),
+    model_id: str = Form(...),
+    model_source: ModelSource = Form("huggingface"),
+    negative_prompt: Optional[str] = Form(None),
+    controlnet_conditioning_scale: float = Form(1.1, ge=0.1, le=2.0),
+    num_inference_steps: int = Form(28, ge=1, le=150),
+    guidance_scale: float = Form(8.0, ge=1.0, le=30.0),
+    width: Optional[int] = Form(None),
+    height: Optional[int] = Form(None),
+    seed: Optional[int] = Form(None),
+    num_images: int = Form(1, ge=1, le=4),
+) -> GenerationResponse:
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+    if model_source != "huggingface":
+        raise HTTPException(
+            status_code=400,
+            detail="Sketch to ink currently supports HuggingFace SD 1.5 and SDXL base models only.",
+        )
+
+    try:
+        _ensure_model(model_id, model_source, task="sketch2ink")
+    except Exception as exc:
+        logger.exception("Failed to load model for sketch-to-ink generation")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    assert _pipeline is not None
+
+    try:
+        image_bytes = await image.read()
+        input_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid image upload") from exc
+
+    original_width = input_image.width
+    original_height = input_image.height
+    target_width = _normalize_size(width if width is not None else original_width)
+    target_height = _normalize_size(height if height is not None else original_height)
+    if original_width != target_width or original_height != target_height:
+        input_image = input_image.resize((target_width, target_height))
+
+    seed_value = _resolve_seed(seed)
+    generator = torch.Generator(device=_device).manual_seed(seed_value)
+
+    start = time.time()
+    try:
+        output = _pipeline(
+            prompt=prompt,
+            negative_prompt=negative_prompt or "",
+            image=input_image,
+            controlnet_conditioning_scale=controlnet_conditioning_scale,
+            width=target_width,
+            height=target_height,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            num_images_per_prompt=num_images,
+            generator=generator,
+        )
+    except Exception as exc:
+        logger.exception("Sketch-to-ink generation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     elapsed = time.time() - start
