@@ -10,14 +10,16 @@ import time
 import uuid
 from base64 import b64encode
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 import requests
 import torch
+
+# Diffusers pipeline classes used across text, img2img, and sketch-conditioned workflows.
+# - AutoPipelineForImage2Image: auto-picks img2img class from model metadata.
+# - ControlNetModel: injects structure-preserving conditioning from sketch-like inputs.
 from diffusers import (
-    # AutoPipelineForImage2Image picks a compatible img2img pipeline from model metadata.
     AutoPipelineForImage2Image,
-    # ControlNetModel adds structural conditioning (e.g., sketches) to generation.
     ControlNetModel,
     DiffusionPipeline,
     StableDiffusionPipeline,
@@ -77,7 +79,7 @@ SKETCH_CONTROLNET_MODELS: dict[ModelFamily, str] = {
     "sdxl": "xinsir/controlnet-scribble-sdxl-1.0",
 }
 
-# Phase 3 presets for generic image-guided generation.
+# Preset defaults for generic image-guided generation workflows.
 # These defaults are intentionally mild so users can still control behavior from the UI.
 IMAGE_WORKFLOW_DEFAULTS: dict[ImageWorkflowPreset, dict[str, float | int]] = {
     "general": {"strength": 0.6, "num_inference_steps": 20, "guidance_scale": 7.5},
@@ -403,7 +405,7 @@ def _prepare_input_image(
     target_height = _normalize_size(height if height is not None else input_image.height)
 
     if input_image.width != target_width or input_image.height != target_height:
-        # Diffusion latent space uses 8px multiples, so we normalize once before inference.
+        # Diffusion latents require dimensions divisible by 8, so we snap before inference.
         input_image = input_image.resize((target_width, target_height))
     return input_image, target_width, target_height
 
@@ -539,7 +541,8 @@ async def generate_from_image(
     """
     Generate images from an uploaded reference image (img2img).
 
-    Phase 3 adds `workflow_preset` so frontend presets can use consistent backend defaults.
+    `workflow_preset` lets frontend presets use consistent backend defaults.
+    Explicit request values always take precedence over preset defaults.
     """
 
     try:

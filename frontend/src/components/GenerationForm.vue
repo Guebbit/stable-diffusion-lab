@@ -51,7 +51,7 @@ const modelSourceItems = [
 ]
 
 /**
- * Mode selector now includes practical Phase 3 image workflows.
+ * Mode selector includes practical image workflow options.
  */
 const generationMode = ref<GenerationMode>('text-to-image')
 const generationModeItems = [
@@ -83,6 +83,18 @@ interface IForm {
   numImages: number
 }
 
+interface ImageWorkflowPresetConfig {
+  workflowPreset: ImageWorkflowPreset
+  prompt: string
+  negativePrompt: string
+  strength: number
+  numInferenceSteps: number
+  guidanceScale: number
+  width?: number
+  height?: number
+  helperText: string
+}
+
 const defaultForm: IForm = {
   prompt: '',
   negativePrompt: '',
@@ -102,21 +114,11 @@ const sketchDefaultSteps = 28
 const sketchDefaultGuidanceScale = 8
 
 /**
- * Prompt + parameter presets for Phase 3 image-guided workflows.
+ * Prompt + parameter presets for image-guided workflows.
  */
-const phaseThreeWorkflowPresets: Record<
+const imageWorkflowPresets: Record<
   Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'>,
-  {
-    workflowPreset: ImageWorkflowPreset
-    prompt: string
-    negativePrompt: string
-    strength: number
-    numInferenceSteps: number
-    guidanceScale: number
-    width?: number
-    height?: number
-    helperText: string
-  }
+  ImageWorkflowPresetConfig
 > = {
   'image-to-image': {
     workflowPreset: 'general',
@@ -176,15 +178,12 @@ const availableModels = computed(() =>
 )
 const isSketchToInkMode = computed(() => generationMode.value === 'sketch-to-ink')
 const isImageGuidedMode = computed(() => generationMode.value !== 'text-to-image')
-const isPhaseThreeImg2ImgMode = computed(
-  () => isImageGuidedMode.value && !isSketchToInkMode.value,
-)
 const availableModelSourceItems = computed(() =>
   isSketchToInkMode.value ? [modelSourceItems[0]] : modelSourceItems,
 )
 const selectedPhaseThreePreset = computed(() =>
-  isPhaseThreeImg2ImgMode.value
-    ? phaseThreeWorkflowPresets[generationMode.value as Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'>]
+  isImageWorkflowPresetMode(generationMode.value)
+    ? imageWorkflowPresets[generationMode.value]
     : null,
 )
 
@@ -206,17 +205,26 @@ const formValid = computed(
     activeModelId.value.trim().length > 0 &&
     (!isImageGuidedMode.value || !!imageFile.value),
 )
+const initializedWorkflowModes = ref<Set<Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'>>>(
+  new Set(),
+)
 
 /**
  * Map UI generation mode to backend model-loading task.
  */
 function resolveGenerationTask(mode: GenerationMode): GenerationTask {
-  if (mode === 'image-to-image') return 'img2img'
-  if (mode === 'recolor-image') return 'img2img'
-  if (mode === 'style-transfer') return 'img2img'
-  if (mode === 'upscale-image') return 'img2img'
+  if (isImageWorkflowPresetMode(mode)) return 'img2img'
   if (mode === 'sketch-to-ink') return 'sketch2ink'
   return 'text2img'
+}
+
+/**
+ * Type guard for modes that use image-workflow preset configs.
+ */
+function isImageWorkflowPresetMode(
+  mode: GenerationMode,
+): mode is Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'> {
+  return mode in imageWorkflowPresets
 }
 
 /**
@@ -242,8 +250,9 @@ function handleGenerationModeChange(mode: GenerationMode) {
     return
   }
 
-  if (mode !== 'text-to-image') {
-    const preset = phaseThreeWorkflowPresets[mode]
+  if (isImageWorkflowPresetMode(mode)) {
+    if (initializedWorkflowModes.value.has(mode)) return
+    const preset = imageWorkflowPresets[mode]
     form.value.prompt = preset.prompt
     form.value.negativePrompt = preset.negativePrompt
     form.value.strength = preset.strength
@@ -251,6 +260,7 @@ function handleGenerationModeChange(mode: GenerationMode) {
     form.value.guidanceScale = preset.guidanceScale
     if (typeof preset.width === 'number') form.value.width = preset.width
     if (typeof preset.height === 'number') form.value.height = preset.height
+    initializedWorkflowModes.value.add(mode)
   }
 }
 
@@ -271,7 +281,7 @@ function handleLoadModel() {
  */
 function handleGenerate() {
   if (!formValid.value) return
-  if (isPhaseThreeImg2ImgMode.value && imageFile.value) {
+  if (isImageGuidedMode.value && !isSketchToInkMode.value && imageFile.value) {
     const workflowPreset = selectedPhaseThreePreset.value?.workflowPreset ?? 'general'
     return store.generateFromImage({
       image: imageFile.value,
