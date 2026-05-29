@@ -77,10 +77,7 @@ interface IForm {
   numImages: number
 }
 
-/**
- * 
- */
-const form = ref<IForm>({
+const defaultForm: IForm = {
   prompt: '',
   negativePrompt: '',
   width: 512,
@@ -91,7 +88,17 @@ const form = ref<IForm>({
   controlnetConditioningScale: 1.1,
   seed: null,
   numImages: 1,
-})
+}
+
+const sketchPromptPreset = 'clean black ink line art, crisp comic inking, bold outlines, high contrast, white background'
+const sketchNegativePromptPreset = 'color, shading, painterly, blurry, messy sketch lines, grayscale wash, textured paper'
+const sketchDefaultSteps = 28
+const sketchDefaultGuidanceScale = 8
+
+/**
+ * 
+ */
+const form = ref<IForm>({...defaultForm})
 
 /**
  * 
@@ -142,15 +149,15 @@ function handleGenerationModeChange(mode: GenerationMode) {
     modelIdSelected.value = huggingfaceModels[0]?.id ?? ''
 
     if (!form.value.prompt.trim()) {
-      form.value.prompt = 'clean black ink lineart, crisp comic inking, bold outlines, high contrast, white background'
+      form.value.prompt = sketchPromptPreset
     }
 
     if (!form.value.negativePrompt.trim()) {
-      form.value.negativePrompt = 'color, shading, painterly, blurry, messy sketch lines, grayscale wash, textured paper'
+      form.value.negativePrompt = sketchNegativePromptPreset
     }
 
-    if (form.value.numInferenceSteps === 20) form.value.numInferenceSteps = 28
-    if (form.value.guidanceScale === 7.5) form.value.guidanceScale = 8
+    form.value.numInferenceSteps = sketchDefaultSteps
+    form.value.guidanceScale = sketchDefaultGuidanceScale
     form.value.controlnetConditioningScale = 1.1
   }
 }

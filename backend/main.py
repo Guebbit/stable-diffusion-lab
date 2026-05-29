@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import time
 import uuid
 from base64 import b64encode
@@ -128,9 +129,24 @@ class BackendStatus(BaseModel):
 # Model loading helpers
 # ---------------------------------------------------------------------------
 
+def _resolve_cache_subpath(relative_path: str) -> Path:
+    candidate = (MODELS_CACHE_DIR / relative_path).resolve()
+    cache_root = MODELS_CACHE_DIR.resolve()
+    if candidate != cache_root and cache_root not in candidate.parents:
+        raise RuntimeError(f"Model cache path escapes cache root directory: {relative_path}")
+    return candidate
+
+
+def _normalize_civitai_model_version_id(model_version_id: str) -> str:
+    normalized = model_version_id.strip()
+    if not re.fullmatch(r"\d+", normalized):
+        raise RuntimeError(f"CivitAI model version ID must be numeric, got: {model_version_id}")
+    return normalized
+
+
 def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> DiffusionPipeline:
     dtype = torch.float16 if _device == "cuda" else torch.float32
-    local_path = MODELS_CACHE_DIR / model_id
+    local_path = _resolve_cache_subpath(model_id)
     source = str(local_path) if local_path.exists() else model_id
     logger.info("Loading HuggingFace model from: %s", source)
     if task == "sketch2ink":
@@ -181,12 +197,13 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
 
 def _download_civitai_model(model_version_id: str) -> Path:
     MODELS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    dest = MODELS_CACHE_DIR / f"civitai_{model_version_id}.safetensors"
+    normalized_model_version_id = _normalize_civitai_model_version_id(model_version_id)
+    dest = _resolve_cache_subpath(f"civitai_{normalized_model_version_id}.safetensors")
     if dest.exists():
         logger.info("CivitAI model already cached at %s", dest)
         return dest
 
-    url = f"https://civitai.com/api/download/models/{model_version_id}"
+    url = f"https://civitai.com/api/download/models/{normalized_model_version_id}"
     headers: dict[str, str] = {}
     if CIV_TOKEN:
         headers["Authorization"] = f"Bearer {CIV_TOKEN}"
@@ -225,7 +242,7 @@ def _detect_pipeline_class(checkpoint_path: Path):
     # Fallback: load ckpt (pickle), inspect state_dict keys only
     if not keys:
         try:
-            ckpt = torch.load(str(checkpoint_path), map_location="cpu")
+            ckpt = torch.load(str(checkpoint_path), map_location="cpu", weights_only=True)
             state_dict = ckpt.get("state_dict", ckpt)
             keys = list(state_dict.keys())
         except Exception:
@@ -273,7 +290,11 @@ def _load_civitai_pipeline(model_version_id: str, task: GenerationTask) -> Diffu
 
 def _resolve_model_family(model_id: str) -> ModelFamily:
     normalized = model_id.lower()
-    if "sdxl" in normalized or "-xl" in normalized or "_xl" in normalized:
+    if "sdxl" in normalized or "stable-diffusion-xl" in normalized:
+        return "sdxl"
+    # Fallback for model IDs like "stable-diffusion-xl-base-1.0": match "xl" only as a token,
+    # bounded by -, _, /, or string edges so names like "pixel" do not count as SDXL markers.
+    if re.search(r"(?:^|[-_/])xl(?:$|[-_/])", normalized):
         return "sdxl"
     return "sd15"
 
