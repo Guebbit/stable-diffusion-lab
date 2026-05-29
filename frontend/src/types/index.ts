@@ -1,6 +1,13 @@
 export type ModelSource = 'huggingface' | 'civitai'
 export type GenerationTask = 'text2img' | 'img2img' | 'sketch2ink'
-export type GenerationMode = 'text-to-image' | 'image-to-image' | 'sketch-to-ink'
+export type ImageWorkflowPreset = 'general' | 'recolor' | 'style-transfer' | 'upscale'
+export type GenerationMode =
+  | 'text-to-image'
+  | 'image-to-image'
+  | 'recolor-image'
+  | 'style-transfer'
+  | 'upscale-image'
+  | 'sketch-to-ink'
 
 export interface ModelOption {
   id: string
@@ -28,6 +35,7 @@ export interface ImageGenerationRequest {
   negative_prompt?: string
   model_id: string
   model_source: ModelSource
+  workflow_preset?: ImageWorkflowPreset
   strength: number
   num_inference_steps: number
   guidance_scale: number

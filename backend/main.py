@@ -1,6 +1,4 @@
-"""
-Stable Diffusion Lab - FastAPI Backend
-"""
+"""FastAPI backend for text-to-image and image-guided Stable Diffusion workflows."""
 
 from __future__ import annotations
 
@@ -16,6 +14,10 @@ from typing import Literal, Optional
 
 import requests
 import torch
+
+# Diffusers pipeline classes used across text, img2img, and sketch-conditioned workflows.
+# - AutoPipelineForImage2Image: auto-picks img2img class from model metadata.
+# - ControlNetModel: injects structure-preserving conditioning from sketch-like inputs.
 from diffusers import (
     AutoPipelineForImage2Image,
     ControlNetModel,
@@ -54,6 +56,8 @@ MODELS_CACHE_DIR = Path(os.environ.get("MODELS_CACHE_DIR", "/app/models_cache"))
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 CIV_TOKEN = os.environ.get("CIV_TOKEN", "")
 
+# The currently loaded Diffusers pipeline object.
+# A pipeline is the high-level class that wires model weights + scheduler + inference call.
 _pipeline: Optional[DiffusionPipeline] = None
 _loaded_model_id: Optional[str] = None
 _device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -68,26 +72,39 @@ logger.info("Using device: %s", _device)
 ModelSource = Literal["huggingface", "civitai"]
 GenerationTask = Literal["text2img", "img2img", "sketch2ink"]
 ModelFamily = Literal["sd15", "sdxl"]
+ImageWorkflowPreset = Literal["general", "recolor", "style-transfer", "upscale"]
 
 SKETCH_CONTROLNET_MODELS: dict[ModelFamily, str] = {
     "sd15": "lllyasviel/control_v11p_sd15_scribble",
     "sdxl": "xinsir/controlnet-scribble-sdxl-1.0",
 }
 
+# Preset defaults for generic image-guided generation workflows.
+# These defaults are intentionally mild so users can still control behavior from the UI.
+IMAGE_WORKFLOW_DEFAULTS: dict[ImageWorkflowPreset, dict[str, float | int]] = {
+    "general": {"strength": 0.6, "num_inference_steps": 20, "guidance_scale": 7.5},
+    "recolor": {"strength": 0.45, "num_inference_steps": 24, "guidance_scale": 7.0},
+    "style-transfer": {"strength": 0.72, "num_inference_steps": 30, "guidance_scale": 8.0},
+    "upscale": {"strength": 0.3, "num_inference_steps": 18, "guidance_scale": 6.5},
+}
+
 
 class ModelLoadRequest(BaseModel):
+    """Payload used to load a model for a specific generation task."""
     model_id: str = Field(..., description="HuggingFace repo ID or CivitAI model version ID")
     model_source: ModelSource = Field("huggingface")
     task: GenerationTask = Field("text2img")
 
 
 class ModelLoadResponse(BaseModel):
+    """API response returned after a model load attempt."""
     success: bool
     model_id: str
     message: str
 
 
 class GenerationRequest(BaseModel):
+    """Text-to-image request schema."""
     prompt: str = Field(..., min_length=1)
     negative_prompt: Optional[str] = None
     model_id: str = Field(..., description="HuggingFace repo ID or CivitAI model version ID")
@@ -101,6 +118,7 @@ class GenerationRequest(BaseModel):
 
 
 class GeneratedImage(BaseModel):
+    """Single gallery image item returned to the frontend."""
     id: str
     url: str
     prompt: str
@@ -113,12 +131,14 @@ class GeneratedImage(BaseModel):
 
 
 class GenerationResponse(BaseModel):
+    """Shared response format used by all generation workflows."""
     images: list[GeneratedImage]
     model_id: str
     elapsed_seconds: float
 
 
 class BackendStatus(BaseModel):
+    """Status payload used by the frontend health panel."""
     status: Literal["ok", "loading", "error"]
     loaded_model: Optional[str] = None
     device: str
@@ -130,6 +150,7 @@ class BackendStatus(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _resolve_cache_subpath(relative_path: str) -> Path:
+    """Resolve a model cache path and block path traversal outside the cache directory."""
     candidate = (MODELS_CACHE_DIR / relative_path).resolve()
     cache_root = MODELS_CACHE_DIR.resolve()
     if candidate != cache_root and cache_root not in candidate.parents:
@@ -138,6 +159,7 @@ def _resolve_cache_subpath(relative_path: str) -> Path:
 
 
 def _normalize_civitai_model_version_id(model_version_id: str) -> str:
+    """Validate and normalize CivitAI model IDs to a numeric string."""
     normalized = model_version_id.strip()
     if not re.fullmatch(r"\d+", normalized):
         raise RuntimeError(f"CivitAI model version ID must be numeric, got: {model_version_id}")
@@ -145,6 +167,7 @@ def _normalize_civitai_model_version_id(model_version_id: str) -> str:
 
 
 def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> DiffusionPipeline:
+    """Load a HuggingFace Diffusers pipeline for the requested generation task."""
     dtype = torch.float16 if _device == "cuda" else torch.float32
     local_path = _resolve_cache_subpath(model_id)
     source = str(local_path) if local_path.exists() else model_id
@@ -196,6 +219,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
 
 
 def _download_civitai_model(model_version_id: str) -> Path:
+    """Download (or reuse cached) CivitAI checkpoint file."""
     MODELS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     normalized_model_version_id = _normalize_civitai_model_version_id(model_version_id)
     dest = _resolve_cache_subpath(f"civitai_{normalized_model_version_id}.safetensors")
@@ -258,6 +282,7 @@ def _detect_pipeline_class(checkpoint_path: Path):
 
 
 def _load_civitai_pipeline(model_version_id: str, task: GenerationTask) -> DiffusionPipeline:
+    """Load CivitAI checkpoint into the right pipeline class for text or img2img tasks."""
     if task == "sketch2ink":
         raise RuntimeError(
             "Sketch to ink currently supports HuggingFace SD 1.5 and SDXL base models only."
@@ -289,6 +314,7 @@ def _load_civitai_pipeline(model_version_id: str, task: GenerationTask) -> Diffu
 
 
 def _resolve_model_family(model_id: str) -> ModelFamily:
+    """Infer whether a model ID is SD 1.5-like or SDXL-like for ControlNet compatibility."""
     normalized = model_id.lower()
     if "sdxl" in normalized or "stable-diffusion-xl" in normalized:
         return "sdxl"
@@ -300,6 +326,7 @@ def _resolve_model_family(model_id: str) -> ModelFamily:
 
 
 def _ensure_model(model_id: str, model_source: ModelSource, task: GenerationTask = "text2img") -> None:
+    """Load and cache the requested model pipeline if it is not already active."""
     global _pipeline, _loaded_model_id
 
     cache_key = f"{task}:{model_source}:{model_id}"
@@ -335,6 +362,7 @@ def _serialize_images(
     height: int,
     seed: int,
 ) -> list[GeneratedImage]:
+    """Convert PIL images into gallery-ready base64 payloads used by the frontend."""
     created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     images: list[GeneratedImage] = []
     for pil_image in output_images:
@@ -357,12 +385,65 @@ def _serialize_images(
     return images
 
 
+async def _read_uploaded_image(uploaded_file: UploadFile) -> Image.Image:
+    """Read an uploaded file and convert it to RGB for Diffusers image conditioning."""
+    if not uploaded_file.content_type or not uploaded_file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    try:
+        image_bytes = await uploaded_file.read()
+        return Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid image upload") from exc
+
+
+def _prepare_input_image(
+    input_image: Image.Image, width: Optional[int], height: Optional[int]
+) -> tuple[Image.Image, int, int]:
+    """Resize uploaded image to model-safe dimensions while preserving request intent."""
+    target_width = _normalize_size(width if width is not None else input_image.width)
+    target_height = _normalize_size(height if height is not None else input_image.height)
+
+    if input_image.width != target_width or input_image.height != target_height:
+        # Diffusion latents require dimensions divisible by 8, so we snap before inference.
+        input_image = input_image.resize((target_width, target_height))
+    return input_image, target_width, target_height
+
+
+def _resolve_img2img_settings(
+    workflow_preset: ImageWorkflowPreset,
+    strength: Optional[float],
+    num_inference_steps: Optional[int],
+    guidance_scale: Optional[float],
+) -> tuple[float, int, float]:
+    """
+    Resolve inference settings for image-guided generation.
+
+    Key knobs:
+    - strength: how much the output can diverge from uploaded pixels.
+    - num_inference_steps: denoising iterations (quality vs latency).
+    - guidance_scale: how strongly the prompt steers the result (CFG).
+    """
+    defaults = IMAGE_WORKFLOW_DEFAULTS[workflow_preset]
+    resolved_strength = strength if strength is not None else float(defaults["strength"])
+    resolved_steps = (
+        num_inference_steps
+        if num_inference_steps is not None
+        else int(defaults["num_inference_steps"])
+    )
+    resolved_guidance = guidance_scale if guidance_scale is not None else float(
+        defaults["guidance_scale"]
+    )
+    return resolved_strength, resolved_steps, resolved_guidance
+
+
 # ---------------------------------------------------------------------------
 # API endpoints
 # ---------------------------------------------------------------------------
 
 @app.get("/api/status", response_model=BackendStatus)
 async def get_status() -> BackendStatus:
+    """Return backend health and currently cached pipeline identifier."""
     return BackendStatus(
         status="ok",
         loaded_model=_loaded_model_id,
@@ -372,6 +453,7 @@ async def get_status() -> BackendStatus:
 
 @app.post("/api/models/load", response_model=ModelLoadResponse)
 async def load_model(request: ModelLoadRequest) -> ModelLoadResponse:
+    """Pre-load a model pipeline so the next generation request starts faster."""
     if request.task == "sketch2ink" and request.model_source != "huggingface":
         raise HTTPException(
             status_code=400,
@@ -392,6 +474,7 @@ async def load_model(request: ModelLoadRequest) -> ModelLoadResponse:
 
 @app.post("/api/generate", response_model=GenerationResponse)
 async def generate_images(request: GenerationRequest) -> GenerationResponse:
+    """Generate images from text prompt using a text-to-image pipeline."""
     try:
         _ensure_model(request.model_id, request.model_source, task="text2img")
     except Exception as exc:
@@ -401,6 +484,7 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
     assert _pipeline is not None
 
     seed = _resolve_seed(request.seed)
+    # torch.Generator lets us reproduce output when the same seed/settings are reused.
     generator = torch.Generator(device=_device).manual_seed(seed)
 
     start = time.time()
@@ -408,6 +492,7 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
         output = _pipeline(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt or "",
+            # width/height apply only to text-to-image because no reference image is provided.
             width=request.width,
             height=request.height,
             num_inference_steps=request.num_inference_steps,
@@ -444,16 +529,21 @@ async def generate_from_image(
     model_id: str = Form(...),
     model_source: ModelSource = Form("huggingface"),
     negative_prompt: Optional[str] = Form(None),
-    strength: float = Form(0.6, ge=0.1, le=1.0),
-    num_inference_steps: int = Form(20, ge=1, le=150),
-    guidance_scale: float = Form(7.5, ge=1.0, le=30.0),
+    workflow_preset: ImageWorkflowPreset = Form("general"),
+    strength: Optional[float] = Form(None, ge=0.1, le=1.0),
+    num_inference_steps: Optional[int] = Form(None, ge=1, le=150),
+    guidance_scale: Optional[float] = Form(None, ge=1.0, le=30.0),
     width: Optional[int] = Form(None),
     height: Optional[int] = Form(None),
     seed: Optional[int] = Form(None),
     num_images: int = Form(1, ge=1, le=4),
 ) -> GenerationResponse:
-    if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+    """
+    Generate images from an uploaded reference image (img2img).
+
+    `workflow_preset` lets frontend presets use consistent backend defaults.
+    Explicit request values always take precedence over preset defaults.
+    """
 
     try:
         _ensure_model(model_id, model_source, task="img2img")
@@ -463,20 +553,14 @@ async def generate_from_image(
 
     assert _pipeline is not None
 
-    try:
-        image_bytes = await image.read()
-        input_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Invalid image upload") from exc
-
-    original_width = input_image.width
-    original_height = input_image.height
-    target_width = _normalize_size(width if width is not None else original_width)
-    target_height = _normalize_size(height if height is not None else original_height)
-    if original_width != target_width or original_height != target_height:
-        input_image = input_image.resize((target_width, target_height))
+    input_image = await _read_uploaded_image(image)
+    input_image, target_width, target_height = _prepare_input_image(input_image, width, height)
+    resolved_strength, resolved_steps, resolved_guidance = _resolve_img2img_settings(
+        workflow_preset, strength, num_inference_steps, guidance_scale
+    )
 
     seed_value = _resolve_seed(seed)
+    # Seed controls deterministic noise initialization for img2img denoising.
     generator = torch.Generator(device=_device).manual_seed(seed_value)
 
     start = time.time()
@@ -484,10 +568,12 @@ async def generate_from_image(
         output = _pipeline(
             prompt=prompt,
             negative_prompt=negative_prompt or "",
+            # `image` is the uploaded conditioning image that anchors composition.
             image=input_image,
-            strength=strength,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
+            # `strength` defines how aggressively we redraw the uploaded image.
+            strength=resolved_strength,
+            num_inference_steps=resolved_steps,
+            guidance_scale=resolved_guidance,
             num_images_per_prompt=num_images,
             generator=generator,
         )
@@ -528,8 +614,11 @@ async def generate_sketch_to_ink(
     seed: Optional[int] = Form(None),
     num_images: int = Form(1, ge=1, le=4),
 ) -> GenerationResponse:
-    if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+    """
+    Generate cleaned ink-style output from a sketch using a ControlNet-conditioned pipeline.
+
+    ControlNet keeps the sketch structure while allowing text prompt styling on top.
+    """
     if model_source != "huggingface":
         raise HTTPException(
             status_code=400,
@@ -544,20 +633,11 @@ async def generate_sketch_to_ink(
 
     assert _pipeline is not None
 
-    try:
-        image_bytes = await image.read()
-        input_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Invalid image upload") from exc
-
-    original_width = input_image.width
-    original_height = input_image.height
-    target_width = _normalize_size(width if width is not None else original_width)
-    target_height = _normalize_size(height if height is not None else original_height)
-    if original_width != target_width or original_height != target_height:
-        input_image = input_image.resize((target_width, target_height))
+    input_image = await _read_uploaded_image(image)
+    input_image, target_width, target_height = _prepare_input_image(input_image, width, height)
 
     seed_value = _resolve_seed(seed)
+    # Same seed + same sketch + same prompt => reproducible outputs.
     generator = torch.Generator(device=_device).manual_seed(seed_value)
 
     start = time.time()
@@ -565,7 +645,9 @@ async def generate_sketch_to_ink(
         output = _pipeline(
             prompt=prompt,
             negative_prompt=negative_prompt or "",
+            # The sketch is the ControlNet condition input.
             image=input_image,
+            # Higher values enforce sketch structure more strongly.
             controlnet_conditioning_scale=controlnet_conditioning_scale,
             width=target_width,
             height=target_height,
@@ -598,5 +680,6 @@ async def generate_sketch_to_ink(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc: Exception) -> JSONResponse:
+    """Return a stable JSON error payload for unexpected backend exceptions."""
     logger.exception("Unhandled exception")
     return JSONResponse(status_code=500, content={"detail": str(exc)})

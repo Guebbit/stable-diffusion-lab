@@ -12,12 +12,18 @@ import type {
 } from '../types'
 
 export const useDiffusionStore = defineStore('diffusion', () => {
+  /** Backend health metadata and currently loaded model info. */
   const status = ref<BackendStatus | null>(null)
+  /** Gallery items shown in the UI (newest first). */
   const generatedImages = ref<GeneratedImage[]>([])
+  /** Shared loading flag for any generation endpoint. */
   const isGenerating = ref(false)
+  /** Loading flag only for explicit model-load actions. */
   const isLoadingModel = ref(false)
+  /** User-friendly error message displayed by the UI. */
   const error = ref<string | null>(null)
 
+  /** Fetch backend status and silently reset status if the request fails. */
   async function fetchStatus() {
     try {
       status.value = await diffusionApi.getStatus()
@@ -26,6 +32,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
+  /** Load a model for the selected task and refresh backend status afterwards. */
   async function loadModel(modelId: string, source: ModelSource, task: GenerationTask = 'text2img') {
     isLoadingModel.value = true
     error.value = null
@@ -39,6 +46,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
+  /** Trigger standard text-to-image generation and prepend returned images. */
   async function generate(request: GenerationRequest) {
     isGenerating.value = true
     error.value = null
@@ -52,6 +60,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
+  /** Trigger image-to-image generation and prepend returned images. */
   async function generateFromImage(request: ImageGenerationRequest) {
     isGenerating.value = true
     error.value = null
@@ -65,6 +74,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
+  /** Trigger sketch-to-ink generation and prepend returned images. */
   async function generateSketchToInk(request: SketchToInkRequest) {
     isGenerating.value = true
     error.value = null
@@ -78,10 +88,12 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
+  /** Clear gallery state. */
   function clearImages() {
     generatedImages.value = []
   }
 
+  /** Clear current UI error. */
   function clearError() {
     error.value = null
   }
