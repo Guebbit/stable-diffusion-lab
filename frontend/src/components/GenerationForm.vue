@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import {ref, computed} from 'vue'
+import {computed, onBeforeUnmount, ref} from 'vue'
 import {useDiffusionStore} from '../stores/diffusion'
-import type {ModelOption, ModelSource} from '../types'
+import type {GenerationMode, ModelOption, ModelSource} from '../types'
 
 const store = useDiffusionStore()
 
@@ -50,6 +50,13 @@ const modelSourceItems = [
   {title: 'CivitAI', value: 'civitai' as ModelSource},
 ]
 
+const generationMode = ref<GenerationMode>('text-to-image')
+const generationModeItems = [
+  {title: 'Text to Image', value: 'text-to-image' as GenerationMode},
+  {title: 'Image to Image', value: 'image-to-image' as GenerationMode},
+]
+const imageFile = ref<File | null>(null)
+const imagePreviewUrl = ref<string | null>(null)
 
 /**
  * 
@@ -63,6 +70,7 @@ interface IForm {
   height: number
   numInferenceSteps: number
   guidanceScale: number
+  strength: number
   seed: number | null
   numImages: number
 }
@@ -77,6 +85,7 @@ const form = ref<IForm>({
   height: 512,
   numInferenceSteps: 20,
   guidanceScale: 7.5,
+  strength: 0.6,
   seed: null,
   numImages: 1,
 })
@@ -106,7 +115,10 @@ const activeModelId = computed(() =>
  * 
  */
 const formValid = computed(
-    () => form.value.prompt.trim().length > 0 && activeModelId.value.trim().length > 0,
+    () =>
+      form.value.prompt.trim().length > 0 &&
+      activeModelId.value.trim().length > 0 &&
+      (generationMode.value === 'text-to-image' || !!imageFile.value),
 )
 
 /**
@@ -122,9 +134,26 @@ function handleLoadModel() {
  */
 function handleGenerate() {
   if (!formValid.value) return
+  if (generationMode.value === 'image-to-image' && imageFile.value) {
+    return store.generateFromImage({
+      image: imageFile.value,
+      prompt: form.value.prompt.trim(),
+      negative_prompt: form.value.negativePrompt.trim() || undefined,
+      model_id: activeModelId.value,
+      model_source: modelSourceSelection.value,
+      width: form.value.width,
+      height: form.value.height,
+      strength: form.value.strength,
+      num_inference_steps: form.value.numInferenceSteps,
+      guidance_scale: form.value.guidanceScale,
+      seed: form.value.seed ?? undefined,
+      num_images: form.value.numImages,
+    })
+  }
+
   return store.generate({
     prompt: form.value.prompt.trim(),
-    negative_prompt: form.value.prompt.trim() || undefined,
+    negative_prompt: form.value.negativePrompt.trim() || undefined,
     model_id: activeModelId.value,
     model_source: modelSourceSelection.value,
     width: form.value.width,
@@ -135,6 +164,24 @@ function handleGenerate() {
     num_images: form.value.numImages,
   })
 }
+
+function handleImageSelection(value: File | File[] | null) {
+  const selected = Array.isArray(value) ? value[0] ?? null : value
+  imageFile.value = selected
+
+  if (imagePreviewUrl.value) {
+    URL.revokeObjectURL(imagePreviewUrl.value)
+    imagePreviewUrl.value = null
+  }
+
+  if (selected) {
+    imagePreviewUrl.value = URL.createObjectURL(selected)
+  }
+}
+
+onBeforeUnmount(() => {
+  if (imagePreviewUrl.value) URL.revokeObjectURL(imagePreviewUrl.value)
+})
 </script>
 
 <template>
@@ -145,6 +192,14 @@ function handleGenerate() {
     </v-card-title>
 
     <v-card-text>
+      <v-select
+          v-model="generationMode"
+          :items="generationModeItems"
+          label="Generation Mode"
+          variant="outlined"
+          prepend-inner-icon="mdi-tune-variant"
+          class="mb-4"
+      />
       
       <v-textarea
           v-model="form.prompt"
@@ -165,6 +220,24 @@ function handleGenerate() {
           prepend-inner-icon="mdi-pencil-off"
           class="mb-4"
       />
+
+      <div v-if="generationMode === 'image-to-image'" class="mb-4">
+        <v-file-input
+            accept="image/*"
+            label="Input Image"
+            variant="outlined"
+            prepend-icon="mdi-image-plus"
+            show-size
+            @update:model-value="handleImageSelection"
+        />
+        <v-img
+            v-if="imagePreviewUrl"
+            :src="imagePreviewUrl"
+            max-height="240"
+            cover
+            class="mt-2 rounded"
+        />
+      </div>
 
       <v-divider class="mb-4"/>
 
@@ -307,6 +380,19 @@ function handleGenerate() {
               :min="1"
               :max="20"
               :step="0.5"
+              thumb-label
+              color="primary"
+          />
+        </v-col>
+        <v-col v-if="generationMode === 'image-to-image'" cols="12" sm="6">
+          <div class="text-caption text-medium-emphasis mb-1">
+            Strength: {{ form.strength }}
+          </div>
+          <v-slider
+              v-model="form.strength"
+              :min="0.1"
+              :max="1"
+              :step="0.05"
               thumb-label
               color="primary"
           />

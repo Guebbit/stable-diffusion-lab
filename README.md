@@ -88,6 +88,7 @@ The Vite dev server at **http://localhost:5173** proxies `/api/*` requests to th
 | `GET`  | `/api/status` | Backend health, device, and loaded model |
 | `POST` | `/api/models/load` | Download and load a model |
 | `POST` | `/api/generate` | Generate images from a prompt |
+| `POST` | `/api/generate-from-image` | Generate images from a prompt and uploaded image |
 
 ### `POST /api/generate` – request body
 
@@ -107,6 +108,21 @@ The Vite dev server at **http://localhost:5173** proxies `/api/*` requests to th
 ```
 
 ---
+
+### `POST /api/generate-from-image` – multipart form fields
+
+- `image` (file, required)
+- `prompt` (string, required)
+- `negative_prompt` (string, optional)
+- `model_id` (string, required)
+- `model_source` (`huggingface` or `civitai`)
+- `strength` (float, `0.1` to `1.0`)
+- `num_inference_steps` (int)
+- `guidance_scale` (float)
+- `width` (int, optional)
+- `height` (int, optional)
+- `seed` (int, optional)
+- `num_images` (int, `1` to `4`)
 
 ## Environment Variables
 

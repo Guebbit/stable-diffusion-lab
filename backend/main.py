@@ -15,10 +15,16 @@ from typing import Literal, Optional
 
 import requests
 import torch
-from diffusers import DiffusionPipeline
-from fastapi import FastAPI, HTTPException
+from diffusers import (
+    AutoPipelineForImage2Image,
+    DiffusionPipeline,
+    StableDiffusionImg2ImgPipeline,
+    StableDiffusionXLImg2ImgPipeline,
+)
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from PIL import Image
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +60,7 @@ logger.info("Using device: %s", _device)
 # ---------------------------------------------------------------------------
 
 ModelSource = Literal["huggingface", "civitai"]
+GenerationTask = Literal["text2img", "img2img"]
 
 
 class ModelLoadRequest(BaseModel):
@@ -109,17 +116,25 @@ class BackendStatus(BaseModel):
 # Model loading helpers
 # ---------------------------------------------------------------------------
 
-def _load_huggingface_pipeline(model_id: str) -> DiffusionPipeline:
+def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> DiffusionPipeline:
     dtype = torch.float16 if _device == "cuda" else torch.float32
     local_path = MODELS_CACHE_DIR / model_id
     source = str(local_path) if local_path.exists() else model_id
     logger.info("Loading HuggingFace model from: %s", source)
-    pipeline = DiffusionPipeline.from_pretrained(
-        source,
-        torch_dtype=dtype,
-        cache_dir=str(MODELS_CACHE_DIR),
-        token=HF_TOKEN or None,
-    )
+    if task == "img2img":
+        pipeline = AutoPipelineForImage2Image.from_pretrained(
+            source,
+            torch_dtype=dtype,
+            cache_dir=str(MODELS_CACHE_DIR),
+            token=HF_TOKEN or None,
+        )
+    else:
+        pipeline = DiffusionPipeline.from_pretrained(
+            source,
+            torch_dtype=dtype,
+            cache_dir=str(MODELS_CACHE_DIR),
+            token=HF_TOKEN or None,
+        )
     pipeline = pipeline.to(_device)
     if _device == "cuda":
         pipeline.enable_attention_slicing()
@@ -189,17 +204,22 @@ def _detect_pipeline_class(checkpoint_path: Path):
     return StableDiffusionPipeline
 
 
-def _load_civitai_pipeline(model_version_id: str) -> DiffusionPipeline:
+def _load_civitai_pipeline(model_version_id: str, task: GenerationTask) -> DiffusionPipeline:
     checkpoint_path = _download_civitai_model(model_version_id)
     dtype = torch.float16 if _device == "cuda" else torch.float32
     logger.info("Loading CivitAI checkpoint from %s", checkpoint_path)
 
     pipeline_class = _detect_pipeline_class(checkpoint_path)
+    if task == "img2img":
+        if pipeline_class.__name__ == "StableDiffusionXLPipeline":
+            pipeline_class = StableDiffusionXLImg2ImgPipeline
+        else:
+            pipeline_class = StableDiffusionImg2ImgPipeline
     logger.info("Auto-detected pipeline class: %s", pipeline_class.__name__)
 
     kwargs: dict = {"torch_dtype": dtype}
     # SDXL pipelines do not accept safety_checker args
-    if pipeline_class.__name__ != "StableDiffusionXLPipeline":
+    if "StableDiffusionXL" not in pipeline_class.__name__:
         kwargs["safety_checker"] = None
         kwargs["requires_safety_checker"] = False
 
@@ -210,20 +230,56 @@ def _load_civitai_pipeline(model_version_id: str) -> DiffusionPipeline:
     return pipeline
 
 
-def _ensure_model(model_id: str, model_source: ModelSource) -> None:
+def _ensure_model(model_id: str, model_source: ModelSource, task: GenerationTask = "text2img") -> None:
     global _pipeline, _loaded_model_id
 
-    cache_key = f"{model_source}:{model_id}"
+    cache_key = f"{task}:{model_source}:{model_id}"
     if _loaded_model_id == cache_key and _pipeline is not None:
         return
 
     if model_source == "huggingface":
-        _pipeline = _load_huggingface_pipeline(model_id)
+        _pipeline = _load_huggingface_pipeline(model_id, task)
     else:
-        _pipeline = _load_civitai_pipeline(model_id)
+        _pipeline = _load_civitai_pipeline(model_id, task)
 
     _loaded_model_id = cache_key
     logger.info("Model ready: %s", cache_key)
+
+
+def _normalize_size(value: int) -> int:
+    bounded = max(64, min(2048, value))
+    return max(64, (bounded // 8) * 8)
+
+
+def _serialize_images(
+    output_images: list[Image.Image],
+    prompt: str,
+    negative_prompt: Optional[str],
+    model_id: str,
+    width: int,
+    height: int,
+    seed: int,
+) -> list[GeneratedImage]:
+    created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    images: list[GeneratedImage] = []
+    for pil_image in output_images:
+        buf = io.BytesIO()
+        pil_image.save(buf, format="PNG")
+        data_url = "data:image/png;base64," + b64encode(buf.getvalue()).decode()
+        images.append(
+            GeneratedImage(
+                id=str(uuid.uuid4()),
+                url=data_url,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                model_id=model_id,
+                width=width,
+                height=height,
+                seed=seed,
+                created_at=created_at,
+            )
+        )
+    return images
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +312,7 @@ async def load_model(request: ModelLoadRequest) -> ModelLoadResponse:
 @app.post("/api/generate", response_model=GenerationResponse)
 async def generate_images(request: GenerationRequest) -> GenerationResponse:
     try:
-        _ensure_model(request.model_id, request.model_source)
+        _ensure_model(request.model_id, request.model_source, task="text2img")
     except Exception as exc:
         logger.exception("Failed to load model for generation")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -283,30 +339,93 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     elapsed = time.time() - start
-    created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-    images: list[GeneratedImage] = []
-    for pil_image in output.images:  # type: ignore[union-attr]
-        buf = io.BytesIO()
-        pil_image.save(buf, format="PNG")
-        data_url = "data:image/png;base64," + b64encode(buf.getvalue()).decode()
-        images.append(
-            GeneratedImage(
-                id=str(uuid.uuid4()),
-                url=data_url,
-                prompt=request.prompt,
-                negative_prompt=request.negative_prompt,
-                model_id=request.model_id,
-                width=request.width,
-                height=request.height,
-                seed=seed,
-                created_at=created_at,
-            )
-        )
+    images = _serialize_images(
+        output.images,  # type: ignore[arg-type, union-attr]
+        prompt=request.prompt,
+        negative_prompt=request.negative_prompt,
+        model_id=request.model_id,
+        width=request.width,
+        height=request.height,
+        seed=seed,
+    )
 
     return GenerationResponse(
         images=images,
         model_id=request.model_id,
+        elapsed_seconds=round(elapsed, 2),
+    )
+
+
+@app.post("/api/generate-from-image", response_model=GenerationResponse)
+async def generate_from_image(
+    image: UploadFile = File(...),
+    prompt: str = Form(..., min_length=1),
+    model_id: str = Form(...),
+    model_source: ModelSource = Form("huggingface"),
+    negative_prompt: Optional[str] = Form(None),
+    strength: float = Form(0.6, ge=0.1, le=1.0),
+    num_inference_steps: int = Form(20, ge=1, le=150),
+    guidance_scale: float = Form(7.5, ge=1.0, le=30.0),
+    width: Optional[int] = Form(None),
+    height: Optional[int] = Form(None),
+    seed: Optional[int] = Form(None),
+    num_images: int = Form(1, ge=1, le=4),
+) -> GenerationResponse:
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    try:
+        _ensure_model(model_id, model_source, task="img2img")
+    except Exception as exc:
+        logger.exception("Failed to load model for image-to-image generation")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    assert _pipeline is not None
+
+    try:
+        image_bytes = await image.read()
+        input_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid image upload") from exc
+
+    target_width = _normalize_size(width if width is not None else input_image.width)
+    target_height = _normalize_size(height if height is not None else input_image.height)
+    if input_image.width != target_width or input_image.height != target_height:
+        input_image = input_image.resize((target_width, target_height))
+
+    seed_value = seed if seed is not None else int(time.time()) % (2**32)
+    generator = torch.Generator(device=_device).manual_seed(seed_value)
+
+    start = time.time()
+    try:
+        output = _pipeline(
+            prompt=prompt,
+            negative_prompt=negative_prompt or "",
+            image=input_image,
+            strength=strength,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            num_images_per_prompt=num_images,
+            generator=generator,
+        )
+    except Exception as exc:
+        logger.exception("Image-to-image generation failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    elapsed = time.time() - start
+    images = _serialize_images(
+        output.images,  # type: ignore[arg-type, union-attr]
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        model_id=model_id,
+        width=target_width,
+        height=target_height,
+        seed=seed_value,
+    )
+
+    return GenerationResponse(
+        images=images,
+        model_id=model_id,
         elapsed_seconds=round(elapsed, 2),
     )
 
