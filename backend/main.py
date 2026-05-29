@@ -74,6 +74,11 @@ SKETCH_CONTROLNET_MODELS: dict[ModelFamily, str] = {
     "sdxl": "xinsir/controlnet-scribble-sdxl-1.0",
 }
 
+# Phase 3 defaults keep workflow behavior explicit and easy to tune in one place.
+RECOLOR_DEFAULT_STRENGTH = 0.55
+UPSCALE_DEFAULT_PROMPT = "highly detailed, sharp textures, clean edges, natural lighting, high quality"
+UPSCALE_DEFAULT_STRENGTH = 0.35
+
 
 class ModelLoadRequest(BaseModel):
     model_id: str = Field(..., description="HuggingFace repo ID or CivitAI model version ID")
@@ -145,11 +150,20 @@ def _normalize_civitai_model_version_id(model_version_id: str) -> str:
 
 
 def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> DiffusionPipeline:
+    """
+    Load a HuggingFace pipeline for the requested task.
+
+    Why task-specific loading matters:
+    - text2img pipelines denoise from random noise only.
+    - img2img pipelines expect an initial image + strength.
+    - sketch2ink uses ControlNet, so we attach an extra conditioning model.
+    """
     dtype = torch.float16 if _device == "cuda" else torch.float32
     local_path = _resolve_cache_subpath(model_id)
     source = str(local_path) if local_path.exists() else model_id
     logger.info("Loading HuggingFace model from: %s", source)
     if task == "sketch2ink":
+        # Sketch mode requires a ControlNet that "reads" structure from input lines.
         model_family = _resolve_model_family(model_id)
         controlnet_model_id = SKETCH_CONTROLNET_MODELS[model_family]
         logger.info("Loading sketch ControlNet model from: %s", controlnet_model_id)
@@ -176,6 +190,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
                 token=HF_TOKEN or None,
             )
     elif task == "img2img":
+        # AutoPipeline picks SD1.5 vs SDXL img2img class based on model config.
         pipeline = AutoPipelineForImage2Image.from_pretrained(
             source,
             torch_dtype=dtype,
@@ -183,6 +198,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
             token=HF_TOKEN or None,
         )
     else:
+        # Standard text-to-image generation path.
         pipeline = DiffusionPipeline.from_pretrained(
             source,
             torch_dtype=dtype,
@@ -191,6 +207,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
         )
     pipeline = pipeline.to(_device)
     if _device == "cuda":
+        # Attention slicing reduces memory spikes on consumer GPUs.
         pipeline.enable_attention_slicing()
     return pipeline
 
@@ -289,6 +306,7 @@ def _load_civitai_pipeline(model_version_id: str, task: GenerationTask) -> Diffu
 
 
 def _resolve_model_family(model_id: str) -> ModelFamily:
+    """Classify model IDs as SD1.5-like or SDXL-like for ControlNet compatibility."""
     normalized = model_id.lower()
     if "sdxl" in normalized or "stable-diffusion-xl" in normalized:
         return "sdxl"
@@ -302,6 +320,8 @@ def _resolve_model_family(model_id: str) -> ModelFamily:
 def _ensure_model(model_id: str, model_source: ModelSource, task: GenerationTask = "text2img") -> None:
     global _pipeline, _loaded_model_id
 
+    # Task is part of cache key because one base model can have different pipeline classes
+    # (text2img, img2img, ControlNet). Reusing the wrong pipeline class causes runtime errors.
     cache_key = f"{task}:{model_source}:{model_id}"
     if _loaded_model_id == cache_key and _pipeline is not None:
         return
@@ -357,6 +377,108 @@ def _serialize_images(
     return images
 
 
+def _decode_image_bytes(image_bytes: bytes) -> Image.Image:
+    """Decode uploaded bytes into RGB PIL image with friendly validation errors."""
+    try:
+        return Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid image upload") from exc
+
+
+def _prepare_target_image(
+    input_image: Image.Image, width: Optional[int], height: Optional[int]
+) -> tuple[Image.Image, int, int]:
+    """
+    Normalize image dimensions for Stable Diffusion pipelines.
+
+    Stable Diffusion latent spaces are based on 8x downsampling blocks, so width/height
+    should be multiples of 8. We clamp to safe min/max bounds to avoid OOM from oversized
+    requests and to keep behavior consistent with text2img limits.
+    """
+    original_width = input_image.width
+    original_height = input_image.height
+    target_width = _normalize_size(width if width is not None else original_width)
+    target_height = _normalize_size(height if height is not None else original_height)
+
+    if original_width != target_width or original_height != target_height:
+        input_image = input_image.resize((target_width, target_height))
+
+    return input_image, target_width, target_height
+
+
+def _run_img2img_workflow(
+    *,
+    workflow_name: str,
+    prompt: str,
+    negative_prompt: Optional[str],
+    model_id: str,
+    model_source: ModelSource,
+    input_image: Image.Image,
+    width: int,
+    height: int,
+    strength: float,
+    num_inference_steps: int,
+    guidance_scale: float,
+    seed: Optional[int],
+    num_images: int,
+    extra_pipeline_kwargs: Optional[dict] = None,
+) -> GenerationResponse:
+    """
+    Shared execution path for img2img-based workflows.
+
+    Why one helper:
+    - Keeps preprocessing, seeding, and serialization identical across endpoints.
+    - Makes workflow-specific differences explicit via inputs/extra kwargs.
+    - Reduces copy/paste bugs when adding new image workflows in future phases.
+    """
+    try:
+        _ensure_model(model_id, model_source, task="img2img")
+    except Exception as exc:
+        logger.exception("Failed to load model for %s workflow", workflow_name)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    assert _pipeline is not None
+
+    seed_value = _resolve_seed(seed)
+    generator = torch.Generator(device=_device).manual_seed(seed_value)
+
+    pipeline_kwargs = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt or "",
+        "image": input_image,
+        "strength": strength,
+        "num_inference_steps": num_inference_steps,
+        "guidance_scale": guidance_scale,
+        "num_images_per_prompt": num_images,
+        "generator": generator,
+    }
+    if extra_pipeline_kwargs:
+        pipeline_kwargs.update(extra_pipeline_kwargs)
+
+    start = time.time()
+    try:
+        output = _pipeline(**pipeline_kwargs)
+    except Exception as exc:
+        logger.exception("%s generation failed", workflow_name)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    elapsed = time.time() - start
+    images = _serialize_images(
+        output.images,  # type: ignore[arg-type, union-attr]
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        model_id=model_id,
+        width=width,
+        height=height,
+        seed=seed_value,
+    )
+    return GenerationResponse(
+        images=images,
+        model_id=model_id,
+        elapsed_seconds=round(elapsed, 2),
+    )
+
+
 # ---------------------------------------------------------------------------
 # API endpoints
 # ---------------------------------------------------------------------------
@@ -392,6 +514,7 @@ async def load_model(request: ModelLoadRequest) -> ModelLoadResponse:
 
 @app.post("/api/generate", response_model=GenerationResponse)
 async def generate_images(request: GenerationRequest) -> GenerationResponse:
+    """Text-to-image endpoint (noise-only generation without uploaded image guidance)."""
     try:
         _ensure_model(request.model_id, request.model_source, task="text2img")
     except Exception as exc:
@@ -452,64 +575,133 @@ async def generate_from_image(
     seed: Optional[int] = Form(None),
     num_images: int = Form(1, ge=1, le=4),
 ) -> GenerationResponse:
+    """
+    Generic image-to-image endpoint.
+
+    This workflow keeps composition from the uploaded image, then denoises toward the prompt.
+    `strength` controls how much freedom the model has to deviate from the input pixels.
+    """
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an image")
 
-    try:
-        _ensure_model(model_id, model_source, task="img2img")
-    except Exception as exc:
-        logger.exception("Failed to load model for image-to-image generation")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    image_bytes = await image.read()
+    input_image = _decode_image_bytes(image_bytes)
+    input_image, target_width, target_height = _prepare_target_image(input_image, width, height)
 
-    assert _pipeline is not None
-
-    try:
-        image_bytes = await image.read()
-        input_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Invalid image upload") from exc
-
-    original_width = input_image.width
-    original_height = input_image.height
-    target_width = _normalize_size(width if width is not None else original_width)
-    target_height = _normalize_size(height if height is not None else original_height)
-    if original_width != target_width or original_height != target_height:
-        input_image = input_image.resize((target_width, target_height))
-
-    seed_value = _resolve_seed(seed)
-    generator = torch.Generator(device=_device).manual_seed(seed_value)
-
-    start = time.time()
-    try:
-        output = _pipeline(
-            prompt=prompt,
-            negative_prompt=negative_prompt or "",
-            image=input_image,
-            strength=strength,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            num_images_per_prompt=num_images,
-            generator=generator,
-        )
-    except Exception as exc:
-        logger.exception("Image-to-image generation failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    elapsed = time.time() - start
-    images = _serialize_images(
-        output.images,  # type: ignore[arg-type, union-attr]
+    return _run_img2img_workflow(
+        workflow_name="image-to-image",
         prompt=prompt,
         negative_prompt=negative_prompt,
         model_id=model_id,
+        model_source=model_source,
+        input_image=input_image,
         width=target_width,
         height=target_height,
-        seed=seed_value,
+        strength=strength,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        seed=seed,
+        num_images=num_images,
     )
 
-    return GenerationResponse(
-        images=images,
+
+@app.post("/api/generate-recolor", response_model=GenerationResponse)
+async def generate_recolor(
+    image: UploadFile = File(...),
+    prompt: str = Form(..., min_length=1),
+    model_id: str = Form(...),
+    model_source: ModelSource = Form("huggingface"),
+    negative_prompt: Optional[str] = Form(None),
+    strength: float = Form(RECOLOR_DEFAULT_STRENGTH, ge=0.1, le=1.0),
+    num_inference_steps: int = Form(24, ge=1, le=150),
+    guidance_scale: float = Form(7.0, ge=1.0, le=30.0),
+    width: Optional[int] = Form(None),
+    height: Optional[int] = Form(None),
+    seed: Optional[int] = Form(None),
+    num_images: int = Form(1, ge=1, le=4),
+) -> GenerationResponse:
+    """
+    Phase 3 recolor workflow.
+
+    Recolor reuses img2img because recoloring is essentially "guided image editing":
+    the input image provides structure, while prompt/style text controls palette changes.
+    """
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    image_bytes = await image.read()
+    input_image = _decode_image_bytes(image_bytes)
+    input_image, target_width, target_height = _prepare_target_image(input_image, width, height)
+
+    return _run_img2img_workflow(
+        workflow_name="recolor",
+        prompt=prompt,
+        negative_prompt=negative_prompt,
         model_id=model_id,
-        elapsed_seconds=round(elapsed, 2),
+        model_source=model_source,
+        input_image=input_image,
+        width=target_width,
+        height=target_height,
+        strength=strength,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        seed=seed,
+        num_images=num_images,
+    )
+
+
+@app.post("/api/generate-upscale", response_model=GenerationResponse)
+async def generate_upscale(
+    image: UploadFile = File(...),
+    model_id: str = Form(...),
+    model_source: ModelSource = Form("huggingface"),
+    prompt: Optional[str] = Form(None),
+    negative_prompt: Optional[str] = Form(None),
+    upscale_factor: int = Form(2, ge=1, le=4),
+    strength: float = Form(UPSCALE_DEFAULT_STRENGTH, ge=0.1, le=1.0),
+    num_inference_steps: int = Form(28, ge=1, le=150),
+    guidance_scale: float = Form(6.0, ge=1.0, le=30.0),
+    width: Optional[int] = Form(None),
+    height: Optional[int] = Form(None),
+    seed: Optional[int] = Form(None),
+    num_images: int = Form(1, ge=1, le=4),
+) -> GenerationResponse:
+    """
+    Phase 3 upscale workflow.
+
+    Why img2img for upscale:
+    - Native latent upscalers are model-specific and not guaranteed for every model.
+    - img2img with a low strength provides a practical "universal upscale" path that
+      enlarges resolution first, then restores detail in the denoising step.
+    """
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    image_bytes = await image.read()
+    input_image = _decode_image_bytes(image_bytes)
+
+    # When width/height are not provided, upscale from the uploaded dimensions.
+    # Explicit width/height still win so advanced users can target exact sizes.
+    requested_width = width if width is not None else input_image.width * upscale_factor
+    requested_height = height if height is not None else input_image.height * upscale_factor
+    input_image, target_width, target_height = _prepare_target_image(
+        input_image, requested_width, requested_height
+    )
+
+    return _run_img2img_workflow(
+        workflow_name="upscale",
+        prompt=(prompt or UPSCALE_DEFAULT_PROMPT).strip(),
+        negative_prompt=negative_prompt,
+        model_id=model_id,
+        model_source=model_source,
+        input_image=input_image,
+        width=target_width,
+        height=target_height,
+        strength=strength,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        seed=seed,
+        num_images=num_images,
     )
 
 
@@ -528,6 +720,13 @@ async def generate_sketch_to_ink(
     seed: Optional[int] = Form(None),
     num_images: int = Form(1, ge=1, le=4),
 ) -> GenerationResponse:
+    """
+    Sketch-to-ink workflow powered by ControlNet scribble conditioning.
+
+    Difference vs regular img2img:
+    - img2img uses only noisy latent guidance from the input image.
+    - ControlNet adds an extra conditioning branch that strongly preserves sketch structure.
+    """
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an image")
     if model_source != "huggingface":
@@ -544,18 +743,9 @@ async def generate_sketch_to_ink(
 
     assert _pipeline is not None
 
-    try:
-        image_bytes = await image.read()
-        input_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Invalid image upload") from exc
-
-    original_width = input_image.width
-    original_height = input_image.height
-    target_width = _normalize_size(width if width is not None else original_width)
-    target_height = _normalize_size(height if height is not None else original_height)
-    if original_width != target_width or original_height != target_height:
-        input_image = input_image.resize((target_width, target_height))
+    image_bytes = await image.read()
+    input_image = _decode_image_bytes(image_bytes)
+    input_image, target_width, target_height = _prepare_target_image(input_image, width, height)
 
     seed_value = _resolve_seed(seed)
     generator = torch.Generator(device=_device).manual_seed(seed_value)

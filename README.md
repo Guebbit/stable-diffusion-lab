@@ -91,6 +91,8 @@ The Vite dev server at **http://localhost:5173** proxies `/api/*` requests to th
 | `POST` | `/api/generate` | Generate images from a prompt |
 | `POST` | `/api/generate-from-image` | Generate images from a prompt and uploaded image |
 | `POST` | `/api/generate-sketch-to-ink` | Generate a cleaner inked image from an uploaded sketch |
+| `POST` | `/api/generate-recolor` | Recolor an uploaded image with prompt-guided palette/style edits |
+| `POST` | `/api/generate-upscale` | Upscale an uploaded image with detail-restoration generation |
 
 ### `POST /api/generate` – request body
 
@@ -144,6 +146,41 @@ The Vite dev server at **http://localhost:5173** proxies `/api/*` requests to th
 - `num_images` (int, `1` to `4`)
 
 This mode uses a built-in open-source ControlNet scribble stack to preserve the uploaded sketch layout while generating cleaner line art. It currently supports HuggingFace SD 1.5 and SDXL base models.
+
+---
+
+### `POST /api/generate-recolor` – multipart form fields
+
+- `image` (file, required)
+- `prompt` (string, required)
+- `negative_prompt` (string, optional)
+- `model_id` (string, required)
+- `model_source` (`huggingface` or `civitai`)
+- `strength` (float, `0.1` to `1.0`, default `0.55`)
+- `num_inference_steps` (int, default `24`)
+- `guidance_scale` (float, default `7.0`)
+- `width` (int, optional)
+- `height` (int, optional)
+- `seed` (int, optional)
+- `num_images` (int, `1` to `4`)
+
+---
+
+### `POST /api/generate-upscale` – multipart form fields
+
+- `image` (file, required)
+- `model_id` (string, required)
+- `model_source` (`huggingface` or `civitai`)
+- `prompt` (string, optional; backend has a quality default)
+- `negative_prompt` (string, optional)
+- `upscale_factor` (int, `1` to `4`, default `2`)
+- `strength` (float, `0.1` to `1.0`, default `0.35`)
+- `num_inference_steps` (int, default `28`)
+- `guidance_scale` (float, default `6.0`)
+- `width` (int, optional; overrides derived upscale size)
+- `height` (int, optional; overrides derived upscale size)
+- `seed` (int, optional)
+- `num_images` (int, `1` to `4`)
 
 ## Environment Variables
 

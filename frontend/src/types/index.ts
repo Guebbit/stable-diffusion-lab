@@ -1,6 +1,11 @@
 export type ModelSource = 'huggingface' | 'civitai'
 export type GenerationTask = 'text2img' | 'img2img' | 'sketch2ink'
-export type GenerationMode = 'text-to-image' | 'image-to-image' | 'sketch-to-ink'
+export type GenerationMode =
+  | 'text-to-image'
+  | 'image-to-image'
+  | 'sketch-to-ink'
+  | 'recolor-image'
+  | 'upscale-image'
 
 export interface ModelOption {
   id: string
@@ -44,6 +49,32 @@ export interface SketchToInkRequest {
   model_id: string
   model_source: 'huggingface'
   controlnet_conditioning_scale: number
+  num_inference_steps: number
+  guidance_scale: number
+  width?: number
+  height?: number
+  seed?: number
+  num_images: number
+}
+
+/**
+ * Recolor keeps the same request shape as generic image-to-image.
+ * The dedicated type keeps workflow intent explicit in the UI/store layer.
+ */
+export type RecolorRequest = ImageGenerationRequest
+
+/**
+ * Upscale uses image-to-image under the hood, but adds an upscale factor
+ * so the backend can derive a larger target resolution safely.
+ */
+export interface UpscaleRequest {
+  image: File
+  prompt?: string
+  negative_prompt?: string
+  model_id: string
+  model_source: ModelSource
+  upscale_factor: number
+  strength: number
   num_inference_steps: number
   guidance_scale: number
   width?: number
