@@ -199,6 +199,20 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
     dtype = torch.float16 if _device == "cuda" else torch.float32
     logger.info("Loading HuggingFace model from: %s", model_id)
 
+    # Detect architecture upfront — needed for both ControlNet routing and
+    # deciding whether to strip the safety checker (SD 1.5 only, not SDXL).
+    model_family = _resolve_model_family(model_id)
+
+    # SD 1.5 ships with an NSFW safety checker that converts flagged images to
+    # solid black. It has many false positives (cars, skin tones, etc.) and is
+    # not appropriate for a creative lab tool. Disable it for all SD 1.5 pipelines.
+    # SDXL does not include a safety checker, so this only applies to SD 1.5.
+    sd15_safety_kwargs: dict = (
+        {"safety_checker": None, "requires_safety_checker": False}
+        if model_family == "sd15"
+        else {}
+    )
+
     if task == "sketch2ink":
         # ─── ControlNet loading ─────────────────────────────────────────────
         # ControlNet works by injecting an extra "conditioning branch" into the U-Net.
@@ -207,8 +221,6 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
         # This forces the U-Net to respect the sketch's spatial structure while still
         # following the text prompt for style/content.
 
-        # First determine the architecture so we pick the matching ControlNet weights
-        model_family = _resolve_model_family(model_id)
         controlnet_model_id = SKETCH_CONTROLNET_MODELS[model_family]
         logger.info("Loading sketch ControlNet model from: %s", controlnet_model_id)
 
@@ -236,6 +248,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
                 torch_dtype=dtype,
                 cache_dir=str(MODELS_CACHE_DIR),
                 token=HF_TOKEN or None,
+                **sd15_safety_kwargs,
             )
 
     elif task == "img2img":
@@ -248,6 +261,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
             torch_dtype=dtype,
             cache_dir=str(MODELS_CACHE_DIR),
             token=HF_TOKEN or None,
+            **sd15_safety_kwargs,
         )
 
     else:
@@ -260,6 +274,7 @@ def _load_huggingface_pipeline(model_id: str, task: GenerationTask) -> Diffusion
             torch_dtype=dtype,
             cache_dir=str(MODELS_CACHE_DIR),
             token=HF_TOKEN or None,
+            **sd15_safety_kwargs,
         )
 
     # Move all model weights to the target device (GPU or CPU).
