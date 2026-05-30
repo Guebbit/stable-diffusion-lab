@@ -54,16 +54,12 @@ from schemas import (
 
 # Configure root logger — INFO level means we see helpful startup/request messages
 # but not verbose DEBUG-level torch internals.
-# We call basicConfig first as a fallback, then also attach a StreamHandler directly
-# so our app-level logger emits output even when uvicorn has already claimed the
-# root logger's handlers (basicConfig is a no-op if handlers already exist).
+# basicConfig is a no-op when uvicorn has already set up its own handlers, so
+# we rely on the shared get_logger() helper from logging_config instead.
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
-    logger.addHandler(_handler)
-logger.setLevel(logging.INFO)
+
+from logging_config import get_logger  # noqa: E402 — must come after basicConfig call
+logger = get_logger(__name__)
 
 # ─── App setup ─────────────────────────────────────────────────────────────
 

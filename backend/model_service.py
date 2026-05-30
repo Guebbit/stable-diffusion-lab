@@ -24,7 +24,6 @@ Why only ONE pipeline at a time?
 
 from __future__ import annotations
 
-import logging
 import os
 import re
 from pathlib import Path
@@ -48,15 +47,11 @@ from diffusers import (
 )
 
 from schemas import GenerationTask, ModelFamily, ModelSource
+from logging_config import get_logger
 
-# Attach a StreamHandler directly so this module's logs surface even when uvicorn
-# has already captured the root logger (logging.basicConfig is a no-op in that case).
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
-    logger.addHandler(_handler)
-logger.setLevel(logging.INFO)
+# Attach a StreamHandler via the shared helper so logs surface even when uvicorn
+# has already claimed the root logger (logging.basicConfig is a no-op in that case).
+logger = get_logger(__name__)
 
 # ─── Runtime configuration (from environment variables) ────────────────────
 #

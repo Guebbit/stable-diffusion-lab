@@ -27,17 +27,19 @@ export const useDiffusionStore = defineStore('diffusion', () => {
 
   /** Fetch backend status and silently reset status if the request fails. */
   function fetchStatus() {
-    const prevStatus = status.value?.status
+    // Track whether we were offline before this call so we can notify on reconnection
+    const wasOffline = status.value === null
     return diffusionApi.getStatus()
       .then((s) => {
-        // Notify only on first connect or when coming back online
-        if (prevStatus == null) {
+        // Notify on first connect and also when reconnecting after going offline
+        if (wasOffline) {
           useNotificationStore().push('info', `Backend connected — device: ${s.device.toUpperCase()}`)
         }
         status.value = s
       })
       .catch(() => {
         if (status.value !== null) {
+          // Only notify once when we first lose connection (not on every failed poll)
           useNotificationStore().push('warning', 'Backend offline — cannot reach the API')
         }
         status.value = null

@@ -20,7 +20,7 @@ export interface Notification {
   timestamp: Date
 }
 
-// Colours used by v-snackbar / v-chip to visually distinguish severity
+// Colors used by v-snackbar / v-chip to visually distinguish severity
 export const LEVEL_COLOR: Record<NotificationLevel, string> = {
   info: 'info',
   success: 'success',
