@@ -4,10 +4,11 @@ import { diffusionApi } from '../api/diffusion'
 import type {
   BackendStatus,
   GenerationRequest,
+  GenerationResponse,
   GeneratedImage,
+  GenerationTask,
   ImageGenerationRequest,
   ModelSource,
-  GenerationTask,
   SketchToInkRequest,
 } from '../types'
 
@@ -32,10 +33,31 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     }
   }
 
+  /**
+   * Wrap generation calls with shared loading/error state handling.
+   */
+  async function runGeneration(
+    request: () => Promise<GenerationResponse>,
+    fallbackMessage: string,
+  ) {
+    isGenerating.value = true
+    error.value = null
+
+    try {
+      const response = await request()
+      generatedImages.value = [...response.images, ...generatedImages.value]
+    } catch (err: unknown) {
+      error.value = err instanceof Error ? err.message : fallbackMessage
+    } finally {
+      isGenerating.value = false
+    }
+  }
+
   /** Load a model for the selected task and refresh backend status afterwards. */
   async function loadModel(modelId: string, source: ModelSource, task: GenerationTask = 'text2img') {
     isLoadingModel.value = true
     error.value = null
+
     try {
       await diffusionApi.loadModel({ model_id: modelId, model_source: source, task })
       await fetchStatus()
@@ -47,45 +69,18 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   }
 
   /** Trigger standard text-to-image generation and prepend returned images. */
-  async function generate(request: GenerationRequest) {
-    isGenerating.value = true
-    error.value = null
-    try {
-      const response = await diffusionApi.generate(request)
-      generatedImages.value = [...response.images, ...generatedImages.value]
-    } catch (err: unknown) {
-      error.value = err instanceof Error ? err.message : 'Generation failed'
-    } finally {
-      isGenerating.value = false
-    }
+  function generate(request: GenerationRequest): Promise<void> {
+    return runGeneration(() => diffusionApi.generate(request), 'Generation failed')
   }
 
   /** Trigger image-to-image generation and prepend returned images. */
-  async function generateFromImage(request: ImageGenerationRequest) {
-    isGenerating.value = true
-    error.value = null
-    try {
-      const response = await diffusionApi.generateFromImage(request)
-      generatedImages.value = [...response.images, ...generatedImages.value]
-    } catch (err: unknown) {
-      error.value = err instanceof Error ? err.message : 'Image generation failed'
-    } finally {
-      isGenerating.value = false
-    }
+  function generateFromImage(request: ImageGenerationRequest): Promise<void> {
+    return runGeneration(() => diffusionApi.generateFromImage(request), 'Image generation failed')
   }
 
   /** Trigger sketch-to-ink generation and prepend returned images. */
-  async function generateSketchToInk(request: SketchToInkRequest) {
-    isGenerating.value = true
-    error.value = null
-    try {
-      const response = await diffusionApi.generateSketchToInk(request)
-      generatedImages.value = [...response.images, ...generatedImages.value]
-    } catch (err: unknown) {
-      error.value = err instanceof Error ? err.message : 'Sketch generation failed'
-    } finally {
-      isGenerating.value = false
-    }
+  function generateSketchToInk(request: SketchToInkRequest): Promise<void> {
+    return runGeneration(() => diffusionApi.generateSketchToInk(request), 'Sketch generation failed')
   }
 
   /** Clear gallery state. */

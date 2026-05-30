@@ -6,6 +6,7 @@ import type {
   ImageGenerationRequest,
   ModelLoadRequest,
   ModelLoadResponse,
+  ModelSource,
   SketchToInkRequest,
 } from '../types'
 
@@ -14,12 +15,49 @@ const api = axios.create({
   timeout: 600000,
 })
 
+interface ImageMultipartPayload {
+  image: File
+  prompt: string
+  model_id: string
+  model_source: ModelSource
+  negative_prompt?: string
+  num_inference_steps: number
+  guidance_scale: number
+  num_images: number
+  width?: number
+  height?: number
+  seed?: number
+}
+
 /**
- * Append optional numeric or string fields only when they are explicitly set.
+ * Append multipart fields only when they are explicitly set.
  */
 function appendOptionalField(formData: FormData, key: string, value?: string | number): void {
   if (typeof value === 'undefined') return
   formData.append(key, String(value))
+}
+
+/**
+ * Build shared multipart payload fields used by image-guided requests.
+ */
+function buildImageMultipartData(payload: ImageMultipartPayload): FormData {
+  const formData = new FormData()
+  formData.append('image', payload.image)
+  formData.append('prompt', payload.prompt)
+  formData.append('model_id', payload.model_id)
+  formData.append('model_source', payload.model_source)
+  appendOptionalField(formData, 'num_inference_steps', payload.num_inference_steps)
+  appendOptionalField(formData, 'guidance_scale', payload.guidance_scale)
+  appendOptionalField(formData, 'num_images', payload.num_images)
+  appendOptionalField(formData, 'width', payload.width)
+  appendOptionalField(formData, 'height', payload.height)
+  appendOptionalField(formData, 'seed', payload.seed)
+
+  if (payload.negative_prompt) {
+    formData.append('negative_prompt', payload.negative_prompt)
+  }
+
+  return formData
 }
 
 export const diffusionApi = {
@@ -48,23 +86,9 @@ export const diffusionApi = {
    * Run img2img generation by sending prompt settings + uploaded input image.
    */
   generateFromImage(payload: ImageGenerationRequest): Promise<GenerationResponse> {
-    const formData = new FormData()
-    formData.append('image', payload.image)
-    formData.append('prompt', payload.prompt)
-    formData.append('model_id', payload.model_id)
-    formData.append('model_source', payload.model_source)
+    const formData = buildImageMultipartData(payload)
     appendOptionalField(formData, 'workflow_preset', payload.workflow_preset)
-    formData.append('strength', String(payload.strength))
-    formData.append('num_inference_steps', String(payload.num_inference_steps))
-    formData.append('guidance_scale', String(payload.guidance_scale))
-    formData.append('num_images', String(payload.num_images))
-
-    if (payload.negative_prompt) {
-      formData.append('negative_prompt', payload.negative_prompt)
-    }
-    appendOptionalField(formData, 'width', payload.width)
-    appendOptionalField(formData, 'height', payload.height)
-    appendOptionalField(formData, 'seed', payload.seed)
+    appendOptionalField(formData, 'strength', payload.strength)
 
     return api.post<GenerationResponse>('/generate-from-image', formData).then((r) => r.data)
   },
@@ -73,22 +97,8 @@ export const diffusionApi = {
    * Run sketch-to-ink generation using the backend ControlNet workflow.
    */
   generateSketchToInk(payload: SketchToInkRequest): Promise<GenerationResponse> {
-    const formData = new FormData()
-    formData.append('image', payload.image)
-    formData.append('prompt', payload.prompt)
-    formData.append('model_id', payload.model_id)
-    formData.append('model_source', payload.model_source)
-    formData.append('controlnet_conditioning_scale', String(payload.controlnet_conditioning_scale))
-    formData.append('num_inference_steps', String(payload.num_inference_steps))
-    formData.append('guidance_scale', String(payload.guidance_scale))
-    formData.append('num_images', String(payload.num_images))
-
-    if (payload.negative_prompt) {
-      formData.append('negative_prompt', payload.negative_prompt)
-    }
-    appendOptionalField(formData, 'width', payload.width)
-    appendOptionalField(formData, 'height', payload.height)
-    appendOptionalField(formData, 'seed', payload.seed)
+    const formData = buildImageMultipartData(payload)
+    appendOptionalField(formData, 'controlnet_conditioning_scale', payload.controlnet_conditioning_scale)
 
     return api.post<GenerationResponse>('/generate-sketch-to-ink', formData).then((r) => r.data)
   },

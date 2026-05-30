@@ -277,50 +277,65 @@ function handleLoadModel() {
 }
 
 /**
- * Route the request to the correct backend endpoint based on generation mode.
+ * Build the common prompt/model payload fields shared by all generation calls.
  */
-function handleGenerate() {
-  if (!formValid.value) return
-  if (isImageGuidedMode.value && !isSketchToInkMode.value && imageFile.value) {
-    const workflowPreset = selectedPhaseThreePreset.value?.workflowPreset ?? 'general'
-    return store.generateFromImage({
-      image: imageFile.value,
-      prompt: form.value.prompt.trim(),
-      negative_prompt: form.value.negativePrompt.trim() || undefined,
-      model_id: activeModelId.value,
-      model_source: modelSourceSelection.value,
-      workflow_preset: workflowPreset,
-      width: form.value.width,
-      height: form.value.height,
-      strength: form.value.strength,
-      num_inference_steps: form.value.numInferenceSteps,
-      guidance_scale: form.value.guidanceScale,
-      seed: form.value.seed ?? undefined,
-      num_images: form.value.numImages,
-    })
-  }
-
-  if (generationMode.value === 'sketch-to-ink' && imageFile.value) {
-    return store.generateSketchToInk({
-      image: imageFile.value,
-      prompt: form.value.prompt.trim(),
-      negative_prompt: form.value.negativePrompt.trim() || undefined,
-      model_id: activeModelId.value,
-      model_source: 'huggingface',
-      width: form.value.width,
-      height: form.value.height,
-      controlnet_conditioning_scale: form.value.controlnetConditioningScale,
-      num_inference_steps: form.value.numInferenceSteps,
-      guidance_scale: form.value.guidanceScale,
-      seed: form.value.seed ?? undefined,
-      num_images: form.value.numImages,
-    })
-  }
-
-  return store.generate({
+function buildCommonGenerationPayload() {
+  return {
     prompt: form.value.prompt.trim(),
     negative_prompt: form.value.negativePrompt.trim() || undefined,
     model_id: activeModelId.value,
+  }
+}
+
+/**
+ * Trigger one of the image-to-image preset workflows.
+ */
+function generatePresetWorkflow() {
+  if (!imageFile.value) return
+  const workflowPreset = selectedPhaseThreePreset.value?.workflowPreset ?? 'general'
+  const payload = buildCommonGenerationPayload()
+  return store.generateFromImage({
+    ...payload,
+    image: imageFile.value,
+    model_source: modelSourceSelection.value,
+    workflow_preset: workflowPreset,
+    width: form.value.width,
+    height: form.value.height,
+    strength: form.value.strength,
+    num_inference_steps: form.value.numInferenceSteps,
+    guidance_scale: form.value.guidanceScale,
+    seed: form.value.seed ?? undefined,
+    num_images: form.value.numImages,
+  })
+}
+
+/**
+ * Trigger sketch-to-ink generation with ControlNet conditioning settings.
+ */
+function generateSketchWorkflow() {
+  if (!imageFile.value) return
+  const payload = buildCommonGenerationPayload()
+  return store.generateSketchToInk({
+    ...payload,
+    image: imageFile.value,
+    model_source: 'huggingface',
+    width: form.value.width,
+    height: form.value.height,
+    controlnet_conditioning_scale: form.value.controlnetConditioningScale,
+    num_inference_steps: form.value.numInferenceSteps,
+    guidance_scale: form.value.guidanceScale,
+    seed: form.value.seed ?? undefined,
+    num_images: form.value.numImages,
+  })
+}
+
+/**
+ * Trigger standard text-to-image generation.
+ */
+function generateTextWorkflow() {
+  const payload = buildCommonGenerationPayload()
+  return store.generate({
+    ...payload,
     model_source: modelSourceSelection.value,
     width: form.value.width,
     height: form.value.height,
@@ -329,6 +344,16 @@ function handleGenerate() {
     seed: form.value.seed ?? undefined,
     num_images: form.value.numImages,
   })
+}
+
+/**
+ * Route the request to the correct backend endpoint based on generation mode.
+ */
+function handleGenerate() {
+  if (!formValid.value) return
+  if (isImageGuidedMode.value && !isSketchToInkMode.value) return generatePresetWorkflow()
+  if (generationMode.value === 'sketch-to-ink') return generateSketchWorkflow()
+  return generateTextWorkflow()
 }
 
 /**
