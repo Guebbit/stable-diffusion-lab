@@ -5,18 +5,33 @@
  * - Left column: GenerationForm (all controls)
  * - Right column: ImageGallery (generated results)
  * - Error banner: displays API errors from the store
+ * - Toast snackbar: brief auto-dismissing notification for every action
+ * - Activity log panel: collapsible list of all past notifications
  */
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useDiffusionStore } from './stores/diffusion'
+import { useNotificationStore, LEVEL_COLOR, LEVEL_ICON } from './stores/notifications'
 import GenerationForm from './components/GenerationForm.vue'
 import ImageGallery from './components/ImageGallery.vue'
 
 const store = useDiffusionStore()
+const notif = useNotificationStore()
 
 // Check backend health on first load (shows device + loaded model in the top bar)
 onMounted(() => {
   store.fetchStatus()
 })
+
+// v-model for v-snackbar requires a boolean ref — derived from whether current toast exists
+const showToast = computed({
+  get: () => notif.current !== null,
+  set: (val) => { if (!val) notif.dismiss() },
+})
+
+// Format a Date as HH:MM:SS for the activity log timestamps
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
 </script>
 
 <template>
@@ -76,8 +91,82 @@ onMounted(() => {
             <ImageGallery />
           </v-col>
         </v-row>
+
+        <!-- Activity log — collapsible panel showing all past notifications -->
+        <v-row class="mt-4">
+          <v-col cols="12">
+            <v-expansion-panels variant="accordion">
+              <v-expansion-panel>
+                <v-expansion-panel-title>
+                  <v-icon icon="mdi-format-list-bulleted" class="mr-2" />
+                  Activity Log
+                  <v-chip
+                    v-if="notif.logs.length"
+                    size="x-small"
+                    class="ml-2"
+                    color="primary"
+                  >
+                    {{ notif.logs.length }}
+                  </v-chip>
+                </v-expansion-panel-title>
+
+                <v-expansion-panel-text>
+                  <div v-if="!notif.logs.length" class="text-medium-emphasis text-body-2 py-2">
+                    No activity yet — log entries appear here as you interact with the app.
+                  </div>
+
+                  <v-list v-else density="compact" class="pa-0">
+                    <v-list-item
+                      v-for="entry in notif.logs"
+                      :key="entry.id"
+                      :prepend-icon="LEVEL_ICON[entry.level]"
+                      :base-color="LEVEL_COLOR[entry.level]"
+                    >
+                      <v-list-item-title class="text-body-2">
+                        {{ entry.message }}
+                      </v-list-item-title>
+                      <template #append>
+                        <span class="text-caption text-medium-emphasis">
+                          {{ formatTime(entry.timestamp) }}
+                        </span>
+                      </template>
+                    </v-list-item>
+                  </v-list>
+
+                  <v-btn
+                    v-if="notif.logs.length"
+                    size="small"
+                    variant="text"
+                    color="error"
+                    prepend-icon="mdi-delete-outline"
+                    class="mt-2"
+                    @click="notif.clearLogs()"
+                  >
+                    Clear log
+                  </v-btn>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+          </v-col>
+        </v-row>
       </v-container>
     </v-main>
+
+    <!-- Toast snackbar — shows the latest notification briefly then auto-dismisses -->
+    <v-snackbar
+      v-model="showToast"
+      :color="notif.current ? LEVEL_COLOR[notif.current.level] : undefined"
+      :timeout="5000"
+      location="bottom right"
+      min-width="300"
+    >
+      <v-icon :icon="notif.current ? LEVEL_ICON[notif.current.level] : 'mdi-bell'" class="mr-2" />
+      {{ notif.current?.message }}
+
+      <template #actions>
+        <v-btn variant="text" icon="mdi-close" @click="notif.dismiss()" />
+      </template>
+    </v-snackbar>
   </v-app>
 </template>
 

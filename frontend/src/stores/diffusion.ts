@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { diffusionApi } from '../api/diffusion'
+import { useNotificationStore } from './notifications'
 import type {
   BackendStatus,
   GenerationRequest,
@@ -25,62 +26,90 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   const error = ref<string | null>(null)
 
   /** Fetch backend status and silently reset status if the request fails. */
-  async function fetchStatus() {
-    try {
-      status.value = await diffusionApi.getStatus()
-    } catch {
-      status.value = null
-    }
+  function fetchStatus() {
+    const prevStatus = status.value?.status
+    return diffusionApi.getStatus()
+      .then((s) => {
+        // Notify only on first connect or when coming back online
+        if (prevStatus == null) {
+          useNotificationStore().push('info', `Backend connected — device: ${s.device.toUpperCase()}`)
+        }
+        status.value = s
+      })
+      .catch(() => {
+        if (status.value !== null) {
+          useNotificationStore().push('warning', 'Backend offline — cannot reach the API')
+        }
+        status.value = null
+      })
   }
 
   /**
    * Wrap generation calls with shared loading/error state handling.
+   * Returns a Promise so callers can optionally chain further logic.
    */
-  async function runGeneration(
+  function runGeneration(
     request: () => Promise<GenerationResponse>,
-    fallbackMessage: string,
-  ) {
+    label: string,
+  ): Promise<void> {
+    const notif = useNotificationStore()
     isGenerating.value = true
     error.value = null
+    notif.push('info', `${label} — generating…`)
 
-    try {
-      const response = await request()
-      generatedImages.value = [...response.images, ...generatedImages.value]
-    } catch (err: unknown) {
-      error.value = err instanceof Error ? err.message : fallbackMessage
-    } finally {
-      isGenerating.value = false
-    }
+    return request()
+      .then((response) => {
+        generatedImages.value = [...response.images, ...generatedImages.value]
+        notif.push(
+          'success',
+          `${label} done — ${response.images.length} image(s) in ${response.elapsed_seconds}s`,
+        )
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : `${label} failed`
+        error.value = msg
+        notif.push('error', msg)
+      })
+      .finally(() => {
+        isGenerating.value = false
+      })
   }
 
   /** Load a model for the selected task and refresh backend status afterwards. */
-  async function loadModel(modelId: string, source: ModelSource, task: GenerationTask = 'text2img') {
+  function loadModel(modelId: string, source: ModelSource, task: GenerationTask = 'text2img') {
+    const notif = useNotificationStore()
     isLoadingModel.value = true
     error.value = null
+    notif.push('info', `Loading model "${modelId}" (${task})…`)
 
-    try {
-      await diffusionApi.loadModel({ model_id: modelId, model_source: source, task })
-      await fetchStatus()
-    } catch (err: unknown) {
-      error.value = err instanceof Error ? err.message : 'Failed to load model'
-    } finally {
-      isLoadingModel.value = false
-    }
+    return diffusionApi.loadModel({ model_id: modelId, model_source: source, task })
+      .then((res) => {
+        notif.push('success', res.message)
+        return fetchStatus()
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Failed to load model'
+        error.value = msg
+        notif.push('error', `Model load failed: ${msg}`)
+      })
+      .finally(() => {
+        isLoadingModel.value = false
+      })
   }
 
   /** Trigger standard text-to-image generation and prepend returned images. */
   function generate(request: GenerationRequest): Promise<void> {
-    return runGeneration(() => diffusionApi.generate(request), 'Generation failed')
+    return runGeneration(() => diffusionApi.generate(request), 'Text-to-image')
   }
 
   /** Trigger image-to-image generation and prepend returned images. */
   function generateFromImage(request: ImageGenerationRequest): Promise<void> {
-    return runGeneration(() => diffusionApi.generateFromImage(request), 'Image generation failed')
+    return runGeneration(() => diffusionApi.generateFromImage(request), 'Image-to-image')
   }
 
   /** Trigger sketch-to-ink generation and prepend returned images. */
   function generateSketchToInk(request: SketchToInkRequest): Promise<void> {
-    return runGeneration(() => diffusionApi.generateSketchToInk(request), 'Sketch generation failed')
+    return runGeneration(() => diffusionApi.generateSketchToInk(request), 'Sketch-to-ink')
   }
 
   /** Clear gallery state. */

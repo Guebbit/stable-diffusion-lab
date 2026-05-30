@@ -54,8 +54,16 @@ from schemas import (
 
 # Configure root logger — INFO level means we see helpful startup/request messages
 # but not verbose DEBUG-level torch internals.
+# We call basicConfig first as a fallback, then also attach a StreamHandler directly
+# so our app-level logger emits output even when uvicorn has already claimed the
+# root logger's handlers (basicConfig is a no-op if handlers already exist).
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
+    logger.addHandler(_handler)
+logger.setLevel(logging.INFO)
 
 # ─── App setup ─────────────────────────────────────────────────────────────
 
@@ -169,6 +177,11 @@ async def load_model(request: ModelLoadRequest) -> ModelLoadResponse:
         3. Confirm the model is ready before the user hits "generate".
     """
 
+    logger.info(
+        "POST /api/models/load — model_id=%s  source=%s  task=%s",
+        request.model_id, request.model_source, request.task,
+    )
+
     # ControlNet requires HuggingFace because we need to load two separate repos
     # (base model + ControlNet weights). CivitAI is single-file and doesn't support this.
     if request.task == "sketch2ink" and request.model_source != "huggingface":
@@ -178,8 +191,14 @@ async def load_model(request: ModelLoadRequest) -> ModelLoadResponse:
         )
 
     try:
+        start_load = time.time()
         # ensure_model is idempotent: if the model is already loaded it returns immediately
         ensure_model(request.model_id, request.model_source, request.task)
+        load_elapsed = time.time() - start_load
+        logger.info(
+            "Model '%s' ready in %.2fs on %s",
+            request.model_id, load_elapsed, get_device(),
+        )
         return ModelLoadResponse(
             success=True,
             model_id=request.model_id,
@@ -219,6 +238,12 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
     # Build a seeded RNG so we can reproduce this image later if needed
     generator, seed_value = _build_generator(request.seed)
 
+    logger.info(
+        "text2img — model=%s  %dx%d  steps=%d  cfg=%.1f  images=%d  seed=%d",
+        request.model_id, request.width, request.height,
+        request.num_inference_steps, request.guidance_scale,
+        request.num_images, seed_value,
+    )
     start = time.time()
     try:
         # Calling the pipeline like a function runs the entire diffusion loop.
@@ -237,6 +262,8 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
         logger.exception("Image generation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    elapsed = time.time() - start
+    logger.info("text2img done — %.2fs  %d image(s)", elapsed, request.num_images)
     return _build_generation_response(
         output_images=output.images,  # type: ignore[arg-type, union-attr]
         prompt=request.prompt,
@@ -245,7 +272,7 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
         width=request.width,
         height=request.height,
         seed=seed_value,
-        elapsed=time.time() - start,
+        elapsed=elapsed,
     )
 
 
@@ -301,6 +328,10 @@ async def generate_from_image(
 
     generator, seed_value = _build_generator(seed)
 
+    logger.info(
+        "img2img — model=%s  preset=%s  strength=%.2f  steps=%d  images=%d  seed=%d",
+        model_id, workflow_preset, resolved_strength, resolved_steps, num_images, seed_value,
+    )
     start = time.time()
     try:
         output = pipeline(
@@ -317,6 +348,8 @@ async def generate_from_image(
         logger.exception("Image-to-image generation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    elapsed = time.time() - start
+    logger.info("img2img done — %.2fs  %d image(s)", elapsed, num_images)
     return _build_generation_response(
         output_images=output.images,  # type: ignore[arg-type, union-attr]
         prompt=prompt,
@@ -325,7 +358,7 @@ async def generate_from_image(
         width=target_width,
         height=target_height,
         seed=seed_value,
-        elapsed=time.time() - start,
+        elapsed=elapsed,
     )
 
 
@@ -382,6 +415,10 @@ async def generate_sketch_to_ink(
     input_image, target_width, target_height = prepare_input_image(input_image, width, height)
     generator, seed_value = _build_generator(seed)
 
+    logger.info(
+        "sketch2ink — model=%s  cnet_scale=%.2f  steps=%d  images=%d  seed=%d",
+        model_id, controlnet_conditioning_scale, num_inference_steps, num_images, seed_value,
+    )
     start = time.time()
     try:
         output = pipeline(
@@ -400,6 +437,8 @@ async def generate_sketch_to_ink(
         logger.exception("Sketch-to-ink generation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    elapsed = time.time() - start
+    logger.info("sketch2ink done — %.2fs  %d image(s)", elapsed, num_images)
     return _build_generation_response(
         output_images=output.images,  # type: ignore[arg-type, union-attr]
         prompt=prompt,
@@ -408,7 +447,7 @@ async def generate_sketch_to_ink(
         width=target_width,
         height=target_height,
         seed=seed_value,
-        elapsed=time.time() - start,
+        elapsed=elapsed,
     )
 
 
