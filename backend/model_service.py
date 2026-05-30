@@ -24,7 +24,6 @@ Why only ONE pipeline at a time?
 
 from __future__ import annotations
 
-import logging
 import os
 import re
 from pathlib import Path
@@ -48,8 +47,11 @@ from diffusers import (
 )
 
 from schemas import GenerationTask, ModelFamily, ModelSource
+from logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+# Attach a StreamHandler via the shared helper so logs surface even when uvicorn
+# has already claimed the root logger (logging.basicConfig is a no-op in that case).
+logger = get_logger(__name__)
 
 # ─── Runtime configuration (from environment variables) ────────────────────
 #
@@ -442,8 +444,15 @@ def ensure_model(model_id: str, model_source: ModelSource, task: GenerationTask 
     cache_key = f"{task}:{model_source}:{model_id}"
 
     if _loaded_model_id == cache_key and _pipeline is not None:
-        # Already loaded and active — skip expensive reload
+        # Cache hit — same model+task already warm, nothing to do
+        logger.info("Model already loaded: %s (skipping reload)", cache_key)
         return
+
+    # If a different model was loaded, log the swap so it's visible in the container
+    if _loaded_model_id is not None:
+        logger.info("Swapping model: %s → %s", _loaded_model_id, cache_key)
+    else:
+        logger.info("Loading model: %s", cache_key)
 
     # Route to the correct loader based on where the model comes from
     if model_source == "huggingface":
