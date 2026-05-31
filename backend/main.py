@@ -284,12 +284,12 @@ async def generate_from_image(
     negative_prompt: Optional[str] = Form(None),
     workflow_preset: ImageWorkflowPreset = Form("general"),       # Which preset to start from
     strength: Optional[float] = Form(None, ge=0.1, le=1.0),      # Override preset strength
-    num_inference_steps: Optional[int] = Form(None, ge=1, le=150),
-    guidance_scale: Optional[float] = Form(None, ge=1.0, le=30.0),
+    num_inference_steps: Optional[int] = Form(None, ge=1),
+    guidance_scale: Optional[float] = Form(None, ge=1.0),
     width: Optional[int] = Form(None),    # If None, keep the uploaded image's original width
     height: Optional[int] = Form(None),
     seed: Optional[int] = Form(None),
-    num_images: int = Form(1, ge=1, le=4),
+    num_images: int = Form(1, ge=1),
 ) -> GenerationResponse:
     """Generate images from an uploaded reference image using img2img diffusion.
 
@@ -369,13 +369,13 @@ async def generate_sketch_to_ink(
     negative_prompt: Optional[str] = Form(None),
     # controlnet_conditioning_scale: how strongly the sketch constrains the output.
     # 1.0 = standard adherence; >1.0 = more rigid sketch-following; <1.0 = looser.
-    controlnet_conditioning_scale: float = Form(1.1, ge=0.1, le=2.0),
-    num_inference_steps: int = Form(28, ge=1, le=150),
-    guidance_scale: float = Form(8.0, ge=1.0, le=30.0),
+    controlnet_conditioning_scale: float = Form(1.1, ge=0.1),
+    num_inference_steps: int = Form(28, ge=1),
+    guidance_scale: float = Form(8.0, ge=1.0),
     width: Optional[int] = Form(None),
     height: Optional[int] = Form(None),
     seed: Optional[int] = Form(None),
-    num_images: int = Form(1, ge=1, le=4),
+    num_images: int = Form(1, ge=1),
 ) -> GenerationResponse:
     """Generate cleaned ink output from a hand-drawn sketch using ControlNet.
 

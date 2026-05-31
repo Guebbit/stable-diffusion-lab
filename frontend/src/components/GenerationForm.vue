@@ -168,7 +168,7 @@ const form = ref<IForm>({ ...defaultForm })
 /**
  * Allowed image sizes expected by the backend.
  */
-const dimensionOptions = [256, 512, 768, 1024]
+const dimensionOptions = [256, 512, 768, 1024, 1280, 1536, 1792, 2048]
 
 /**
  * Select model list based on current source.
@@ -545,7 +545,7 @@ onBeforeUnmount(() => {
         <v-col cols="6">
           <v-select
               v-model="form.numImages"
-              :items="[1, 2, 4]"
+              :items="[1, 2, 3, 4, 6, 8]"
               label="Images"
               variant="outlined"
           />
@@ -574,8 +574,8 @@ onBeforeUnmount(() => {
           </div>
           <v-slider
               v-model="form.numInferenceSteps"
-              :min="10"
-              :max="100"
+              :min="1"
+              :max="150"
               :step="1"
               thumb-label
               color="primary"
@@ -595,7 +595,7 @@ onBeforeUnmount(() => {
           <v-slider
               v-model="form.guidanceScale"
               :min="1"
-              :max="20"
+              :max="30"
               :step="0.5"
               thumb-label
               color="primary"
@@ -621,7 +621,7 @@ onBeforeUnmount(() => {
           <v-slider
               v-model="form.controlnetConditioningScale"
               :min="0.1"
-              :max="2"
+              :max="5"
               :step="0.05"
               thumb-label
               color="primary"

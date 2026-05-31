@@ -88,20 +88,20 @@ class GenerationRequest(BaseModel):
     # More steps = higher quality but slower. 20-30 is a good balance.
     # The diffusion process starts from pure noise and iteratively refines
     # the image over num_inference_steps denoising steps.
-    num_inference_steps: int = Field(20, ge=1, le=150)
+    num_inference_steps: int = Field(20, ge=1)
 
     # Guidance scale (CFG) = how literally the model follows the prompt.
     # Low (~3-5): creative, ignores prompt partially.
     # Medium (~7-9): good balance (default 7.5).
     # High (>12): very prompt-literal but can look over-saturated.
-    guidance_scale: float = Field(7.5, ge=1.0, le=30.0)
+    guidance_scale: float = Field(7.5, ge=1.0)
 
     # Seed controls the initial noise tensor. Same seed + same params = same output.
     # None = generate a random seed each time.
     seed: Optional[int] = None
 
     # How many images to generate in one call (batched on the GPU).
-    num_images: int = Field(1, ge=1, le=4)
+    num_images: int = Field(1, ge=1)
 
 
 class GeneratedImage(BaseModel):
