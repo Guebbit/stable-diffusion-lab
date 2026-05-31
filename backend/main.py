@@ -52,8 +52,15 @@ from model_registry import (
     remove_model,
 )
 from vision_service import describe_image
+from history_service import (
+    clear_history,
+    delete_history_entry,
+    list_history,
+    save_generation,
+)
 from schemas import (
     BackendStatus,
+    GeneratedImage,
     GenerationRequest,
     GenerationResponse,
     ImageWorkflowPreset,
@@ -191,6 +198,11 @@ def _build_generation_response(
         scheduler=scheduler_name,
         pipeline_class=pipeline_class_name,
     )
+
+    # Persist every image to disk so the history survives container restarts.
+    # Fire-and-forget: errors are logged inside save_generation but never raised.
+    save_generation(images)
+
     return GenerationResponse(
         images=images,
         model_id=model_id,
@@ -599,6 +611,42 @@ async def generate_sketch_to_ink(
         guidance_scale=guidance_scale,
         model_load_time=model_load_time,
     )
+
+
+# ─── Generation history endpoints ────────────────────────────────────────
+
+@app.get("/api/history", response_model=list[GeneratedImage])
+async def get_history() -> list[GeneratedImage]:
+    """Return all persisted generations, newest first.
+
+    The History page uses this to show past creations after a container restart.
+    Each entry contains the full image (as a base64 data URL) and all metadata.
+    """
+    return list_history()
+
+
+@app.delete("/api/history/{image_id}")
+async def delete_history_image(image_id: str) -> JSONResponse:
+    """Permanently delete a single history entry by its UUID.
+
+    Returns 404 if the entry does not exist, so the frontend can show a useful message.
+    """
+    removed = delete_history_entry(image_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"History entry '{image_id}' not found")
+    logger.info("Deleted history entry: %s", image_id)
+    return JSONResponse(content={"detail": f"History entry '{image_id}' deleted"})
+
+
+@app.delete("/api/history")
+async def clear_all_history() -> JSONResponse:
+    """Permanently delete ALL history entries.
+
+    Provides a "wipe everything" shortcut for cleaning up a backlog of experiments.
+    """
+    count = clear_history()
+    logger.info("Cleared all history — %d entries removed", count)
+    return JSONResponse(content={"detail": f"Cleared {count} history entries"})
 
 
 # ─── Image description (vision captioning) ────────────────────────────────

@@ -3,6 +3,7 @@ import type {
   BackendStatus,
   DescribeImageRequest,
   DescribeImageResponse,
+  GeneratedImage,
   GenerationRequest,
   GenerationResponse,
   ImageGenerationRequest,
@@ -157,5 +158,28 @@ export const diffusionApi = {
       null,
       { params: { source } },
     ).then((r) => r.data)
+  },
+
+  // ─── History endpoints ──────────────────────────────────────────────────
+
+  /**
+   * Fetch all persisted generations from the backend (newest first).
+   */
+  getHistory(): Promise<GeneratedImage[]> {
+    return api.get<GeneratedImage[]>('/history').then((r) => r.data)
+  },
+
+  /**
+   * Permanently delete a single history entry by its UUID.
+   */
+  deleteHistoryEntry(imageId: string): Promise<void> {
+    return api.delete(`/history/${encodeURIComponent(imageId)}`).then(() => undefined)
+  },
+
+  /**
+   * Permanently delete ALL history entries.
+   */
+  clearAllHistory(): Promise<void> {
+    return api.delete('/history').then(() => undefined)
   },
 }

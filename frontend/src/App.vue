@@ -32,6 +32,7 @@ const navItems = [
   { title: 'Edit', icon: 'mdi-image-edit', to: '/edit' },
   { title: 'Ink', icon: 'mdi-draw-pen', to: '/ink' },
   { title: 'Models', icon: 'mdi-brain', to: '/models' },
+  { title: 'History', icon: 'mdi-history', to: '/history' },
 ]
 
 function formatTime(date: Date): string {
