@@ -40,12 +40,18 @@ const addForm = ref<ModelRegistryAddRequest>({
   source: 'huggingface',
   family: 'sd15',
   description: '',
+  long_description: '',
   tags: [],
+  source_url: '',
+  size: '',
 })
 const tagInput = ref('')
 
 function resetAddForm() {
-  addForm.value = { id: '', name: '', source: 'huggingface', family: 'sd15', description: '', tags: [] }
+  addForm.value = {
+    id: '', name: '', source: 'huggingface', family: 'sd15',
+    description: '', long_description: '', tags: [], source_url: '', size: '',
+  }
   tagInput.value = ''
 }
 
@@ -229,9 +235,37 @@ function familyLabel(family?: string) {
             </code>
 
             <!-- Description -->
-            <p class="text-body-2 text-medium-emphasis mb-3">
+            <p class="text-body-2 text-medium-emphasis mb-2">
               {{ model.description || 'No description available.' }}
             </p>
+
+            <!-- Long description -->
+            <p v-if="model.long_description" class="text-body-2 mb-3">
+              {{ model.long_description }}
+            </p>
+
+            <!-- Size + source link row -->
+            <div class="d-flex align-center flex-wrap gap-2 mb-3">
+              <v-chip
+                v-if="model.size"
+                size="x-small"
+                variant="tonal"
+                prepend-icon="mdi-database"
+              >
+                {{ model.size }}
+              </v-chip>
+              <v-btn
+                v-if="model.source_url"
+                :href="model.source_url"
+                target="_blank"
+                rel="noopener"
+                size="x-small"
+                variant="tonal"
+                prepend-icon="mdi-open-in-new"
+              >
+                View source
+              </v-btn>
+            </div>
 
             <!-- Tags -->
             <div v-if="model.tags?.length" class="mb-1">
@@ -339,9 +373,40 @@ function familyLabel(family?: string) {
           <v-text-field
             v-model="addForm.description"
             label="Description (optional)"
+            hint="Brief one-liner shown in the card header"
+            persistent-hint
             variant="outlined"
             class="mb-3"
           />
+
+          <v-textarea
+            v-model="addForm.long_description"
+            label="Long description (optional)"
+            hint="Detailed multi-sentence description of the model"
+            persistent-hint
+            variant="outlined"
+            rows="3"
+            class="mb-3"
+          />
+
+          <v-row>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="addForm.source_url"
+                label="Source URL (optional)"
+                placeholder="https://huggingface.co/..."
+                variant="outlined"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="addForm.size"
+                label="Approximate size (optional)"
+                placeholder="e.g. ~2.1 GB"
+                variant="outlined"
+              />
+            </v-col>
+          </v-row>
 
           <v-text-field
             v-model="tagInput"

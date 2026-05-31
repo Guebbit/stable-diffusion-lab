@@ -158,7 +158,10 @@ class ModelRegistryEntry(BaseModel):
     source: ModelSource                  # "huggingface" or "civitai"
     family: ModelFamily                  # "sd15" or "sdxl"
     description: str = ""               # Brief one-liner description
+    long_description: str = ""          # Detailed multi-sentence description
     tags: list[str] = []                # Filterable tags (e.g. "photorealistic", "fast")
+    source_url: str = ""                # Link to HuggingFace page or CivitAI model page
+    size: str = ""                      # Approximate download size (e.g. "~4.3 GB")
     downloaded: bool = False            # Whether the model files are present on disk
 
 
@@ -170,5 +173,8 @@ class ModelRegistryAddRequest(BaseModel):
     source: ModelSource
     family: ModelFamily
     description: str = ""
+    long_description: str = ""
     tags: list[str] = []
+    source_url: str = ""
+    size: str = ""
 
