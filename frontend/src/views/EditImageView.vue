@@ -11,8 +11,10 @@ const store = useDiffusionStore()
 
 // Elapsed-time counter — updates every second while a generation is running
 const elapsedSeconds = ref(0)
+// Holds the setInterval ID so we can stop the timer on completion or unmount
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
+// Start/stop the timer based on generation state
 watch(
   () => store.isGenerating,
   (generating) => {
