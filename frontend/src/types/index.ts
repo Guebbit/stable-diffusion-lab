@@ -10,6 +10,9 @@ export type ModelSource = 'huggingface' | 'civitai'
 // Backend generation task — determines which pipeline class gets loaded
 export type GenerationTask = 'text2img' | 'img2img' | 'sketch2ink'
 
+// Model architecture family
+export type ModelFamily = 'sd15' | 'sdxl'
+
 // Preset config for img2img workflows (each one tweaks strength/steps/guidance)
 export type ImageWorkflowPreset = 'general' | 'recolor' | 'style-transfer' | 'upscale'
 
@@ -35,7 +38,30 @@ export interface DescribeImageResponse {
   elapsed_seconds: number
 }
 
-/** A selectable model entry shown in the dropdown. */
+// ─── Model Registry types ─────────────────────────────────────────────────
+
+/** A model entry in the centralized registry (from GET /api/models). */
+export interface ModelRegistryEntry {
+  id: string
+  name: string
+  source: ModelSource
+  family: ModelFamily
+  description: string
+  tags: string[]
+  downloaded: boolean
+}
+
+/** Payload for registering a new model (POST /api/models). */
+export interface ModelRegistryAddRequest {
+  id: string
+  name: string
+  source: ModelSource
+  family: ModelFamily
+  description?: string
+  tags?: string[]
+}
+
+/** A selectable model entry shown in the dropdown (kept for backward compat). */
 export interface ModelOption {
   id: string
   name: string
@@ -94,7 +120,7 @@ export interface SketchToInkRequest {
   num_images: number
 }
 
-/** A single generated image displayed in the gallery. */
+/** A single generated image displayed in the gallery — includes generation metrics. */
 export interface GeneratedImage {
   id: string
   url: string           // Base64 data URL (embedded PNG)
@@ -105,6 +131,15 @@ export interface GeneratedImage {
   height: number
   seed: number          // Seed used — for "recreate this exact image" feature
   created_at: string
+  // ─── Generation metrics (observability) ─────────────────────────────
+  num_inference_steps: number
+  guidance_scale: number
+  generation_time_seconds: number
+  model_load_time_seconds?: number | null
+  device: string
+  vram_used_mb?: number | null
+  scheduler: string
+  pipeline_class: string
 }
 
 /** Response returned by all generation endpoints. */

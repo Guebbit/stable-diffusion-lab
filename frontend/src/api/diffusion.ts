@@ -8,6 +8,8 @@ import type {
   ImageGenerationRequest,
   ModelLoadRequest,
   ModelLoadResponse,
+  ModelRegistryAddRequest,
+  ModelRegistryEntry,
   ModelSource,
   SketchToInkRequest,
 } from '../types'
@@ -114,5 +116,46 @@ export const diffusionApi = {
     formData.append('model_id', payload.model_id)
 
     return api.post<DescribeImageResponse>('/describe-image', formData).then((r) => r.data)
+  },
+
+  // ─── Model Registry endpoints ───────────────────────────────────────────
+
+  /**
+   * Get all registered models with their download status.
+   */
+  getModels(): Promise<ModelRegistryEntry[]> {
+    return api.get<ModelRegistryEntry[]>('/models').then((r) => r.data)
+  },
+
+  /**
+   * Get only models that are downloaded and ready to use.
+   */
+  getDownloadedModels(): Promise<ModelRegistryEntry[]> {
+    return api.get<ModelRegistryEntry[]>('/models/downloaded').then((r) => r.data)
+  },
+
+  /**
+   * Register a new model in the catalog.
+   */
+  addModel(payload: ModelRegistryAddRequest): Promise<ModelRegistryEntry> {
+    return api.post<ModelRegistryEntry>('/models', payload).then((r) => r.data)
+  },
+
+  /**
+   * Remove a model from the registry.
+   */
+  removeModel(modelId: string, source: ModelSource): Promise<void> {
+    return api.delete(`/models/${encodeURIComponent(modelId)}`, { params: { source } }).then(() => undefined)
+  },
+
+  /**
+   * Trigger a background download for a model.
+   */
+  downloadModel(modelId: string, source: ModelSource): Promise<{ detail: string; status: string }> {
+    return api.post<{ detail: string; status: string }>(
+      `/models/${encodeURIComponent(modelId)}/download`,
+      null,
+      { params: { source } },
+    ).then((r) => r.data)
   },
 }
