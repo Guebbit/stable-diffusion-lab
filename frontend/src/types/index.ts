@@ -22,6 +22,19 @@ export type GenerationMode =
   | 'upscale-image'
   | 'sketch-to-ink'
 
+/** Request sent to /api/describe-image (vision captioning). */
+export interface DescribeImageRequest {
+  image: File
+  model_id: string
+}
+
+/** Response from the describe-image endpoint. */
+export interface DescribeImageResponse {
+  description: string
+  model_id: string
+  elapsed_seconds: number
+}
+
 /** A selectable model entry shown in the dropdown. */
 export interface ModelOption {
   id: string

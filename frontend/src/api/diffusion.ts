@@ -1,6 +1,8 @@
 import axios from 'axios'
 import type {
   BackendStatus,
+  DescribeImageRequest,
+  DescribeImageResponse,
   GenerationRequest,
   GenerationResponse,
   ImageGenerationRequest,
@@ -101,5 +103,16 @@ export const diffusionApi = {
     appendOptionalField(formData, 'controlnet_conditioning_scale', payload.controlnet_conditioning_scale)
 
     return api.post<GenerationResponse>('/generate-sketch-to-ink', formData).then((r) => r.data)
+  },
+
+  /**
+   * Send an image to the vision model for captioning/description.
+   */
+  describeImage(payload: DescribeImageRequest): Promise<DescribeImageResponse> {
+    const formData = new FormData()
+    formData.append('image', payload.image)
+    formData.append('model_id', payload.model_id)
+
+    return api.post<DescribeImageResponse>('/describe-image', formData).then((r) => r.data)
   },
 }

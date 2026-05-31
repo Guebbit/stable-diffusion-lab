@@ -42,6 +42,7 @@ from image_service import (
     serialize_images,
 )
 from model_service import ensure_model, get_active_pipeline, get_device, get_loaded_model_key
+from vision_service import describe_image
 from schemas import (
     BackendStatus,
     GenerationRequest,
@@ -445,6 +446,42 @@ async def generate_sketch_to_ink(
         seed=seed_value,
         elapsed=elapsed,
     )
+
+
+# ─── Image description (vision captioning) ────────────────────────────────
+
+@app.post("/api/describe-image")
+async def describe_image_endpoint(
+    image: UploadFile = File(...),
+    model_id: str = Form(...),
+) -> JSONResponse:
+    """Describe the content of an uploaded image using a vision-language model.
+
+    How this works:
+      1. The uploaded image is decoded into a PIL Image (same helper as img2img).
+      2. A vision-language model (BLIP, BLIP-2, or ViT-GPT2) is loaded.
+      3. The model processes the image and generates a natural language caption.
+      4. The caption text is returned to the frontend.
+
+    This endpoint is intentionally broad — users can experiment with different
+    vision models to compare description quality and detail level.
+    """
+
+    input_image = await read_uploaded_image(image)
+
+    logger.info("describe-image — model=%s", model_id)
+
+    try:
+        description, elapsed = describe_image(input_image, model_id)
+    except Exception as exc:
+        logger.exception("Image description failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return JSONResponse(content={
+        "description": description,
+        "model_id": model_id,
+        "elapsed_seconds": round(elapsed, 2),
+    })
 
 
 # ─── Global error handler ─────────────────────────────────────────────────
