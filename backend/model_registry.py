@@ -189,7 +189,7 @@ def _default_registry() -> list[dict]:
             "long_description": (
                 "Realistic Vision V5.1 by SG_161222 (CivitAI version 130072). "
                 "Focused on extreme photorealism — skin pores, fabric textures, natural lighting. "
-                "Pairs well with VAE: vae-ft-mse-840000-ema-pruned.safetensors. "
+                "Pairs well with a VAE (Variational Autoencoder) for sharper colors: vae-ft-mse-840000-ema-pruned.safetensors. "
                 "Negative prompt should include \"cartoon, painting, illustration\" to steer away from art styles."
             ),
             "tags": ["photorealistic", "portraits", "detailed"],
@@ -204,7 +204,7 @@ def _default_registry() -> list[dict]:
             "description": "Asian-beauty–focused photorealism — version 403131",
             "long_description": (
                 "majicMIX Realistic v7 by Merjic (CivitAI version 403131). "
-                "Specialised in realistic East Asian portrait photography. "
+                "Specialized in realistic East Asian portrait photography. "
                 "Renders fine facial details, hair strands and natural skin tones exceptionally well. "
                 "Works well at 512 × 768 (portrait) with 25–35 steps."
             ),

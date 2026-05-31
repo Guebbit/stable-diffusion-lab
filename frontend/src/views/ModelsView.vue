@@ -49,8 +49,15 @@ const tagInput = ref('')
 
 function resetAddForm() {
   addForm.value = {
-    id: '', name: '', source: 'huggingface', family: 'sd15',
-    description: '', long_description: '', tags: [], source_url: '', size: '',
+    id: '',
+    name: '',
+    source: 'huggingface',
+    family: 'sd15',
+    description: '',
+    long_description: '',
+    tags: [],
+    source_url: '',
+    size: '',
   }
   tagInput.value = ''
 }
