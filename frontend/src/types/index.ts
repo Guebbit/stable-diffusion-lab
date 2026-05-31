@@ -52,6 +52,7 @@ export interface ModelRegistryEntry {
   source_url: string
   size: string
   downloaded: boolean
+  downloading: boolean             // True while a background download thread is active
 }
 
 /** Payload for registering a new model (POST /api/models). */

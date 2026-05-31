@@ -303,10 +303,20 @@ def is_model_downloaded(model_id: str, source: str) -> bool:
 # ─── Public API ────────────────────────────────────────────────────────────
 
 def list_models() -> list[dict]:
-    """Return all registered models with their current download status."""
+    """Return all registered models with their current download status.
+
+    While a background download thread is active we force downloaded=False so
+    the frontend never shows a model as "Ready" before the files are complete.
+    """
     registry = _load_registry()
     for entry in registry:
-        entry["downloaded"] = is_model_downloaded(entry["id"], entry["source"])
+        currently_downloading = is_downloading(entry["id"], entry["source"])
+        entry["downloading"] = currently_downloading
+        # A partial HuggingFace snapshot can pass the filesystem check early,
+        # so we rely on the in-progress flag as the authoritative gate.
+        entry["downloaded"] = (not currently_downloading) and is_model_downloaded(
+            entry["id"], entry["source"]
+        )
     return registry
 
 
@@ -349,6 +359,7 @@ def add_model(
     _save_registry(registry)
 
     new_entry["downloaded"] = is_model_downloaded(model_id, source)
+    new_entry["downloading"] = is_downloading(model_id, source)
     return new_entry
 
 

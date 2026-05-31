@@ -116,9 +116,12 @@ export const useModelsStore = defineStore('models', () => {
       })
   }
 
-  /** Check if a specific model is currently being downloaded. */
+  /** Check if a specific model is currently being downloaded.
+   * Returns true immediately after the button is clicked (client-side set)
+   * and stays true once the server confirms the download is in progress. */
   function isModelDownloading(modelId: string, source: ModelSource): boolean {
-    return isDownloading.value.has(`${source}:${modelId}`)
+    if (isDownloading.value.has(`${source}:${modelId}`)) return true
+    return registry.value.find(m => m.id === modelId && m.source === source)?.downloading ?? false
   }
 
   /**

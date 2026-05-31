@@ -201,11 +201,27 @@ function familyLabel(family?: string) {
         xl="4"
       >
         <v-card height="100%" variant="outlined">
+          <!-- Indeterminate progress bar shown while the model is downloading -->
+          <v-progress-linear
+            v-if="modelsStore.isModelDownloading(model.id, model.source)"
+            indeterminate
+            color="primary"
+            height="3"
+          />
           <v-card-title class="text-body-1 font-weight-bold pt-4 pb-1 d-flex align-center">
             {{ model.name }}
             <v-spacer />
             <!-- Download status badge -->
             <v-chip
+              v-if="modelsStore.isModelDownloading(model.id, model.source)"
+              color="primary"
+              size="x-small"
+              prepend-icon="mdi-download-circle-outline"
+            >
+              Downloading…
+            </v-chip>
+            <v-chip
+              v-else
               :color="model.downloaded ? 'success' : 'grey'"
               size="x-small"
               :prepend-icon="model.downloaded ? 'mdi-check-circle' : 'mdi-cloud-download'"
