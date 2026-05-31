@@ -630,8 +630,12 @@ async def delete_history_image(image_id: str) -> JSONResponse:
     """Permanently delete a single history entry by its UUID.
 
     Returns 404 if the entry does not exist, so the frontend can show a useful message.
+    Returns 400 if the image_id is not a valid UUID format.
     """
-    removed = delete_history_entry(image_id)
+    try:
+        removed = delete_history_entry(image_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not removed:
         raise HTTPException(status_code=404, detail=f"History entry '{image_id}' not found")
     logger.info("Deleted history entry: %s", image_id)

@@ -17,17 +17,20 @@ const showDetail = ref(false)
 // Confirmation dialog before wiping everything
 const showClearConfirm = ref(false)
 
+/** Open the detail dialog for the selected image. */
 function openDetail(image: GeneratedImage) {
   detailImage.value = image
   showDetail.value = true
 }
 
+/** Delete the image shown in the detail dialog, closing the panel first. */
 function confirmDelete(image: GeneratedImage) {
   // Close the detail panel first so the deleted card doesn't linger
   showDetail.value = false
   store.deleteEntry(image.id)
 }
 
+/** Dismiss the clear-all confirmation dialog and execute the wipe. */
 function confirmClearAll() {
   showClearConfirm.value = false
   store.clearAll()

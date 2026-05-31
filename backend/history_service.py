@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -30,6 +31,14 @@ logger = get_logger(__name__)
 MODELS_CACHE_DIR = Path(os.environ.get("MODELS_CACHE_DIR", "/app/models_cache"))
 HISTORY_DIR = MODELS_CACHE_DIR / "history"
 
+# All image IDs are UUID v4 strings produced by uuid.uuid4() in image_service.py.
+# Rejecting anything that doesn't match this pattern prevents path traversal via
+# crafted IDs like "../../etc/passwd" before the path even reaches the filesystem.
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
 
 # ─── Internal helpers ────────────────────────────────────────────────────────
 
@@ -41,11 +50,12 @@ def _ensure_history_dir() -> None:
 def _entry_path(image_id: str) -> Path:
     """Return the JSON file path for a given image UUID.
 
-    Security: strip any path separators so a crafted ID like "../../etc/passwd"
-    cannot escape the history directory.
+    Security: only accepts strict UUID v4 format so a crafted ID like
+    "../../etc/passwd" is rejected before it touches the filesystem.
     """
-    safe_id = os.path.basename(image_id)
-    return HISTORY_DIR / f"{safe_id}.json"
+    if not _UUID_RE.fullmatch(image_id):
+        raise ValueError(f"Invalid image ID format: {image_id!r}")
+    return HISTORY_DIR / f"{image_id}.json"
 
 
 # ─── Public API ─────────────────────────────────────────────────────────────
