@@ -1,9 +1,9 @@
 .idea
-.env
-
+package-lock.json
 
 # Frontend build artifacts and dependencies
 frontend/node_modules/
+frontend/package-lock.json
 frontend/dist/
 
 # Backend virtual environment and cache
