@@ -300,7 +300,10 @@ async def register_model(request: ModelRegistryAddRequest) -> ModelRegistryEntry
             source=request.source,
             family=request.family,
             description=request.description,
+            long_description=request.long_description,
             tags=request.tags,
+            source_url=request.source_url,
+            size=request.size,
         )
         logger.info("Registered new model: %s (%s)", request.id, request.source)
         return ModelRegistryEntry(**entry)

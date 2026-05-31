@@ -43,7 +43,14 @@ def _default_registry() -> list[dict]:
             "source": "huggingface",
             "family": "sd15",
             "description": "The classic SD 1.5 base — fast, widely compatible",
+            "long_description": (
+                "The canonical Stable Diffusion 1.5 checkpoint, fine-tuned by Runway from the CompVis SD 1.4 base. "
+                "Native resolution is 512 × 512. It is the most widely supported model: virtually every "
+                "LoRA, ControlNet, and community extension targets it. A good all-purpose starting point."
+            ),
             "tags": ["general", "fast", "classic"],
+            "source_url": "https://huggingface.co/runwayml/stable-diffusion-v1-5",
+            "size": "~4.3 GB",
         },
         {
             "id": "stabilityai/stable-diffusion-2-1",
@@ -51,7 +58,14 @@ def _default_registry() -> list[dict]:
             "source": "huggingface",
             "family": "sd15",
             "description": "SD 2.1 — improved anatomy, 768 px native resolution",
+            "long_description": (
+                "Stability AI's second-generation base model. Trained with a new OpenCLIP text encoder "
+                "(instead of CLIP), which handles long, complex prompts better. Native resolution is "
+                "768 × 768. Note: LoRAs trained for SD 1.5 are NOT compatible with this model family."
+            ),
             "tags": ["general", "detailed"],
+            "source_url": "https://huggingface.co/stabilityai/stable-diffusion-2-1",
+            "size": "~5.2 GB",
         },
         {
             "id": "CompVis/stable-diffusion-v1-4",
@@ -59,7 +73,15 @@ def _default_registry() -> list[dict]:
             "source": "huggingface",
             "family": "sd15",
             "description": "The original SD 1.4 by CompVis — lightweight and historical",
+            "long_description": (
+                "The original public release of Stable Diffusion by CompVis (LMU Munich). "
+                "Trained on LAION-Aesthetics v2 at 512 × 512. Lighter than 1.5 and useful for "
+                "historical comparisons or resource-limited machines. Most community content now "
+                "targets v1.5 instead."
+            ),
             "tags": ["classic", "fast", "lightweight"],
+            "source_url": "https://huggingface.co/CompVis/stable-diffusion-v1-4",
+            "size": "~4.3 GB",
         },
         {
             "id": "prompthero/openjourney",
@@ -67,7 +89,15 @@ def _default_registry() -> list[dict]:
             "source": "huggingface",
             "family": "sd15",
             "description": "Midjourney-inspired style — vivid, painterly outputs",
+            "long_description": (
+                "A fine-tune of SD 1.5 on Midjourney v4 outputs by PromptHero. "
+                "Trigger the style with the prefix \"mdjrny-v4 style\" in your prompt. "
+                "Produces vivid, painterly images with the characteristic Midjourney look "
+                "— great for concept art and stylized illustrations."
+            ),
             "tags": ["artistic", "stylized", "midjourney"],
+            "source_url": "https://huggingface.co/prompthero/openjourney",
+            "size": "~2.4 GB",
         },
         {
             "id": "dreamlike-art/dreamlike-photoreal-2.0",
@@ -75,7 +105,15 @@ def _default_registry() -> list[dict]:
             "source": "huggingface",
             "family": "sd15",
             "description": "Photorealistic fine-tune — detailed skin tones and lighting",
+            "long_description": (
+                "A photorealism-focused fine-tune of SD 1.5 by Dreamlike Art. "
+                "Excels at realistic portraits, landscapes, and product shots. "
+                "Best results at 768 × 512 or higher. Add \"photo\" or \"photograph\" in the "
+                "prompt to steer the model toward photographic output."
+            ),
             "tags": ["photorealistic", "portraits", "detailed"],
+            "source_url": "https://huggingface.co/dreamlike-art/dreamlike-photoreal-2.0",
+            "size": "~2.4 GB",
         },
         {
             "id": "Lykon/dreamshaper-8",
@@ -83,7 +121,15 @@ def _default_registry() -> list[dict]:
             "source": "huggingface",
             "family": "sd15",
             "description": "Highly versatile — photos, art, fantasy at 512 px",
+            "long_description": (
+                "DreamShaper 8 by Lykon is one of the most popular community fine-tunes of SD 1.5. "
+                "Covers a wide range of styles: photorealistic portraits, fantasy art, and concept design. "
+                "Also available as a CivitAI checkpoint with the same weights. "
+                "Works best with DPM++ 2M Karras sampler at 20–30 steps."
+            ),
             "tags": ["versatile", "photorealistic", "artistic"],
+            "source_url": "https://huggingface.co/Lykon/dreamshaper-8",
+            "size": "~2.2 GB",
         },
         {
             "id": "stabilityai/stable-diffusion-xl-base-1.0",
@@ -91,7 +137,15 @@ def _default_registry() -> list[dict]:
             "source": "huggingface",
             "family": "sdxl",
             "description": "SDXL base — high detail and color fidelity at 1024 px",
+            "long_description": (
+                "Stability AI's SDXL 1.0 base model. Native resolution is 1024 × 1024. "
+                "Uses a two-stage architecture (base + optional refiner) and a much larger "
+                "U-Net than SD 1.5, producing significantly more detailed and coherent images. "
+                "Requires more VRAM (≈8 GB for float16). Recommended GPU: RTX 3080 or better."
+            ),
             "tags": ["high-quality", "detailed", "large"],
+            "source_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0",
+            "size": "~6.9 GB",
         },
         {
             "id": "stabilityai/sdxl-turbo",
@@ -99,7 +153,16 @@ def _default_registry() -> list[dict]:
             "source": "huggingface",
             "family": "sdxl",
             "description": "Distilled SDXL — near-instant results in 1–4 steps",
+            "long_description": (
+                "SDXL Turbo uses Adversarial Diffusion Distillation (ADD) to compress "
+                "the full SDXL sampling process into 1–4 steps without a major quality loss. "
+                "Ideal for rapid iteration and real-time applications. "
+                "Use guidance_scale=0 (or very low) and num_inference_steps=1–4 for best results. "
+                "Not recommended for sketch2ink (ControlNet needs more steps)."
+            ),
             "tags": ["fast", "real-time", "sdxl"],
+            "source_url": "https://huggingface.co/stabilityai/sdxl-turbo",
+            "size": "~6.7 GB",
         },
         {
             "id": "128713",
@@ -107,7 +170,15 @@ def _default_registry() -> list[dict]:
             "source": "civitai",
             "family": "sd15",
             "description": "Versatile art/photo model — version 128713",
+            "long_description": (
+                "DreamShaper 8 by Lykon (CivitAI version 128713). "
+                "One of the most downloaded models on CivitAI. Handles portraits, fantasy, "
+                "concept art and landscapes equally well. "
+                "For best results use DPM++ 2M Karras, 20–30 steps, CFG 4–7."
+            ),
             "tags": ["versatile", "photorealistic", "artistic"],
+            "source_url": "https://civitai.com/models/4384?modelVersionId=128713",
+            "size": "~2.1 GB",
         },
         {
             "id": "130072",
@@ -115,7 +186,15 @@ def _default_registry() -> list[dict]:
             "source": "civitai",
             "family": "sd15",
             "description": "Hyper-photorealistic portraits and scenes — version 130072",
+            "long_description": (
+                "Realistic Vision V5.1 by SG_161222 (CivitAI version 130072). "
+                "Focused on extreme photorealism — skin pores, fabric textures, natural lighting. "
+                "Pairs well with a VAE (Variational Autoencoder) for sharper colors: vae-ft-mse-840000-ema-pruned.safetensors. "
+                "Negative prompt should include \"cartoon, painting, illustration\" to steer away from art styles."
+            ),
             "tags": ["photorealistic", "portraits", "detailed"],
+            "source_url": "https://civitai.com/models/4201?modelVersionId=130072",
+            "size": "~2.1 GB",
         },
         {
             "id": "403131",
@@ -123,7 +202,15 @@ def _default_registry() -> list[dict]:
             "source": "civitai",
             "family": "sd15",
             "description": "Asian-beauty–focused photorealism — version 403131",
+            "long_description": (
+                "majicMIX Realistic v7 by Merjic (CivitAI version 403131). "
+                "Specialized in realistic East Asian portrait photography. "
+                "Renders fine facial details, hair strands and natural skin tones exceptionally well. "
+                "Works well at 512 × 768 (portrait) with 25–35 steps."
+            ),
             "tags": ["photorealistic", "portraits", "asian-style"],
+            "source_url": "https://civitai.com/models/43331?modelVersionId=403131",
+            "size": "~2.1 GB",
         },
     ]
 
@@ -234,7 +321,10 @@ def add_model(
     source: str,
     family: str,
     description: str = "",
+    long_description: str = "",
     tags: Optional[list[str]] = None,
+    source_url: str = "",
+    size: str = "",
 ) -> dict:
     """Register a new model in the catalog. Returns the created entry."""
     registry = _load_registry()
@@ -250,7 +340,10 @@ def add_model(
         "source": source,
         "family": family,
         "description": description,
+        "long_description": long_description,
         "tags": tags or [],
+        "source_url": source_url,
+        "size": size,
     }
     registry.append(new_entry)
     _save_registry(registry)

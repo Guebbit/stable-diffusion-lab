@@ -47,7 +47,10 @@ export interface ModelRegistryEntry {
   source: ModelSource
   family: ModelFamily
   description: string
+  long_description: string
   tags: string[]
+  source_url: string
+  size: string
   downloaded: boolean
 }
 
@@ -58,7 +61,10 @@ export interface ModelRegistryAddRequest {
   source: ModelSource
   family: ModelFamily
   description?: string
+  long_description?: string
   tags?: string[]
+  source_url?: string
+  size?: string
 }
 
 /** A selectable model entry shown in the dropdown (kept for backward compat). */
