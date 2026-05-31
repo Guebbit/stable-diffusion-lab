@@ -1,45 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useDiffusionStore } from '../stores/diffusion'
-import type { GenerationMode, GenerationTask, ImageWorkflowPreset, ModelOption, ModelSource } from '../types'
+import type { GenerationMode, GenerationTask, ImageWorkflowPreset, ModelSource } from '../types'
+// Shared model catalog — single source of truth for the dropdown and the Models catalog page
+import { huggingfaceModels, civitaiModels } from '../data/models'
 
 const store = useDiffusionStore()
-
-/**
- * Built-in model list for common Hugging Face workflows.
- */
-const huggingfaceModels: ModelOption[] = [
-  {
-    id: 'runwayml/stable-diffusion-v1-5',
-    name: 'Stable Diffusion v1.5',
-    source: 'huggingface',
-    description: 'Bad and fast (2022)',
-  },
-  {
-    id: 'stabilityai/sdxl-turbo',
-    name: 'Stable Diffusion SDXL',
-    source: 'huggingface',
-    description: 'SDXL Turbo',
-  },
-  {
-    id: 'stabilityai/stable-diffusion-xl-base-1.0',
-    name: 'Stable Diffusion XL 1.0',
-    source: 'huggingface',
-    description: 'SDXL Quality',
-  },
-]
-
-/**
- * Built-in model list for CivitAI task support.
- */
-const civitaiModels: ModelOption[] = [
-  {
-    id: '128713',
-    name: 'DreamShaper',
-    source: 'civitai',
-    description: 'Versatile art/photo model from CivitAI',
-  },
-]
 
 /**
  * Current model source and available source options.

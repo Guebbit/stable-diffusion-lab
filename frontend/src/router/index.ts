@@ -24,6 +24,11 @@ const router = createRouter({
       name: 'ink',
       component: () => import('../views/InkSketchView.vue'),
     },
+    {
+      path: '/models',
+      name: 'models',
+      component: () => import('../views/ModelsView.vue'),
+    },
   ],
 })
 
