@@ -13,6 +13,10 @@ import { diffusionApi } from '../api/diffusion'
 import { useNotificationStore } from './notifications'
 import type { ModelRegistryEntry, ModelRegistryAddRequest, ModelSource } from '../types'
 
+// Polling config for download status checks
+const POLL_INTERVAL_MS = 10_000  // Check every 10 seconds
+const MAX_POLL_ATTEMPTS = 60     // Give up after ~10 minutes
+
 export const useModelsStore = defineStore('models', () => {
   // All registered models (full catalog with download status)
   const registry = ref<ModelRegistryEntry[]>([])
@@ -119,12 +123,11 @@ export const useModelsStore = defineStore('models', () => {
 
   /**
    * Poll the registry periodically to detect when a download finishes.
-   * Stops polling after the model shows as downloaded or after 10 min.
+   * Stops after the model shows as downloaded or after MAX_POLL_ATTEMPTS.
    */
   function _pollDownloadStatus(modelId: string, source: ModelSource) {
     const key = `${source}:${modelId}`
     let attempts = 0
-    const maxAttempts = 60 // 10 min at 10s intervals
 
     const interval = setInterval(() => {
       attempts++
@@ -138,7 +141,7 @@ export const useModelsStore = defineStore('models', () => {
             useNotificationStore().push('success', `Model "${model.name}" downloaded successfully!`)
             // Refresh the downloaded models list
             fetchDownloadedModels()
-          } else if (attempts >= maxAttempts) {
+          } else if (attempts >= MAX_POLL_ATTEMPTS) {
             clearInterval(interval)
             isDownloading.value.delete(key)
             useNotificationStore().push('warning', `Download polling timed out for "${modelId}"`)
@@ -147,7 +150,7 @@ export const useModelsStore = defineStore('models', () => {
         .catch(() => {
           // Silently retry on network errors during polling
         })
-    }, 10000) // Poll every 10 seconds
+    }, POLL_INTERVAL_MS)
   }
 
   return {

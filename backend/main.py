@@ -97,6 +97,14 @@ app.add_middleware(
 )
 
 
+# ─── Constants ─────────────────────────────────────────────────────────────
+
+# Model loads under this threshold are considered cache hits (already warm)
+MIN_LOAD_TIME_THRESHOLD = 0.5
+# Bytes-to-megabytes conversion factor
+BYTES_TO_MB = 1024 * 1024
+
+
 # ─── Shared helpers ────────────────────────────────────────────────────────
 
 def _build_generator(seed: Optional[int]) -> tuple[torch.Generator, int]:
@@ -144,6 +152,10 @@ def _build_generation_response(
     scheduler_name = ""
     pipeline_class_name = ""
 
+    # Extract scheduler and pipeline class names for observability.
+    # _class_name from scheduler config is the canonical name set during from_pretrained;
+    # fallback to __name__ handles custom schedulers without config.
+    # Silently catch errors because metrics should never crash generation.
     try:
         pipeline = get_active_pipeline()
         pipeline_class_name = type(pipeline).__name__
@@ -157,7 +169,7 @@ def _build_generation_response(
     # Read peak VRAM usage on CUDA devices
     if device == "cuda":
         try:
-            vram_used_mb = round(torch.cuda.max_memory_allocated() / (1024 * 1024), 1)
+            vram_used_mb = round(torch.cuda.max_memory_allocated() / BYTES_TO_MB, 1)
         except Exception:
             pass
 
@@ -335,7 +347,7 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
         ensure_model(request.model_id, request.model_source, task="text2img")
         load_elapsed = time.time() - load_start
         # Only report load time if it was a real load (>0.5s means actual work)
-        model_load_time = load_elapsed if load_elapsed > 0.5 else None
+        model_load_time = load_elapsed if load_elapsed > MIN_LOAD_TIME_THRESHOLD else None
         pipeline = get_active_pipeline()
     except Exception as exc:
         logger.exception("Failed to load model for generation")
@@ -428,7 +440,7 @@ async def generate_from_image(
         load_start = time.time()
         ensure_model(model_id, model_source, task="img2img")
         load_elapsed = time.time() - load_start
-        model_load_time = load_elapsed if load_elapsed > 0.5 else None
+        model_load_time = load_elapsed if load_elapsed > MIN_LOAD_TIME_THRESHOLD else None
         pipeline = get_active_pipeline()
     except Exception as exc:
         logger.exception("Failed to load model for image-to-image generation")
@@ -535,7 +547,7 @@ async def generate_sketch_to_ink(
         # it downloads + loads BOTH the base model AND the ControlNet model
         ensure_model(model_id, model_source, task="sketch2ink")
         load_elapsed = time.time() - load_start
-        model_load_time = load_elapsed if load_elapsed > 0.5 else None
+        model_load_time = load_elapsed if load_elapsed > MIN_LOAD_TIME_THRESHOLD else None
         pipeline = get_active_pipeline()
     except Exception as exc:
         logger.exception("Failed to load model for sketch-to-ink generation")

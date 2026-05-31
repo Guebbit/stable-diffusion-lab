@@ -11,7 +11,7 @@ import type { GeneratedImage } from '../types'
 
 const store = useDiffusionStore()
 
-// Track which image's detail dialog is open
+// Currently displayed image in the metrics detail dialog
 const detailImage = ref<GeneratedImage | null>(null)
 const showDetail = ref(false)
 

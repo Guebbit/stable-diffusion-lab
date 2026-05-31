@@ -152,6 +152,20 @@ def _save_registry(registry: list[dict]) -> None:
 
 # ─── Download status detection ─────────────────────────────────────────────
 
+def _safe_resolve_path(base: Path, relative_suffix: str) -> Path:
+    """Resolve a path and ensure it stays inside the base directory.
+
+    Security: prevents path-traversal attacks where a crafted model_id
+    like "../../etc/passwd" could escape the cache directory.
+    """
+    resolved = (base / relative_suffix).resolve()
+    cache_root = base.resolve()
+    # Ensure the resolved path is inside the cache directory
+    if not str(resolved).startswith(str(cache_root)):
+        raise RuntimeError(f"Path traversal detected: {relative_suffix}")
+    return resolved
+
+
 def _is_huggingface_model_downloaded(model_id: str) -> bool:
     """Check if a HuggingFace model snapshot exists in the local cache.
 
@@ -161,17 +175,17 @@ def _is_huggingface_model_downloaded(model_id: str) -> bool:
     """
     # HuggingFace transforms "org/repo" → "models--org--repo"
     safe_name = model_id.replace("/", "--")
-    model_dir = MODELS_CACHE_DIR / f"models--{safe_name}"
+    model_dir = _safe_resolve_path(MODELS_CACHE_DIR, f"models--{safe_name}")
 
     if not model_dir.exists():
         return False
 
     # Check for a non-empty snapshots folder
+    # (ensures snapshot contains actual model files, not just empty directory)
     snapshots_dir = model_dir / "snapshots"
     if not snapshots_dir.exists():
         return False
 
-    # At least one snapshot hash directory with files inside
     for snapshot in snapshots_dir.iterdir():
         if snapshot.is_dir() and any(snapshot.iterdir()):
             return True
@@ -181,8 +195,12 @@ def _is_huggingface_model_downloaded(model_id: str) -> bool:
 
 def _is_civitai_model_downloaded(model_version_id: str) -> bool:
     """Check if a CivitAI .safetensors checkpoint exists on disk."""
+    import re
     normalized = model_version_id.strip()
-    checkpoint_path = MODELS_CACHE_DIR / f"civitai_{normalized}.safetensors"
+    # Only allow numeric IDs to prevent path injection
+    if not re.fullmatch(r"\d+", normalized):
+        return False
+    checkpoint_path = _safe_resolve_path(MODELS_CACHE_DIR, f"civitai_{normalized}.safetensors")
     return checkpoint_path.exists()
 
 
@@ -256,7 +274,9 @@ def remove_model(model_id: str, source: str) -> bool:
 
 # ─── Background download helpers ───────────────────────────────────────────
 
-# Track which models are currently being downloaded (prevent double downloads)
+# Tracks model IDs currently being downloaded in background threads.
+# Format: "source:model_id" (e.g. "huggingface:runwayml/stable-diffusion-v1-5").
+# Protected by _download_lock for thread-safe access from concurrent downloads.
 _downloading: set[str] = set()
 _download_lock = threading.Lock()
 
