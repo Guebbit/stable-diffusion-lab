@@ -99,21 +99,29 @@ function familyLabel(family?: string) {
   return 'Unknown'
 }
 
+// Shared inline type for the three download-status helpers below
+type DownloadStatusModel = {
+  id: string
+  source: ModelSource
+  downloaded: boolean
+  download_progress?: number | null
+}
+
 // Download status helpers — drive the badge in the card header
 
-function downloadStatusColor(model: { id: string; source: ModelSource; downloaded: boolean }) {
+function downloadStatusColor(model: DownloadStatusModel) {
   if (model.downloaded) return 'success'
   if (modelsStore.isModelDownloading(model.id, model.source)) return 'primary'
   return 'grey'
 }
 
-function downloadStatusIcon(model: { id: string; source: ModelSource; downloaded: boolean }) {
+function downloadStatusIcon(model: DownloadStatusModel) {
   if (model.downloaded) return 'mdi-check-circle'
   if (modelsStore.isModelDownloading(model.id, model.source)) return 'mdi-download'
   return 'mdi-cloud-download'
 }
 
-function downloadStatusLabel(model: { id: string; source: ModelSource; downloaded: boolean; download_progress?: number | null }) {
+function downloadStatusLabel(model: DownloadStatusModel) {
   if (model.downloaded) return 'Ready'
   if (modelsStore.isModelDownloading(model.id, model.source)) {
     // Show a percentage for CivitAI; indeterminate label for HuggingFace

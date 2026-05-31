@@ -15,7 +15,7 @@ import type { ModelRegistryEntry, ModelRegistryAddRequest, ModelSource } from '.
 
 // Polling config for download status checks
 const POLL_INTERVAL_MS = 5_000   // Check every 5 seconds while downloading
-const MAX_POLL_ATTEMPTS = 120    // Give up after ~10 minutes
+const MAX_POLL_ATTEMPTS = 120    // Give up after 120 × 5 s = 10 minutes
 
 export const useModelsStore = defineStore('models', () => {
   // All registered models (full catalog with download status)

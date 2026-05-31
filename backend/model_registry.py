@@ -463,8 +463,8 @@ def _download_civitai_model(model_version_id: str) -> None:
     """Download a CivitAI checkpoint .safetensors file.
 
     Writes to a .tmp file first, then atomically renames to the final path on
-    success. This prevents _is_civitai_model_downloaded() from returning True
-    before the file is fully written (the final path only appears once complete).
+    success. This prevents the final path from appearing before the download is
+    complete (open(..., "wb") would otherwise create it immediately).
     Byte progress is stored in _downloading so the frontend can show a progress bar.
     """
     import re
@@ -496,8 +496,12 @@ def _download_civitai_model(model_version_id: str) -> None:
             f"CivitAI download failed with status {response.status_code}: {response.text[:200]}"
         )
 
-    # Populate total_bytes in the progress tracker when Content-Length is available
-    total_bytes = int(response.headers.get("Content-Length", 0))
+    # Populate total_bytes in the progress tracker when Content-Length is available.
+    # Guard against non-numeric header values (some servers omit or mangle it).
+    try:
+        total_bytes = int(response.headers.get("Content-Length", 0))
+    except (ValueError, TypeError):
+        total_bytes = 0
     key = f"civitai:{normalized}"
     with _download_lock:
         if key in _downloading:
