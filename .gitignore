@@ -12,6 +12,17 @@ backend/venv/
 backend/models_cache/
 backend/__pycache__/
 backend/*.pyc
+backend/*.pyo
+backend/__pycache__/
+backend/.venv/
+backend/venv/
+
+# Models cache (large files – persist via Docker volume instead)
+models_cache/
+
+# Misc
+.DS_Store
+
 
 # Environment files
 .env
