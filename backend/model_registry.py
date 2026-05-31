@@ -310,6 +310,7 @@ def list_models() -> list[dict]:
     """
     registry = _load_registry()
     for entry in registry:
+        # True when a background thread is actively downloading this specific model
         currently_downloading = is_downloading(entry["id"], entry["source"])
         entry["downloading"] = currently_downloading
         # A partial HuggingFace snapshot can pass the filesystem check early,

@@ -117,10 +117,14 @@ export const useModelsStore = defineStore('models', () => {
   }
 
   /** Check if a specific model is currently being downloaded.
-   * Returns true immediately after the button is clicked (client-side set)
-   * and stays true once the server confirms the download is in progress. */
+   * We check the client-side set first so the UI reacts instantly when the
+   * user clicks Download (before the first 10-second poll fires).
+   * After the first poll the server's `downloading` flag takes over as the
+   * authoritative source, covering any restarts or parallel sessions. */
   function isModelDownloading(modelId: string, source: ModelSource): boolean {
+    // Client-side set: immediate feedback in the 0–10 s gap before first poll
     if (isDownloading.value.has(`${source}:${modelId}`)) return true
+    // Server-authoritative: reflects the actual background-thread state
     return registry.value.find(m => m.id === modelId && m.source === source)?.downloading ?? false
   }
 
