@@ -62,10 +62,16 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     return request()
       .then((response) => {
         generatedImages.value = [...response.images, ...generatedImages.value]
-        notif.push(
-          'success',
-          `${label} done — ${response.images.length} image(s) in ${response.elapsed_seconds}s`,
-        )
+        // Build a rich success notification with device/VRAM info
+        const firstImage = response.images[0]
+        let detail = `${label} done — ${response.images.length} image(s) in ${response.elapsed_seconds}s`
+        if (firstImage?.device) {
+          detail += ` on ${firstImage.device.toUpperCase()}`
+        }
+        if (firstImage?.vram_used_mb) {
+          detail += ` (${firstImage.vram_used_mb} MB VRAM)`
+        }
+        notif.push('success', detail)
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : `${label} failed`

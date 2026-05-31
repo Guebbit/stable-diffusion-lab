@@ -1,51 +1,85 @@
 <script setup lang="ts">
 /**
- * Models catalog page.
- * Lists every available model with detailed descriptions, architecture info,
- * tags, and a link to the original source (HuggingFace / CivitAI).
- *
- * Data comes from src/data/models.ts — the same source used by GenerationForm.
+ * Models management page.
+ * Shows all registered models with download status, allows adding new models
+ * and triggering downloads. The backend is the source of truth for the catalog.
  */
-import { computed, ref } from 'vue'
-import { huggingfaceModels, civitaiModels } from '../data/models'
-import type { ModelOption } from '../types'
+import { computed, onMounted, ref } from 'vue'
+import { useModelsStore } from '../stores/models'
+import type { ModelFamily, ModelRegistryAddRequest, ModelSource } from '../types'
 
-// Combine HuggingFace and CivitAI model arrays into a single flat list
-// to enable unified filtering across all sources
-const allModels: ModelOption[] = [...huggingfaceModels, ...civitaiModels]
+const modelsStore = useModelsStore()
 
-// Active filter chips — user can narrow by source or tags
-const activeSource = ref<'all' | 'huggingface' | 'civitai'>('all')
-const activeFamily = ref<'all' | 'sd15' | 'sdxl'>('all')
-
-// Extract all unique tags from the combined model list for filter UI — sorted alphabetically
-const allTags = computed(() => {
-  const tagSet = new Set<string>()
-  allModels.forEach(m => m.tags?.forEach(t => tagSet.add(t)))
-  return [...tagSet].sort()
+// Fetch registry on mount
+onMounted(() => {
+  modelsStore.fetchRegistry()
 })
 
-const activeTag = ref<string | null>(null)
+// ─── Filters ──────────────────────────────────────────────────────────────
 
-// Apply active filters in sequence: source filter → family filter → tag filter.
-// Models must pass all active filters to be included in the result.
+const activeSource = ref<'all' | 'huggingface' | 'civitai'>('all')
+const activeFamily = ref<'all' | 'sd15' | 'sdxl'>('all')
+const activeDownloaded = ref<'all' | 'downloaded' | 'not-downloaded'>('all')
+
 const filteredModels = computed(() =>
-  allModels.filter(m => {
+  modelsStore.registry.filter(m => {
     if (activeSource.value !== 'all' && m.source !== activeSource.value) return false
     if (activeFamily.value !== 'all' && m.family !== activeFamily.value) return false
-    if (activeTag.value && !m.tags?.includes(activeTag.value)) return false
+    if (activeDownloaded.value === 'downloaded' && !m.downloaded) return false
+    if (activeDownloaded.value === 'not-downloaded' && m.downloaded) return false
     return true
   }),
 )
 
-// Badge colour per architecture family
+// ─── Add Model dialog ─────────────────────────────────────────────────────
+
+const showAddDialog = ref(false)
+const addForm = ref<ModelRegistryAddRequest>({
+  id: '',
+  name: '',
+  source: 'huggingface',
+  family: 'sd15',
+  description: '',
+  tags: [],
+})
+const tagInput = ref('')
+
+function resetAddForm() {
+  addForm.value = { id: '', name: '', source: 'huggingface', family: 'sd15', description: '', tags: [] }
+  tagInput.value = ''
+}
+
+function handleAddModel() {
+  // Parse comma-separated tags
+  if (tagInput.value.trim()) {
+    addForm.value.tags = tagInput.value.split(',').map(t => t.trim()).filter(Boolean)
+  }
+  modelsStore.addModel(addForm.value)
+    .then(() => {
+      showAddDialog.value = false
+      resetAddForm()
+    })
+    .catch(() => { /* error handled by store */ })
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────
+
+function handleDownload(modelId: string, source: ModelSource) {
+  modelsStore.downloadModel(modelId, source)
+}
+
+function handleRemove(modelId: string, source: ModelSource) {
+  modelsStore.removeModel(modelId, source)
+}
+
+// ─── UI helpers ───────────────────────────────────────────────────────────
+
 function familyColor(family?: string) {
   if (family === 'sdxl') return 'purple'
   if (family === 'sd15') return 'blue'
   return 'grey'
 }
 
-// Label shown in the family chip
 function familyLabel(family?: string) {
   if (family === 'sdxl') return 'SDXL'
   if (family === 'sd15') return 'SD 1.x'
@@ -55,13 +89,23 @@ function familyLabel(family?: string) {
 
 <template>
   <div>
-    <div class="text-h5 mb-1">
-      <v-icon icon="mdi-brain" class="mr-2" color="primary" />
-      Model Catalog
+    <div class="d-flex align-center mb-1">
+      <div class="text-h5">
+        <v-icon icon="mdi-brain" class="mr-2" color="primary" />
+        Model Manager
+      </div>
+      <v-spacer />
+      <v-btn
+        color="primary"
+        prepend-icon="mdi-plus"
+        @click="showAddDialog = true"
+      >
+        Add Model
+      </v-btn>
     </div>
     <p class="text-body-2 text-medium-emphasis mb-6">
-      All models available in the generation form — with architecture info, descriptions and source links.
-      Use the custom model field in the form to load any other HuggingFace repo or CivitAI version ID.
+      Manage your model catalog — download models to make them available for generation.
+      Only downloaded models appear in the generation form.
     </p>
 
     <!-- ─── Filter bar ──────────────────────────────────────────────── -->
@@ -102,42 +146,40 @@ function familyLabel(family?: string) {
         </v-btn-toggle>
       </v-col>
 
-      <!-- Tag chips -->
-      <v-col cols="12">
-        <v-chip
-          v-for="tag in allTags"
-          :key="tag"
-          :color="activeTag === tag ? 'primary' : undefined"
-          :variant="activeTag === tag ? 'elevated' : 'outlined'"
-          size="small"
-          class="mr-1 mb-1"
-          style="cursor: pointer"
-          @click="activeTag = activeTag === tag ? null : tag"
+      <!-- Download status filter -->
+      <v-col cols="12" sm="auto">
+        <v-btn-toggle
+          v-model="activeDownloaded"
+          mandatory
+          variant="outlined"
+          density="compact"
+          divided
         >
-          {{ tag }}
-        </v-chip>
-        <v-chip
-          v-if="activeTag"
-          color="error"
-          variant="text"
-          size="small"
-          prepend-icon="mdi-close"
-          class="mb-1"
-          style="cursor: pointer"
-          @click="activeTag = null"
-        >
-          Clear
-        </v-chip>
+          <v-btn value="all">All</v-btn>
+          <v-btn value="downloaded">
+            <v-icon icon="mdi-check-circle" class="mr-1" size="16" color="success" />
+            Downloaded
+          </v-btn>
+          <v-btn value="not-downloaded">
+            <v-icon icon="mdi-cloud-download" class="mr-1" size="16" />
+            Not Downloaded
+          </v-btn>
+        </v-btn-toggle>
       </v-col>
     </v-row>
 
     <!-- ─── Result count ────────────────────────────────────────────── -->
     <p class="text-caption text-medium-emphasis mb-4">
-      Showing {{ filteredModels.length }} of {{ allModels.length }} models
+      Showing {{ filteredModels.length }} of {{ modelsStore.registry.length }} models
     </p>
 
+    <!-- ─── Loading state ───────────────────────────────────────────── -->
+    <div v-if="modelsStore.isLoading" class="d-flex justify-center py-8">
+      <v-progress-circular indeterminate color="primary" />
+    </div>
+
     <!-- ─── Model cards grid ────────────────────────────────────────── -->
-    <v-row>
+    <v-row v-else>
       <v-col
         v-for="model in filteredModels"
         :key="`${model.source}-${model.id}`"
@@ -146,8 +188,17 @@ function familyLabel(family?: string) {
         xl="4"
       >
         <v-card height="100%" variant="outlined">
-          <v-card-title class="text-body-1 font-weight-bold pt-4 pb-1">
+          <v-card-title class="text-body-1 font-weight-bold pt-4 pb-1 d-flex align-center">
             {{ model.name }}
+            <v-spacer />
+            <!-- Download status badge -->
+            <v-chip
+              :color="model.downloaded ? 'success' : 'grey'"
+              size="x-small"
+              :prepend-icon="model.downloaded ? 'mdi-check-circle' : 'mdi-cloud-download'"
+            >
+              {{ model.downloaded ? 'Ready' : 'Not downloaded' }}
+            </v-chip>
           </v-card-title>
 
           <v-card-subtitle class="pb-2">
@@ -172,17 +223,17 @@ function familyLabel(family?: string) {
           </v-card-subtitle>
 
           <v-card-text>
-            <!-- Model ID pill -->
+            <!-- Model ID -->
             <code class="text-caption d-block mb-3 pa-1 rounded bg-surface-variant">
               {{ model.id }}
             </code>
 
-            <!-- Long description (falls back to short description) -->
+            <!-- Description -->
             <p class="text-body-2 text-medium-emphasis mb-3">
-              {{ model.longDescription ?? model.description ?? 'No description available.' }}
+              {{ model.description || 'No description available.' }}
             </p>
 
-            <!-- Tag chips -->
+            <!-- Tags -->
             <div v-if="model.tags?.length" class="mb-1">
               <v-chip
                 v-for="tag in model.tags"
@@ -197,18 +248,29 @@ function familyLabel(family?: string) {
           </v-card-text>
 
           <v-card-actions class="px-4 pb-4">
+            <!-- Download button (only if not yet downloaded) -->
             <v-btn
-              v-if="model.sourceUrl"
-              :href="model.sourceUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="tonal"
+              v-if="!model.downloaded"
               color="primary"
+              variant="tonal"
               size="small"
-              prepend-icon="mdi-open-in-new"
+              prepend-icon="mdi-download"
+              :loading="modelsStore.isModelDownloading(model.id, model.source)"
+              @click="handleDownload(model.id, model.source)"
             >
-              View source
+              Download
             </v-btn>
+
+            <v-spacer />
+
+            <!-- Remove from registry -->
+            <v-btn
+              color="error"
+              variant="text"
+              size="small"
+              icon="mdi-delete-outline"
+              @click="handleRemove(model.id, model.source)"
+            />
           </v-card-actions>
         </v-card>
       </v-col>
@@ -216,12 +278,94 @@ function familyLabel(family?: string) {
 
     <!-- Empty state -->
     <v-alert
-      v-if="filteredModels.length === 0"
+      v-if="!modelsStore.isLoading && filteredModels.length === 0"
       type="info"
       variant="tonal"
       class="mt-4"
     >
       No models match the current filters.
     </v-alert>
+
+    <!-- ─── Add Model Dialog ────────────────────────────────────────── -->
+    <v-dialog v-model="showAddDialog" max-width="600" persistent>
+      <v-card>
+        <v-card-title class="text-h6">
+          <v-icon icon="mdi-plus-circle" class="mr-2" />
+          Add Model to Registry
+        </v-card-title>
+
+        <v-card-text>
+          <v-text-field
+            v-model="addForm.id"
+            label="Model ID"
+            hint="HuggingFace: org/repo (e.g. runwayml/stable-diffusion-v1-5) · CivitAI: version number (e.g. 128713)"
+            persistent-hint
+            variant="outlined"
+            class="mb-3"
+          />
+
+          <v-text-field
+            v-model="addForm.name"
+            label="Display Name"
+            variant="outlined"
+            class="mb-3"
+          />
+
+          <v-row>
+            <v-col cols="6">
+              <v-select
+                v-model="addForm.source"
+                :items="[
+                  { title: 'HuggingFace', value: 'huggingface' as ModelSource },
+                  { title: 'CivitAI', value: 'civitai' as ModelSource },
+                ]"
+                label="Source"
+                variant="outlined"
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-select
+                v-model="addForm.family"
+                :items="[
+                  { title: 'SD 1.x / 2.x', value: 'sd15' as ModelFamily },
+                  { title: 'SDXL', value: 'sdxl' as ModelFamily },
+                ]"
+                label="Architecture"
+                variant="outlined"
+              />
+            </v-col>
+          </v-row>
+
+          <v-text-field
+            v-model="addForm.description"
+            label="Description (optional)"
+            variant="outlined"
+            class="mb-3"
+          />
+
+          <v-text-field
+            v-model="tagInput"
+            label="Tags (comma-separated)"
+            placeholder="e.g. photorealistic, portraits, fast"
+            variant="outlined"
+          />
+        </v-card-text>
+
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showAddDialog = false; resetAddForm()">
+            Cancel
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="elevated"
+            :disabled="!addForm.id.trim() || !addForm.name.trim()"
+            @click="handleAddModel"
+          >
+            Add Model
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>

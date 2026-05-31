@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useDiffusionStore } from '../stores/diffusion'
-import type { GenerationMode, GenerationTask, ImageWorkflowPreset, ModelSource } from '../types'
-// Shared model catalog — single source of truth for the dropdown and the Models catalog page
-import { huggingfaceModels, civitaiModels } from '../data/models'
+import { useModelsStore } from '../stores/models'
+import type { GenerationMode, ImageWorkflowPreset, ModelSource } from '../types'
 
 const store = useDiffusionStore()
+const modelsStore = useModelsStore()
+
+// Fetch downloaded models on mount (for the select dropdown)
+onMounted(() => {
+  modelsStore.fetchDownloadedModels()
+})
 
 /**
  * Current model source and available source options.
@@ -137,10 +142,12 @@ const form = ref<IForm>({ ...defaultForm })
 const dimensionOptions = [256, 512, 768, 1024, 1280, 1536, 1792, 2048]
 
 /**
- * Select model list based on current source.
+ * Select model list based on current source — only shows downloaded models.
  */
 const availableModels = computed(() =>
-  modelSourceSelection.value === 'huggingface' ? huggingfaceModels : civitaiModels,
+  modelSourceSelection.value === 'huggingface'
+    ? modelsStore.huggingfaceModels
+    : modelsStore.civitaiModels,
 )
 const isSketchToInkMode = computed(() => generationMode.value === 'sketch-to-ink')
 const isImageGuidedMode = computed(() => generationMode.value !== 'text-to-image')
@@ -156,7 +163,7 @@ const selectedPhaseThreePreset = computed(() =>
 /**
  * Model selection controls.
  */
-const modelIdSelected = ref(huggingfaceModels[0]?.id ?? '')
+const modelIdSelected = ref('')
 const customModelId = ref('')
 const activeModelId = computed(() =>
   useCustomModel.value ? customModelId.value : modelIdSelected.value,
@@ -176,15 +183,6 @@ const initializedWorkflowModes = ref<Set<Exclude<GenerationMode, 'text-to-image'
 )
 
 /**
- * Map UI generation mode to backend model-loading task.
- */
-function resolveGenerationTask(mode: GenerationMode): GenerationTask {
-  if (isImageWorkflowPresetMode(mode)) return 'img2img'
-  if (mode === 'sketch-to-ink') return 'sketch2ink'
-  return 'text2img'
-}
-
-/**
  * Type guard for modes that use image-workflow preset configs.
  */
 function isImageWorkflowPresetMode(
@@ -200,7 +198,7 @@ function handleGenerationModeChange(mode: GenerationMode) {
   if (mode === 'sketch-to-ink') {
     modelSourceSelection.value = 'huggingface'
     useCustomModel.value = false
-    modelIdSelected.value = huggingfaceModels[0]?.id ?? ''
+    modelIdSelected.value = modelsStore.huggingfaceModels[0]?.id ?? ''
 
     if (!form.value.prompt.trim()) {
       form.value.prompt = sketchPromptPreset
@@ -228,18 +226,6 @@ function handleGenerationModeChange(mode: GenerationMode) {
     if (typeof preset.height === 'number') form.value.height = preset.height
     initializedWorkflowModes.value.add(mode)
   }
-}
-
-/**
- * Load currently selected model with the task type implied by the active mode.
- */
-function handleLoadModel() {
-  if (!activeModelId.value) return
-  return store.loadModel(
-    activeModelId.value,
-    modelSourceSelection.value,
-    resolveGenerationTask(generationMode.value),
-  )
 }
 
 /**
@@ -474,18 +460,6 @@ onBeforeUnmount(() => {
           class="mb-2"
       />
 
-      <v-btn
-          color="secondary"
-          variant="tonal"
-          :loading="store.isLoadingModel"
-          :disabled="!activeModelId || store.isGenerating"
-          prepend-icon="mdi-download"
-          class="mb-4"
-          @click="handleLoadModel"
-      >
-        Load Model
-      </v-btn>
-
       <v-divider class="mb-4"/>
 
       <!-- Generation Parameters -->
@@ -601,7 +575,7 @@ onBeforeUnmount(() => {
           color="primary"
           size="large"
           :loading="store.isGenerating"
-          :disabled="!formValid || store.isLoadingModel"
+          :disabled="!formValid"
           prepend-icon="mdi-creation"
           block
           @click="handleGenerate"

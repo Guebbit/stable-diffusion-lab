@@ -42,6 +42,15 @@ from image_service import (
     serialize_images,
 )
 from model_service import ensure_model, get_active_pipeline, get_device, get_loaded_model_key
+from model_registry import (
+    add_model,
+    download_model_background,
+    is_downloading,
+    is_model_downloaded,
+    list_downloaded_models,
+    list_models,
+    remove_model,
+)
 from vision_service import describe_image
 from schemas import (
     BackendStatus,
@@ -50,6 +59,8 @@ from schemas import (
     ImageWorkflowPreset,
     ModelLoadRequest,
     ModelLoadResponse,
+    ModelRegistryAddRequest,
+    ModelRegistryEntry,
     ModelSource,
 )
 
@@ -86,6 +97,14 @@ app.add_middleware(
 )
 
 
+# ─── Constants ─────────────────────────────────────────────────────────────
+
+# Model loads under this threshold are considered cache hits (already warm)
+MIN_LOAD_TIME_THRESHOLD = 0.5
+# Bytes-to-megabytes conversion factor
+BYTES_TO_MB = 1024 * 1024
+
+
 # ─── Shared helpers ────────────────────────────────────────────────────────
 
 def _build_generator(seed: Optional[int]) -> tuple[torch.Generator, int]:
@@ -116,6 +135,9 @@ def _build_generation_response(
     height: int,
     seed: int,
     elapsed: float,
+    num_inference_steps: int = 0,
+    guidance_scale: float = 0.0,
+    model_load_time: Optional[float] = None,
 ) -> GenerationResponse:
     """Assemble a standard GenerationResponse from pipeline output and metadata.
 
@@ -123,6 +145,33 @@ def _build_generation_response(
     return exactly the same response format. Keyword-only arguments (the * forces
     callers to use keyword syntax) prevent mistakes from argument ordering.
     """
+
+    # Gather runtime metrics from the active pipeline and device
+    device = get_device()
+    vram_used_mb: Optional[float] = None
+    scheduler_name = ""
+    pipeline_class_name = ""
+
+    # Extract scheduler and pipeline class names for observability.
+    # _class_name from scheduler config is the canonical name set during from_pretrained;
+    # fallback to __name__ handles custom schedulers without config.
+    # Silently catch errors because metrics should never crash generation.
+    try:
+        pipeline = get_active_pipeline()
+        pipeline_class_name = type(pipeline).__name__
+        if hasattr(pipeline, "scheduler") and hasattr(pipeline.scheduler, "config"):
+            scheduler_name = getattr(pipeline.scheduler.config, "_class_name", "")
+            if not scheduler_name:
+                scheduler_name = type(pipeline.scheduler).__name__
+    except Exception:
+        pass
+
+    # Read peak VRAM usage on CUDA devices
+    if device == "cuda":
+        try:
+            vram_used_mb = round(torch.cuda.max_memory_allocated() / BYTES_TO_MB, 1)
+        except Exception:
+            pass
 
     # Convert raw PIL images to base64 data URLs with full metadata attached
     images = serialize_images(
@@ -133,6 +182,14 @@ def _build_generation_response(
         width=width,
         height=height,
         seed=seed,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        generation_time_seconds=round(elapsed, 2),
+        model_load_time_seconds=round(model_load_time, 2) if model_load_time else None,
+        device=device,
+        vram_used_mb=vram_used_mb,
+        scheduler=scheduler_name,
+        pipeline_class=pipeline_class_name,
     )
     return GenerationResponse(
         images=images,
@@ -206,6 +263,65 @@ async def load_model(request: ModelLoadRequest) -> ModelLoadResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+# ─── Model Registry endpoints ─────────────────────────────────────────────
+
+@app.get("/api/models", response_model=list[ModelRegistryEntry])
+async def get_models() -> list[ModelRegistryEntry]:
+    """Return all registered models with their download status.
+    The Models page uses this to show the full catalog with download badges."""
+    return [ModelRegistryEntry(**m) for m in list_models()]
+
+
+@app.get("/api/models/downloaded", response_model=list[ModelRegistryEntry])
+async def get_downloaded_models() -> list[ModelRegistryEntry]:
+    """Return only models available on disk — used by generation form selects."""
+    return [ModelRegistryEntry(**m) for m in list_downloaded_models()]
+
+
+@app.post("/api/models", response_model=ModelRegistryEntry, status_code=201)
+async def register_model(request: ModelRegistryAddRequest) -> ModelRegistryEntry:
+    """Add a new model to the registry catalog."""
+    try:
+        entry = add_model(
+            model_id=request.id,
+            name=request.name,
+            source=request.source,
+            family=request.family,
+            description=request.description,
+            tags=request.tags,
+        )
+        logger.info("Registered new model: %s (%s)", request.id, request.source)
+        return ModelRegistryEntry(**entry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.delete("/api/models/{model_id:path}")
+async def delete_model(model_id: str, source: ModelSource = "huggingface") -> JSONResponse:
+    """Remove a model from the registry (does not delete downloaded files)."""
+    removed = remove_model(model_id, source)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found in registry")
+    logger.info("Removed model from registry: %s (%s)", model_id, source)
+    return JSONResponse(content={"detail": f"Model '{model_id}' removed from registry"})
+
+
+@app.post("/api/models/{model_id:path}/download")
+async def download_model(model_id: str, source: ModelSource = "huggingface") -> JSONResponse:
+    """Trigger a background download for the given model.
+    Returns immediately — the download runs in a background thread."""
+
+    if is_model_downloaded(model_id, source):
+        return JSONResponse(content={"detail": "Model already downloaded", "status": "ready"})
+
+    if is_downloading(model_id, source):
+        return JSONResponse(content={"detail": "Download already in progress", "status": "downloading"})
+
+    download_model_background(model_id, source)
+    logger.info("Started background download: %s (%s)", model_id, source)
+    return JSONResponse(content={"detail": "Download started", "status": "downloading"})
+
+
 # ─── Text-to-image generation ─────────────────────────────────────────────
 
 @app.post("/api/generate", response_model=GenerationResponse)
@@ -225,8 +341,13 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
     """
 
     # Ensure the correct pipeline is loaded (no-op if already warm)
+    model_load_time: Optional[float] = None
     try:
+        load_start = time.time()
         ensure_model(request.model_id, request.model_source, task="text2img")
+        load_elapsed = time.time() - load_start
+        # Only report load time if it was a real load (>0.5s means actual work)
+        model_load_time = load_elapsed if load_elapsed > MIN_LOAD_TIME_THRESHOLD else None
         pipeline = get_active_pipeline()
     except Exception as exc:
         logger.exception("Failed to load model for generation")
@@ -241,6 +362,11 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
         request.num_inference_steps, request.guidance_scale,
         request.num_images, seed_value,
     )
+
+    # Reset peak VRAM tracker before generation for accurate measurement
+    if get_device() == "cuda":
+        torch.cuda.reset_peak_memory_stats()
+
     start = time.time()
     try:
         # Calling the pipeline like a function runs the entire diffusion loop.
@@ -270,6 +396,9 @@ async def generate_images(request: GenerationRequest) -> GenerationResponse:
         height=request.height,
         seed=seed_value,
         elapsed=elapsed,
+        num_inference_steps=request.num_inference_steps,
+        guidance_scale=request.guidance_scale,
+        model_load_time=model_load_time,
     )
 
 
@@ -306,8 +435,12 @@ async def generate_from_image(
     (not from pure noise) so the output is "guided" by the original image's structure.
     """
 
+    model_load_time: Optional[float] = None
     try:
+        load_start = time.time()
         ensure_model(model_id, model_source, task="img2img")
+        load_elapsed = time.time() - load_start
+        model_load_time = load_elapsed if load_elapsed > MIN_LOAD_TIME_THRESHOLD else None
         pipeline = get_active_pipeline()
     except Exception as exc:
         logger.exception("Failed to load model for image-to-image generation")
@@ -329,6 +462,11 @@ async def generate_from_image(
         "img2img — model=%s  preset=%s  strength=%.2f  steps=%d  images=%d  seed=%d",
         model_id, workflow_preset, resolved_strength, resolved_steps, num_images, seed_value,
     )
+
+    # Reset peak VRAM tracker for accurate measurement
+    if get_device() == "cuda":
+        torch.cuda.reset_peak_memory_stats()
+
     start = time.time()
     try:
         output = pipeline(
@@ -356,6 +494,9 @@ async def generate_from_image(
         height=target_height,
         seed=seed_value,
         elapsed=elapsed,
+        num_inference_steps=resolved_steps,
+        guidance_scale=resolved_guidance,
+        model_load_time=model_load_time,
     )
 
 
@@ -399,10 +540,14 @@ async def generate_sketch_to_ink(
             detail="Sketch to ink currently supports HuggingFace SD 1.5 and SDXL base models only.",
         )
 
+    model_load_time: Optional[float] = None
     try:
+        load_start = time.time()
         # Loading sketch2ink pipeline is heavier than others:
         # it downloads + loads BOTH the base model AND the ControlNet model
         ensure_model(model_id, model_source, task="sketch2ink")
+        load_elapsed = time.time() - load_start
+        model_load_time = load_elapsed if load_elapsed > MIN_LOAD_TIME_THRESHOLD else None
         pipeline = get_active_pipeline()
     except Exception as exc:
         logger.exception("Failed to load model for sketch-to-ink generation")
@@ -416,6 +561,11 @@ async def generate_sketch_to_ink(
         "sketch2ink — model=%s  cnet_scale=%.2f  steps=%d  images=%d  seed=%d",
         model_id, controlnet_conditioning_scale, num_inference_steps, num_images, seed_value,
     )
+
+    # Reset peak VRAM tracker for accurate measurement
+    if get_device() == "cuda":
+        torch.cuda.reset_peak_memory_stats()
+
     start = time.time()
     try:
         output = pipeline(
@@ -445,6 +595,9 @@ async def generate_sketch_to_ink(
         height=target_height,
         seed=seed_value,
         elapsed=elapsed,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        model_load_time=model_load_time,
     )
 
 

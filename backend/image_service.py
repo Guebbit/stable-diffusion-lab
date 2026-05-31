@@ -107,6 +107,14 @@ def serialize_images(
     width: int,
     height: int,
     seed: int,
+    num_inference_steps: int = 0,
+    guidance_scale: float = 0.0,
+    generation_time_seconds: float = 0.0,
+    model_load_time_seconds: Optional[float] = None,
+    device: str = "cpu",
+    vram_used_mb: Optional[float] = None,
+    scheduler: str = "",
+    pipeline_class: str = "",
 ) -> list[GeneratedImage]:
     """Convert PIL images into gallery-ready base64 payloads for the frontend.
 
@@ -145,6 +153,14 @@ def serialize_images(
                 height=height,
                 seed=seed,
                 created_at=created_at,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                generation_time_seconds=generation_time_seconds,
+                model_load_time_seconds=model_load_time_seconds,
+                device=device,
+                vram_used_mb=vram_used_mb,
+                scheduler=scheduler,
+                pipeline_class=pipeline_class,
             )
         )
     return images
