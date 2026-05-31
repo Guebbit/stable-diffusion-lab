@@ -29,6 +29,11 @@ const router = createRouter({
       name: 'models',
       component: () => import('../views/ModelsView.vue'),
     },
+    {
+      path: '/history',
+      name: 'history',
+      component: () => import('../views/HistoryView.vue'),
+    },
   ],
 })
 
