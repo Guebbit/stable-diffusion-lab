@@ -303,10 +303,24 @@ def is_model_downloaded(model_id: str, source: str) -> bool:
 # ─── Public API ────────────────────────────────────────────────────────────
 
 def list_models() -> list[dict]:
-    """Return all registered models with their current download status."""
+    """Return all registered models with their current download status.
+
+    Also exposes downloading=True and a progress float so the frontend can
+    show progress bars without a separate polling endpoint.
+    HuggingFace creates its cache directory structure immediately on first call,
+    which would make is_model_downloaded() return True before files are ready —
+    the is_downloading() guard below prevents that false positive.
+    """
     registry = _load_registry()
     for entry in registry:
-        entry["downloaded"] = is_model_downloaded(entry["id"], entry["source"])
+        downloading = is_downloading(entry["id"], entry["source"])
+        downloaded = is_model_downloaded(entry["id"], entry["source"])
+        # Don't report as downloaded while the download thread is still running
+        if downloading:
+            downloaded = False
+        entry["downloaded"] = downloaded
+        entry["downloading"] = downloading
+        entry["download_progress"] = get_download_progress(entry["id"], entry["source"])
     return registry
 
 
@@ -367,10 +381,11 @@ def remove_model(model_id: str, source: str) -> bool:
 
 # ─── Background download helpers ───────────────────────────────────────────
 
-# Tracks model IDs currently being downloaded in background threads.
-# Format: "source:model_id" (e.g. "huggingface:runwayml/stable-diffusion-v1-5").
+# Tracks models currently being downloaded in background threads.
+# Format: "source:model_id" → { "bytes_done": int, "total_bytes": int }
+# total_bytes = 0 means indeterminate (HuggingFace or no Content-Length header).
 # Protected by _download_lock for thread-safe access from concurrent downloads.
-_downloading: set[str] = set()
+_downloading: dict[str, dict[str, int]] = {}
 _download_lock = threading.Lock()
 
 
@@ -380,11 +395,29 @@ def is_downloading(model_id: str, source: str) -> bool:
     return key in _downloading
 
 
+def get_download_progress(model_id: str, source: str) -> Optional[float]:
+    """Return download progress as 0.0–1.0, or None when indeterminate.
+
+    Returns None for HuggingFace (snapshot_download gives no byte callbacks)
+    and for CivitAI responses that omit a Content-Length header.
+    """
+    key = f"{source}:{model_id}"
+    with _download_lock:
+        info = _downloading.get(key)
+    if info is None:
+        return None
+    total = info.get("total_bytes", 0)
+    done = info.get("bytes_done", 0)
+    if total > 0:
+        return min(done / total, 1.0)
+    return None  # Indeterminate
+
+
 def download_model_background(model_id: str, source: str) -> None:
     """Trigger a background download for the given model.
 
-    For HuggingFace: uses from_pretrained with download_only semantics.
-    For CivitAI: downloads the .safetensors file via their API.
+    For HuggingFace: uses snapshot_download (progress is indeterminate).
+    For CivitAI: streams the .safetensors file and tracks byte progress.
     """
     key = f"{source}:{model_id}"
 
@@ -392,7 +425,8 @@ def download_model_background(model_id: str, source: str) -> None:
         if key in _downloading:
             logger.info("Download already in progress for %s", key)
             return
-        _downloading.add(key)
+        # Initialize progress entry — updated by the download helpers below
+        _downloading[key] = {"bytes_done": 0, "total_bytes": 0}
 
     def _do_download():
         try:
@@ -405,7 +439,7 @@ def download_model_background(model_id: str, source: str) -> None:
             logger.exception("Download failed: %s", key)
         finally:
             with _download_lock:
-                _downloading.discard(key)
+                _downloading.pop(key, None)
 
     thread = threading.Thread(target=_do_download, daemon=True)
     thread.start()
@@ -426,7 +460,13 @@ def _download_huggingface_model(model_id: str) -> None:
 
 
 def _download_civitai_model(model_version_id: str) -> None:
-    """Download a CivitAI checkpoint .safetensors file."""
+    """Download a CivitAI checkpoint .safetensors file.
+
+    Writes to a .tmp file first, then atomically renames to the final path on
+    success. This prevents _is_civitai_model_downloaded() from returning True
+    before the file is fully written (the final path only appears once complete).
+    Byte progress is stored in _downloading so the frontend can show a progress bar.
+    """
     import re
     import requests
 
@@ -436,6 +476,8 @@ def _download_civitai_model(model_version_id: str) -> None:
 
     MODELS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     checkpoint_path = MODELS_CACHE_DIR / f"civitai_{normalized}.safetensors"
+    # Write to a temp path so the final file only exists when the download is done
+    tmp_path = MODELS_CACHE_DIR / f"civitai_{normalized}.safetensors.tmp"
 
     if checkpoint_path.exists():
         logger.info("CivitAI model already cached at %s", checkpoint_path)
@@ -454,8 +496,28 @@ def _download_civitai_model(model_version_id: str) -> None:
             f"CivitAI download failed with status {response.status_code}: {response.text[:200]}"
         )
 
-    with open(checkpoint_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1024 * 1024):
-            f.write(chunk)
+    # Populate total_bytes in the progress tracker when Content-Length is available
+    total_bytes = int(response.headers.get("Content-Length", 0))
+    key = f"civitai:{normalized}"
+    with _download_lock:
+        if key in _downloading:
+            _downloading[key]["total_bytes"] = total_bytes
+
+    try:
+        bytes_done = 0
+        with open(tmp_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                f.write(chunk)
+                bytes_done += len(chunk)
+                # Update live progress — frontend polls and reads this
+                with _download_lock:
+                    if key in _downloading:
+                        _downloading[key]["bytes_done"] = bytes_done
+        # Atomic rename: the final path only appears after a successful download
+        tmp_path.rename(checkpoint_path)
+    except Exception:
+        # Clean up partial temp file so a retry starts fresh
+        tmp_path.unlink(missing_ok=True)
+        raise
 
     logger.info("CivitAI model downloaded to %s", checkpoint_path)

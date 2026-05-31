@@ -14,8 +14,8 @@ import { useNotificationStore } from './notifications'
 import type { ModelRegistryEntry, ModelRegistryAddRequest, ModelSource } from '../types'
 
 // Polling config for download status checks
-const POLL_INTERVAL_MS = 10_000  // Check every 10 seconds
-const MAX_POLL_ATTEMPTS = 60     // Give up after ~10 minutes
+const POLL_INTERVAL_MS = 5_000   // Check every 5 seconds while downloading
+const MAX_POLL_ATTEMPTS = 120    // Give up after ~10 minutes
 
 export const useModelsStore = defineStore('models', () => {
   // All registered models (full catalog with download status)
@@ -118,7 +118,12 @@ export const useModelsStore = defineStore('models', () => {
 
   /** Check if a specific model is currently being downloaded. */
   function isModelDownloading(modelId: string, source: ModelSource): boolean {
-    return isDownloading.value.has(`${source}:${modelId}`)
+    // Local set gives instant UI feedback right after the user clicks Download,
+    // before the first poll comes back from the server.
+    if (isDownloading.value.has(`${source}:${modelId}`)) return true
+    // After the first poll the server reports downloading=true directly on the entry.
+    const model = registry.value.find(m => m.id === modelId && m.source === source)
+    return model?.downloading ?? false
   }
 
   /**

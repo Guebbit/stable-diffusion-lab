@@ -52,6 +52,8 @@ export interface ModelRegistryEntry {
   source_url: string
   size: string
   downloaded: boolean
+  downloading?: boolean         // True while a background download thread is running
+  download_progress?: number | null  // 0.0–1.0 for CivitAI; null = indeterminate (HuggingFace)
 }
 
 /** Payload for registering a new model (POST /api/models). */

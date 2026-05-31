@@ -163,6 +163,8 @@ class ModelRegistryEntry(BaseModel):
     source_url: str = ""                # Link to HuggingFace page or CivitAI model page
     size: str = ""                      # Approximate download size (e.g. "~4.3 GB")
     downloaded: bool = False            # Whether the model files are present on disk
+    downloading: bool = False           # Whether a background download is currently running
+    download_progress: Optional[float] = None  # 0.0–1.0 when known; None = indeterminate
 
 
 class ModelRegistryAddRequest(BaseModel):

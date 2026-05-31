@@ -98,6 +98,31 @@ function familyLabel(family?: string) {
   if (family === 'sd15') return 'SD 1.x'
   return 'Unknown'
 }
+
+// Download status helpers — drive the badge in the card header
+
+function downloadStatusColor(model: { id: string; source: ModelSource; downloaded: boolean }) {
+  if (model.downloaded) return 'success'
+  if (modelsStore.isModelDownloading(model.id, model.source)) return 'primary'
+  return 'grey'
+}
+
+function downloadStatusIcon(model: { id: string; source: ModelSource; downloaded: boolean }) {
+  if (model.downloaded) return 'mdi-check-circle'
+  if (modelsStore.isModelDownloading(model.id, model.source)) return 'mdi-download'
+  return 'mdi-cloud-download'
+}
+
+function downloadStatusLabel(model: { id: string; source: ModelSource; downloaded: boolean; download_progress?: number | null }) {
+  if (model.downloaded) return 'Ready'
+  if (modelsStore.isModelDownloading(model.id, model.source)) {
+    // Show a percentage for CivitAI; indeterminate label for HuggingFace
+    if (model.download_progress != null)
+      return `${Math.round(model.download_progress * 100)}%`
+    return 'Downloading…'
+  }
+  return 'Not downloaded'
+}
 </script>
 
 <template>
@@ -206,11 +231,11 @@ function familyLabel(family?: string) {
             <v-spacer />
             <!-- Download status badge -->
             <v-chip
-              :color="model.downloaded ? 'success' : 'grey'"
+              :color="downloadStatusColor(model)"
               size="x-small"
-              :prepend-icon="model.downloaded ? 'mdi-check-circle' : 'mdi-cloud-download'"
+              :prepend-icon="downloadStatusIcon(model)"
             >
-              {{ model.downloaded ? 'Ready' : 'Not downloaded' }}
+              {{ downloadStatusLabel(model) }}
             </v-chip>
           </v-card-title>
 
@@ -287,6 +312,16 @@ function familyLabel(family?: string) {
               </v-chip>
             </div>
           </v-card-text>
+
+          <!-- Download progress bar — visible while the background thread is running -->
+          <v-progress-linear
+            v-if="modelsStore.isModelDownloading(model.id, model.source)"
+            :model-value="model.download_progress != null ? model.download_progress * 100 : 0"
+            :indeterminate="model.download_progress == null"
+            color="primary"
+            rounded
+            class="mx-4 mb-3"
+          />
 
           <v-card-actions class="px-4 pb-4">
             <!-- Download button (only if not yet downloaded) -->
