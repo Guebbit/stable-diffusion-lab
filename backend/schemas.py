@@ -118,6 +118,15 @@ class GeneratedImage(BaseModel):
     height: int                     # Final rendered height in pixels
     seed: int                       # The exact seed used — user can paste this back to recreate
     created_at: str                 # ISO-8601 timestamp, e.g. "2024-05-01T12:00:00Z"
+    # ─── Generation metrics (observability) ────────────────────────────────
+    num_inference_steps: int = 0              # Steps used in generation
+    guidance_scale: float = 0.0              # CFG scale used
+    generation_time_seconds: float = 0.0     # Wall-clock time for this batch
+    model_load_time_seconds: Optional[float] = None  # Time spent loading model (None = already warm)
+    device: str = "cpu"                      # "cuda" or "cpu"
+    vram_used_mb: Optional[float] = None     # Peak VRAM during generation (GPU only)
+    scheduler: str = ""                      # Diffusion scheduler class name
+    pipeline_class: str = ""                 # Pipeline class used (e.g. "StableDiffusionPipeline")
 
 
 class GenerationResponse(BaseModel):
@@ -137,3 +146,29 @@ class BackendStatus(BaseModel):
     loaded_model: Optional[str] = None   # Cache key of the active pipeline, or None if cold
     device: str                          # "cuda" (GPU) or "cpu" (slow fallback)
     message: Optional[str] = None        # Optional extra info (e.g. error details)
+
+
+# ─── Model Registry schemas ───────────────────────────────────────────────
+
+class ModelRegistryEntry(BaseModel):
+    """A model entry in the centralized registry (returned by GET /api/models)."""
+
+    id: str                              # HuggingFace repo slug or CivitAI version ID
+    name: str                            # Human-friendly display name
+    source: ModelSource                  # "huggingface" or "civitai"
+    family: ModelFamily                  # "sd15" or "sdxl"
+    description: str = ""               # Brief one-liner description
+    tags: list[str] = []                # Filterable tags (e.g. "photorealistic", "fast")
+    downloaded: bool = False            # Whether the model files are present on disk
+
+
+class ModelRegistryAddRequest(BaseModel):
+    """Payload for registering a new model in the catalog."""
+
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    source: ModelSource
+    family: ModelFamily
+    description: str = ""
+    tags: list[str] = []
+
