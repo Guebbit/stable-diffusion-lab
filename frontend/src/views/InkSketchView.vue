@@ -4,10 +4,26 @@
  * Uses ControlNet scribble pipeline with locked-down parameters.
  * Only HuggingFace SD 1.5/SDXL models supported.
  */
-import { ref, computed, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useDiffusionStore } from '../stores/diffusion'
 
 const store = useDiffusionStore()
+
+// Elapsed-time counter — updates every second while a generation is running
+const elapsedSeconds = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+watch(
+  () => store.isGenerating,
+  (generating) => {
+    if (generating) {
+      elapsedSeconds.value = 0
+      elapsedTimer = setInterval(() => { elapsedSeconds.value++ }, 1000)
+    } else {
+      if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
+    }
+  },
+)
 
 // Only HuggingFace models work with ControlNet
 const models = [
@@ -63,6 +79,7 @@ function handleInk() {
 
 onBeforeUnmount(() => {
   if (imagePreviewUrl.value) URL.revokeObjectURL(imagePreviewUrl.value)
+  if (elapsedTimer) clearInterval(elapsedTimer)
 })
 </script>
 
@@ -160,21 +177,98 @@ onBeforeUnmount(() => {
     </v-col>
 
     <v-col cols="12" md="8" lg="9">
-      <v-card v-if="store.generatedImages.length" class="pa-4" elevation="2">
-        <v-card-title class="text-h6 mb-2">Inked Result</v-card-title>
-        <v-row>
-          <v-col v-for="img in store.generatedImages" :key="img.id" cols="12" sm="6">
-            <v-img :src="img.url" aspect-ratio="1" contain class="rounded" />
-          </v-col>
-        </v-row>
-      </v-card>
+      <!-- Indeterminate progress bar visible while generating -->
+      <v-progress-linear
+        v-if="store.isGenerating"
+        indeterminate
+        color="primary"
+        class="mb-3"
+      />
 
-      <v-card v-else class="pa-6 text-center" elevation="1" color="surface-variant">
-        <v-icon icon="mdi-draw" size="64" class="mb-4 text-medium-emphasis" />
-        <div class="text-body-1 text-medium-emphasis">
-          Upload a sketch and click "Ink Sketch" to get clean line art output.
+      <!-- Error alert -->
+      <v-alert
+        v-if="store.error"
+        type="error"
+        closable
+        class="mb-3"
+        @click:close="store.clearError()"
+      >
+        {{ store.error }}
+      </v-alert>
+
+      <v-card class="pa-4" elevation="2" style="position: relative; min-height: 200px;">
+        <!-- Loading overlay with spinner + elapsed time -->
+        <v-overlay
+          v-if="store.isGenerating"
+          contained
+          :model-value="true"
+          class="align-center justify-center"
+        >
+          <div class="text-center">
+            <v-progress-circular indeterminate color="primary" size="64" />
+            <div class="mt-3 text-body-1">Inking sketch…</div>
+            <div class="mt-1 text-caption text-medium-emphasis">
+              {{ elapsedSeconds }}s elapsed — this can take a while
+            </div>
+          </div>
+        </v-overlay>
+
+        <template v-if="store.generatedImages.length">
+          <v-card-title class="text-h6 mb-2">Inked Result</v-card-title>
+          <v-row>
+            <v-col v-for="img in store.generatedImages" :key="img.id" cols="12" sm="6">
+              <v-card elevation="1" class="image-card">
+                <v-img :src="img.url" :aspect-ratio="img.width / img.height" contain class="bg-grey-darken-3">
+                  <template #placeholder>
+                    <div class="d-flex align-center justify-center fill-height">
+                      <v-progress-circular indeterminate color="primary" />
+                    </div>
+                  </template>
+                </v-img>
+
+                <v-card-text class="pa-2">
+                  <div class="text-caption text-medium-emphasis">
+                    {{ img.width }}×{{ img.height }} · seed {{ img.seed }}
+                  </div>
+                </v-card-text>
+
+                <v-card-actions class="pa-2 pt-0">
+                  <v-btn
+                    :href="img.url"
+                    target="_blank"
+                    download
+                    size="small"
+                    variant="tonal"
+                    color="primary"
+                    prepend-icon="mdi-download"
+                  >
+                    Download
+                  </v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
+          </v-row>
+        </template>
+
+        <div
+          v-else-if="!store.isGenerating"
+          class="d-flex flex-column align-center justify-center py-12 text-medium-emphasis"
+        >
+          <v-icon icon="mdi-draw" size="64" class="mb-4 opacity-30" />
+          <div class="text-body-1">
+            Upload a sketch and click "Ink Sketch" to get clean line art output.
+          </div>
         </div>
       </v-card>
     </v-col>
   </v-row>
 </template>
+
+<style scoped>
+.image-card {
+  transition: transform 0.2s;
+}
+.image-card:hover {
+  transform: translateY(-2px);
+}
+</style>
