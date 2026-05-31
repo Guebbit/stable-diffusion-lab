@@ -323,6 +323,8 @@ def _download_huggingface_model(model_id: str) -> None:
     from huggingface_hub import snapshot_download
 
     logger.info("Downloading HuggingFace model: %s", model_id)
+    # snapshot_download fetches all model files (weights, config, tokenizer)
+    # to the local cache directory without loading them into GPU/CPU memory.
     snapshot_download(
         repo_id=model_id,
         cache_dir=str(MODELS_CACHE_DIR),
@@ -352,6 +354,7 @@ def _download_civitai_model(model_version_id: str) -> None:
         headers["Authorization"] = "Bearer " + CIV_TOKEN
 
     logger.info("Downloading CivitAI model version %s …", model_version_id)
+    # 600s timeout: model checkpoints can be 2–8+ GB, needs generous time for slow connections
     response = requests.get(url, headers=headers, stream=True, timeout=600)
     if response.status_code != 200:
         raise RuntimeError(
