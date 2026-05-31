@@ -40,7 +40,11 @@ export interface ModelOption {
   id: string
   name: string
   source: ModelSource
-  description?: string
+  description?: string          // Brief one-liner shown in the select dropdown
+  family?: 'sd15' | 'sdxl'     // Architecture family for filtering and UI badges (also determines pipeline class on the backend)
+  tags?: string[]               // e.g. ['photorealistic', 'anime', 'fast']
+  longDescription?: string      // Detailed description shown on the Models catalog page
+  sourceUrl?: string            // Link to the HuggingFace page or CivitAI model page
 }
 
 /** Payload sent to /api/generate (text-to-image). */
