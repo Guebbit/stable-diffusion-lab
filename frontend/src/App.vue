@@ -1,34 +1,38 @@
 <script setup lang="ts">
 /**
  * Root layout component.
- * - Top bar: shows backend connection status + loaded model name
- * - Left column: GenerationForm (all controls)
- * - Right column: ImageGallery (generated results)
+ * - Top bar: shows backend connection status + navigation links
+ * - Router view: renders the active page
  * - Error banner: displays API errors from the store
- * - Toast snackbar: brief auto-dismissing notification for every action
+ * - Toast snackbar: brief auto-dismissing notification
  * - Activity log panel: collapsible list of all past notifications
  */
 import { computed, onMounted } from 'vue'
 import { useDiffusionStore } from './stores/diffusion'
 import { useNotificationStore, LEVEL_COLOR, LEVEL_ICON } from './stores/notifications'
-import GenerationForm from './components/GenerationForm.vue'
-import ImageGallery from './components/ImageGallery.vue'
 
 const store = useDiffusionStore()
 const notif = useNotificationStore()
 
-// Check backend health on first load (shows device + loaded model in the top bar)
+// Check backend health on first load
 onMounted(() => {
   store.fetchStatus()
 })
 
-// v-model for v-snackbar requires a boolean ref — derived from whether current toast exists
+// v-model for v-snackbar
 const showToast = computed({
   get: () => notif.current !== null,
   set: (val) => { if (!val) notif.dismiss() },
 })
 
-// Format a Date as HH:MM:SS for the activity log timestamps
+// Navigation items for the app bar
+const navItems = [
+  { title: 'Generate', icon: 'mdi-image-sparkle', to: '/' },
+  { title: 'Describe', icon: 'mdi-eye', to: '/describe' },
+  { title: 'Edit', icon: 'mdi-image-edit', to: '/edit' },
+  { title: 'Ink', icon: 'mdi-draw-pen', to: '/ink' },
+]
+
 function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -41,6 +45,20 @@ function formatTime(date: Date): string {
         <v-icon icon="mdi-atom-variant" class="mr-2" color="primary" />
         Stable Diffusion Lab
       </v-app-bar-title>
+
+      <!-- Navigation buttons -->
+      <v-btn
+        v-for="item in navItems"
+        :key="item.to"
+        :to="item.to"
+        :prepend-icon="item.icon"
+        variant="text"
+        class="mx-1"
+      >
+        {{ item.title }}
+      </v-btn>
+
+      <v-spacer />
 
       <template #append>
         <v-chip
@@ -80,19 +98,10 @@ function formatTime(date: Date): string {
           {{ store.error }}
         </v-alert>
 
-        <v-row>
-          <!-- Left: Generation Form -->
-          <v-col cols="12" md="4" lg="3">
-            <GenerationForm />
-          </v-col>
+        <!-- Active route renders here -->
+        <router-view />
 
-          <!-- Right: Image Gallery -->
-          <v-col cols="12" md="8" lg="9">
-            <ImageGallery />
-          </v-col>
-        </v-row>
-
-        <!-- Activity log — collapsible panel showing all past notifications -->
+        <!-- Activity log -->
         <v-row class="mt-4">
           <v-col cols="12">
             <v-expansion-panels variant="accordion">
@@ -152,7 +161,7 @@ function formatTime(date: Date): string {
       </v-container>
     </v-main>
 
-    <!-- Toast snackbar — shows the latest notification briefly then auto-dismisses -->
+    <!-- Toast snackbar -->
     <v-snackbar
       v-model="showToast"
       :color="notif.current ? LEVEL_COLOR[notif.current.level] : undefined"

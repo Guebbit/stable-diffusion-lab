@@ -1,5 +1,6 @@
 /**
  * App bootstrap — creates the Vue app instance and plugs in:
+ * - Vue Router (page navigation)
  * - Vuetify (UI component library, dark theme)
  * - Pinia (state management, holds generation state)
  */
@@ -12,6 +13,7 @@ import '@mdi/font/css/materialdesignicons.css'
 import 'vuetify/styles'
 import './style.css'
 import App from './App.vue'
+import router from './router'
 
 // Vuetify setup — registers all components/directives globally
 const vuetify = createVuetify({
@@ -26,4 +28,4 @@ const vuetify = createVuetify({
 const pinia = createPinia()
 
 // Mount the app to the #app div in index.html
-createApp(App).use(vuetify).use(pinia).mount('#app')
+createApp(App).use(router).use(vuetify).use(pinia).mount('#app')
