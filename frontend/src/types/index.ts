@@ -10,8 +10,7 @@ export interface BackendStatus {
 }
 
 /**
- * Where the model weights are hosted.
- * Drives download logic: HuggingFace uses snapshot_download(), CivitAI fetches a single .safetensors.
+ * Where the model weights are hosted (drives backend download strategy).
  */
 export type ModelSource = 'huggingface' | 'civitai'
 

@@ -594,7 +594,7 @@ def _download_civitai_model(model_version_id: str) -> None:
         headers["Authorization"] = "Bearer " + CIV_TOKEN
 
     # Resume an interrupted download if a .incomplete file is present and non-empty.
-    # A zero-byte file means nothing was received yet, so resuming would waste a Round-trip.
+    # A zero-byte file means nothing was received yet, so resuming would waste a round-trip.
     resume_from = 0
     if incomplete_path.exists():
         resume_from = incomplete_path.stat().st_size
@@ -640,6 +640,7 @@ def _download_civitai_model(model_version_id: str) -> None:
         except ValueError:
             pass
 
+    # Use a list so the nested progress callback can mutate the byte count without a nonlocal declaration.
     downloaded_bytes = [resume_from]
 
     # "ab" appends to existing bytes when resuming; "wb" starts fresh for new or restarted downloads.
