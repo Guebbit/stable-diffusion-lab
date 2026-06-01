@@ -45,13 +45,19 @@ async def list_models(
             name=m.name,
             source=m.source,
             family=m.family,
+            variant=m.variant,
             description=m.description,
             tags=m.tags if isinstance(m.tags, list) else [],
             source_url=m.source_url,
+            capabilities=m.capabilities if isinstance(m.capabilities, list) else [],
             status=m.status,
-            size_bytes=m.size_bytes,
+            total_size_bytes=m.total_size_bytes,
+            disk_size_bytes=m.disk_size_bytes,
+            download_progress=m.download_progress,
             is_verified=m.is_verified,
+            last_verified_at=m.last_verified_at,
             created_at=m.created_at,
+            updated_at=m.updated_at,
         )
         for m in models
     ]
@@ -68,9 +74,11 @@ async def register_model(
         name=request.name,
         source=request.source,
         family=request.family,
+        variant=request.variant,
         description=request.description,
         tags=request.tags,
         source_url=request.source_url,
+        capabilities=request.capabilities,
     )
     return ModelRegistryResponse(
         id=model.id,
@@ -78,13 +86,19 @@ async def register_model(
         name=model.name,
         source=model.source,
         family=model.family,
+        variant=model.variant,
         description=model.description,
         tags=model.tags if isinstance(model.tags, list) else [],
         source_url=model.source_url,
+        capabilities=model.capabilities if isinstance(model.capabilities, list) else [],
         status=model.status,
-        size_bytes=model.size_bytes,
+        total_size_bytes=model.total_size_bytes,
+        disk_size_bytes=model.disk_size_bytes,
+        download_progress=model.download_progress,
         is_verified=model.is_verified,
+        last_verified_at=model.last_verified_at,
         created_at=model.created_at,
+        updated_at=model.updated_at,
     )
 
 

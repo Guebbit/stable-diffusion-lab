@@ -17,7 +17,7 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import generation, models, system
+from app.api.routers import artifacts, generation, jobs, models, system
 from app.api.websocket.hub import ws_hub
 from app.infrastructure.config.settings import get_settings
 from app.orchestrator.event_bus import event_bus
@@ -79,7 +79,9 @@ def create_app() -> FastAPI:
     # --- Register API routers under /api/v1 ---
     api_prefix = "/api/v1"
     app.include_router(generation.router, prefix=api_prefix)
+    app.include_router(jobs.router, prefix=api_prefix)
     app.include_router(models.router, prefix=api_prefix)
+    app.include_router(artifacts.router, prefix=api_prefix)
     app.include_router(system.router, prefix=api_prefix)
 
     # --- WebSocket endpoint ---
