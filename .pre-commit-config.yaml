@@ -1,0 +1,37 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pre-commit hooks — enforce code quality on every commit
+# See docs/architecture/step-6-code-quality-documentation.md for rationale
+# ═══════════════════════════════════════════════════════════════════════════════
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: Ruff lint
+        entry: ruff check --fix
+        language: system
+        types: [python]
+        pass_filenames: true
+        files: ^backend/
+
+      - id: ruff-format
+        name: Ruff format
+        entry: ruff format
+        language: system
+        types: [python]
+        pass_filenames: true
+        files: ^backend/
+
+      - id: mypy
+        name: mypy type check
+        entry: mypy --config-file backend/pyproject.toml
+        language: system
+        types: [python]
+        pass_filenames: false
+        files: ^backend/app/
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.13.0
+    hooks:
+      - id: markdownlint-cli2
+        args: ["--config", ".markdownlint.yaml"]
