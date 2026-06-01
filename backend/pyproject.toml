@@ -46,9 +46,14 @@ video = [
 llm = [
     # Local LLM dependencies (optional)
     "bitsandbytes>=0.43.0",
+    "llama-cpp-python>=0.2.0",
 ]
 bentoml = [
     "bentoml>=1.2.0",
+]
+comfyui = [
+    # ComfyUI adapter needs websockets for real-time communication
+    "websockets>=12.0",
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════

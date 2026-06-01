@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     inference_backend: str = "direct_python"
     # Maximum VRAM budget in MB (0 = no limit, use all available)
     max_vram_mb: int = 0
+    # Maximum pipelines to keep loaded in PipelineCache simultaneously
+    max_cached_pipelines: int = 1
 
     # --- Job orchestrator ---
     # Maximum concurrent inference workers (1 = serialize GPU work)
@@ -77,6 +79,14 @@ class Settings(BaseSettings):
     job_poll_interval: float = 1.0
     # Default job timeout in seconds (0 = no timeout)
     job_timeout_seconds: int = 0
+
+    # --- BentoML (optional backend) ---
+    bentoml_enabled: bool = False
+    bentoml_url: str = "http://localhost:3000"
+
+    # --- ComfyUI (optional backend) ---
+    comfyui_enabled: bool = False
+    comfyui_url: str = "http://localhost:8188"
 
     # --- CORS ---
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]

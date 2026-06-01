@@ -2,8 +2,8 @@
 Direct text-to-image adapter using HuggingFace Diffusers.
 
 Implements the TextToImageProvider protocol by loading and calling
-diffusion pipelines directly in-process. Handles pipeline caching
-to avoid redundant loads.
+diffusion pipelines directly in-process. Uses PipelineCache for
+efficient model lifecycle management.
 """
 
 from __future__ import annotations
@@ -15,8 +15,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from app.domain.protocols import ProgressCallback, TextToImageProvider
+from app.adapters.direct.pipeline_cache import PipelineCache
+from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams, JobProgress
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +30,14 @@ class DirectTextToImageAdapter:
     Implements TextToImageProvider protocol. Runs inference on a thread pool
     to avoid blocking the async event loop.
 
-    Pipeline lifecycle:
-    - Pipelines are loaded lazily on first use
-    - Only one pipeline is kept in memory at a time (GPU constraint)
-    - Switching models triggers unload → load automatically
+    Pipeline lifecycle is managed by the shared PipelineCache:
+    - Pipelines are loaded lazily on first use via cache.get_or_load()
+    - LRU eviction frees VRAM when cache is full
+    - No direct pipeline management in this adapter
     """
 
-    def __init__(self) -> None:
-        self._current_model_id: str | None = None
-        self._pipeline: Any = None
+    def __init__(self, pipeline_cache: PipelineCache) -> None:
+        self._cache = pipeline_cache
 
     async def generate(
         self,
@@ -48,51 +49,53 @@ class DirectTextToImageAdapter:
         """
         Run text-to-image generation.
 
-        Loads the model if not already loaded, runs inference in a thread pool,
-        saves outputs to disk, and returns artifact references.
+        Loads the model via PipelineCache (lazy, LRU-managed), runs inference
+        in a thread pool, saves outputs to disk, returns artifact references.
         """
-        # Ensure correct model is loaded
-        if self._current_model_id != model_id:
-            await self._load_pipeline(model_id)
+        # Get pipeline from cache (loads if not cached, evicts LRU if full)
+        pipeline = await self._cache.get_or_load(
+            model_id,
+            loader=lambda: asyncio.to_thread(self._build_pipeline, model_id),
+            category="diffusion",
+        )
 
         # Run blocking inference on thread pool to keep event loop responsive
         artifacts = await asyncio.to_thread(
-            self._run_inference, params, output_dir, on_progress
+            self._run_inference, pipeline, params, output_dir, on_progress
         )
         return artifacts
 
-    async def _load_pipeline(self, model_id: str) -> None:
-        """Load a diffusion pipeline (heavy operation, done on thread pool)."""
-        await asyncio.to_thread(self._load_pipeline_sync, model_id)
+    @staticmethod
+    def _build_pipeline(model_id: str) -> tuple[Any, int]:
+        """
+        Build a text-to-image pipeline — called by PipelineCache on cache miss.
 
-    def _load_pipeline_sync(self, model_id: str) -> None:
-        """Synchronous pipeline loading — runs on thread pool."""
-        # Import heavy libraries only inside the adapter
+        Returns (pipeline_object, estimated_vram_mb) tuple.
+        Heavy imports are deferred to here to keep app startup fast.
+        """
         import torch
         from diffusers import DiffusionPipeline
-
-        logger.info("Loading pipeline: %s", model_id)
-
-        # Unload previous pipeline to free VRAM
-        if self._pipeline is not None:
-            del self._pipeline
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = torch.float16 if device == "cuda" else torch.float32
 
-        self._pipeline = DiffusionPipeline.from_pretrained(
+        logger.info("Building text-to-image pipeline: %s → %s", model_id, device)
+
+        pipeline = DiffusionPipeline.from_pretrained(
             model_id,
             torch_dtype=dtype,
             safety_checker=None,
         ).to(device)
 
-        self._current_model_id = model_id
-        logger.info("Pipeline loaded: %s on %s", model_id, device)
+        # Estimate VRAM: count parameters × bytes per element
+        param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())
+        estimated_vram_mb = (param_bytes * 2) // (1024 * 1024)  # ×2 for activations
 
+        return pipeline, estimated_vram_mb
+
+    @staticmethod
     def _run_inference(
-        self,
+        pipeline: Any,
         params: GenerationParams,
         output_dir: Path,
         on_progress: ProgressCallback | None,
@@ -100,15 +103,15 @@ class DirectTextToImageAdapter:
         """Synchronous inference execution — runs on thread pool."""
         import torch
 
-        # Resolve seed
+        # Resolve seed (deterministic if provided, random-ish otherwise)
         seed = params.seed if params.seed is not None else int(time.time() * 1000) % (2**32)
-        generator = torch.Generator(device=self._pipeline.device).manual_seed(seed)
+        generator = torch.Generator(device=pipeline.device).manual_seed(seed)
 
-        # Callback for step progress
+        # Step progress callback — forwards to orchestrator via on_progress
         def step_callback(pipe: Any, step: int, timestep: Any, kwargs: Any) -> Any:
             if on_progress:
                 progress = JobProgress(
-                    job_id=uuid.UUID(int=0),  # Will be replaced by orchestrator
+                    job_id=uuid.UUID(int=0),  # Replaced by orchestrator
                     status="running",
                     progress_percent=int((step / params.num_inference_steps) * 100),
                     current_step=step,
@@ -117,8 +120,8 @@ class DirectTextToImageAdapter:
                 on_progress(progress)
             return kwargs
 
-        # Run the pipeline
-        result = self._pipeline(
+        # Run the diffusion pipeline
+        result = pipeline(
             prompt=params.prompt,
             negative_prompt=params.negative_prompt or None,
             width=params.width,
@@ -131,8 +134,10 @@ class DirectTextToImageAdapter:
         )
 
         # Save outputs and build artifact references
+        output_dir.mkdir(parents=True, exist_ok=True)
         artifacts: list[ArtifactReference] = []
-        for i, image in enumerate(result.images):
+
+        for image in result.images:
             artifact_id = uuid.uuid4()
             filename = f"{artifact_id}.png"
             file_path = output_dir / filename
