@@ -1,54 +1,72 @@
-# Stable Diffusion Lab
+# AI Lab
 
-A **Vue 3 + TypeScript + Vuetify** frontend connected to a **Python FastAPI** backend for AI image generation. The backend loads Stable Diffusion models from [HuggingFace Hub](https://huggingface.co) and [CivitAI](https://civitai.com) and exposes a REST API for image creation through text prompts.
+A **local-first, open-source AI lab** for image generation, video generation, and local model lifecycle management. Built with **Vue 3 + TypeScript** frontend and **Python FastAPI** backend with PostgreSQL.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────┐      REST API      ┌──────────────────────────────┐
-│  Frontend  (Vue 3/Vuetify)  │ ◄────────────────► │  Backend  (FastAPI / Python) │
-│  http://localhost:5173      │                    │  http://localhost:8000        │
-└─────────────────────────────┘                    └──────────────────────────────┘
-                                                              │
-                                                    ┌─────────┴──────────┐
-                                                    │   HuggingFace Hub  │
-                                                    │   CivitAI          │
-                                                    └────────────────────┘
+┌─────────────────────────────┐    REST/WS     ┌──────────────────────────────────┐
+│  Frontend  (Vue 3/Vuetify)  │ ◄────────────► │  Backend  (FastAPI + Workers)    │
+│  http://localhost:5173      │                 │  http://localhost:8000           │
+└─────────────────────────────┘                 └──────────┬───────────────────────┘
+                                                           │
+                                                ┌──────────┴──────────┐
+                                                │  PostgreSQL 16      │
+                                                │  Local filesystem   │
+                                                │  GPU (CUDA/CPU/MPS) │
+                                                └─────────────────────┘
+```
+
+### Backend Layers
+
+```
+API (routers, schemas, websocket)
+ ↓
+Services (business logic)
+ ↓
+Orchestrator (job queue, event bus)
+ ↓
+Adapters (direct python / bentoml / comfyui)
+ ↓
+Infrastructure (config, database, storage)
+ ↓
+Domain (enums, value objects, protocols)
 ```
 
 ## Features
 
-- **Prompt form** – positive and negative prompts
-- **Model selector** – pick from preset HuggingFace or CivitAI models, or enter a custom ID
-- **Generation parameters** – width, height, steps, CFG scale, seed, number of images
-- **Image-guided generation modes** – generic img2img plus sketch-to-ink with ControlNet scribble conditioning
-- **On-demand model loading** – download & cache models before generation
-- **Image gallery** – view, zoom, and download generated images
-- **Backend status** – live indicator of the connected GPU/CPU device and loaded model
+- **Text-to-image** — generate images from text prompts
+- **Image-to-image** — transform existing images with guidance
+- **Vision/captioning** — describe images using vision-language models
+- **Video generation** — create video from text or image inputs
+- **Local LLM** — chat completions with local language models
+- **Model management** — download, install, load, unload, delete models from HuggingFace and CivitAI
+- **Async job queue** — all heavy inference runs in background workers
+- **Real-time progress** — WebSocket updates for job status
+- **Multiple inference backends** — direct Python, BentoML, ComfyUI (pluggable)
 
 ---
 
-## Quick Start with Docker Compose
+## Quick Start
 
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) ≥ 24
 - [Docker Compose](https://docs.docker.com/compose/) v2
-- *(Optional)* NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for GPU acceleration
+- *(Optional)* NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 
 ### Run
 
 ```bash
-# Clone the repository
 git clone https://github.com/Guebbit/stable-diffusion-lab.git
 cd stable-diffusion-lab
 
-# (Optional) provide your CivitAI API key for private/gated models
-export CIVITAI_API_KEY=your_key_here
+# (Optional) provide API keys for gated models
+cp .env-example .env
+# Edit .env with your HF_TOKEN and CIVITAI_TOKEN
 
-# Build and start all services
 docker compose up --build
 ```
 
@@ -66,8 +84,13 @@ Open **http://localhost:5173** in your browser.
 cd backend
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+pip install -e ".[dev]"
+
+# Start PostgreSQL (via Docker)
+docker compose up db -d
+
+# Run the app
+uvicorn app.main:create_app --factory --reload --port 8000
 ```
 
 ### Frontend
@@ -78,76 +101,57 @@ npm install
 npm run dev
 ```
 
-The Vite dev server at **http://localhost:5173** proxies `/api/*` requests to the backend at `http://localhost:8000`.
+### Linting & Type Checking
 
----
-
-## API Reference
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET`  | `/api/status` | Backend health, device, and loaded model |
-| `POST` | `/api/models/load` | Download and load a model |
-| `POST` | `/api/generate` | Generate images from a prompt |
-| `POST` | `/api/generate-from-image` | Generate images from a prompt and uploaded image |
-| `POST` | `/api/generate-sketch-to-ink` | Generate a cleaner inked image from an uploaded sketch |
-
-### `POST /api/generate` – request body
-
-```json
-{
-  "prompt": "a beautiful landscape, oil painting",
-  "negative_prompt": "blurry, low quality",
-  "model_id": "runwayml/stable-diffusion-v1-5",
-  "model_source": "huggingface",
-  "width": 512,
-  "height": 512,
-  "num_inference_steps": 20,
-  "guidance_scale": 7.5,
-  "seed": null,
-  "num_images": 1
-}
+```bash
+cd backend
+ruff check app/            # Lint
+ruff format app/           # Format
+mypy app/                  # Type check
+pytest                     # Run tests
 ```
 
 ---
 
-### `POST /api/generate-from-image` – multipart form fields
+## API Reference (v1)
 
-- `image` (file, required)
-- `prompt` (string, required)
-- `negative_prompt` (string, optional)
-- `model_id` (string, required)
-- `model_source` (`huggingface` or `civitai`)
-- `strength` (float, `0.1` to `1.0`)
-- `num_inference_steps` (int)
-- `guidance_scale` (float)
-- `width` (int, optional)
-- `height` (int, optional)
-- `seed` (int, optional)
-- `num_images` (int, `1` to `4`)
+All endpoints are prefixed with `/api/v1`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/system/status` | Health, device info, loaded models |
+| `GET` | `/models/` | List registered models |
+| `POST` | `/models/` | Register a new model |
+| `POST` | `/models/{model_id}/download` | Trigger model download |
+| `DELETE` | `/models/{model_id}` | Delete model from catalog and disk |
+| `POST` | `/generation/text-to-image` | Submit text-to-image job (202) |
+| `GET` | `/generation/jobs/{job_id}` | Get job status and progress |
+| `WS` | `/ws/progress` | Real-time job progress updates |
+
+Full interactive docs at **http://localhost:8000/docs** (Swagger UI).
 
 ---
-
-### `POST /api/generate-sketch-to-ink` – multipart form fields
-
-- `image` (file, required)
-- `prompt` (string, required)
-- `negative_prompt` (string, optional)
-- `model_id` (string, required)
-- `model_source` (`huggingface`, required)
-- `controlnet_conditioning_scale` (float, `0.1` to `2.0`)
-- `num_inference_steps` (int)
-- `guidance_scale` (float)
-- `width` (int, optional)
-- `height` (int, optional)
-- `seed` (int, optional)
-- `num_images` (int, `1` to `4`)
-
-This mode uses a built-in open-source ControlNet scribble stack to preserve the uploaded sketch layout while generating cleaner line art. It currently supports HuggingFace SD 1.5 and SDXL base models.
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MODELS_CACHE_DIR` | `/app/models_cache` | Directory where model weights are cached |
-| `CIVITAI_API_KEY` | *(empty)* | API key for downloading private CivitAI models |
+| `DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection string |
+| `STORAGE_ROOT` | `/app/storage` | Root directory for models, artifacts, temp files |
+| `HF_TOKEN` | *(empty)* | HuggingFace token for gated models |
+| `CIVITAI_TOKEN` | *(empty)* | CivitAI API token for downloads |
+| `INFERENCE_DEVICE` | `auto` | Force device: `cuda`, `cpu`, `mps`, or `auto` |
+| `INFERENCE_BACKEND` | `direct_python` | Default backend: `direct_python`, `bentoml`, `comfyui` |
+| `MAX_WORKERS` | `1` | Concurrent job worker count |
+| `DEBUG` | `false` | Enable debug mode |
+
+---
+
+## Documentation
+
+See [`docs/`](./docs/) for:
+- [Architecture design](./docs/architecture/) — system design, module boundaries, naming rules
+- [Guides](./docs/guides/) — practical how-to guides
+- [Theory](./docs/theory/) — AI/ML concepts explained
+- [API docs](./docs/api/) — detailed endpoint documentation
+- [Troubleshooting](./docs/troubleshooting/) — common issues and solutions
