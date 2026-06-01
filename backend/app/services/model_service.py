@@ -48,9 +48,11 @@ class ModelService:
         name: str,
         source: str,
         family: str = "custom",
+        variant: str = "",
         description: str = "",
         tags: list[str] | None = None,
         source_url: str = "",
+        capabilities: list[str] | None = None,
     ) -> ModelRecord:
         """Register a new model in the catalog (metadata only, no download)."""
         existing = await self._model_repo.get_by_model_id(model_id)
@@ -63,9 +65,11 @@ class ModelService:
             name=name,
             source=source,
             family=family,
+            variant=variant,
             description=description,
             tags=tags or [],
             source_url=source_url,
+            capabilities=capabilities or [],
             status=ModelStatus.NOT_DOWNLOADED,
         )
         record = await self._model_repo.create(record)

@@ -2,6 +2,6 @@
 API routers sub-package — each file defines routes for one domain.
 """
 
-from app.api.routers import generation, models, system
+from app.api.routers import artifacts, generation, jobs, models, system
 
-__all__ = ["generation", "models", "system"]
+__all__ = ["artifacts", "generation", "jobs", "models", "system"]

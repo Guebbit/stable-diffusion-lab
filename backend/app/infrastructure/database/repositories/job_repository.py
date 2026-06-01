@@ -127,3 +127,55 @@ class JobRepository:
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_filtered(
+        self,
+        status: str | None = None,
+        job_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[JobRecord], int]:
+        """List jobs with optional filtering and pagination. Returns (items, total)."""
+        base_stmt = select(JobRecord)
+        if status:
+            base_stmt = base_stmt.where(JobRecord.status == status)
+        if job_type:
+            base_stmt = base_stmt.where(JobRecord.job_type == job_type)
+
+        # Count total
+        from sqlalchemy import func as sa_func
+
+        count_stmt = select(sa_func.count()).select_from(base_stmt.subquery())
+        count_result = await self._session.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        # Paginated items
+        items_stmt = (
+            base_stmt
+            .order_by(JobRecord.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        items_result = await self._session.execute(items_stmt)
+        items = list(items_result.scalars().all())
+
+        return items, total
+
+    async def reset_to_pending(self, job_id: UUID, attempt: int = 1) -> None:
+        """Reset a failed job back to pending state for retry."""
+        stmt = (
+            update(JobRecord)
+            .where(JobRecord.id == job_id)
+            .values(
+                status="pending",
+                progress_percent=0,
+                current_step=0,
+                total_steps=0,
+                message="",
+                error="",
+                attempt=attempt,
+                started_at=None,
+                completed_at=None,
+            )
+        )
+        await self._session.execute(stmt)
