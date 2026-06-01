@@ -1,0 +1,21 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Markdownlint configuration
+# See docs/architecture/step-6-code-quality-documentation.md §18
+# ═══════════════════════════════════════════════════════════════════════════════
+
+default: true
+
+# Allow long lines in tables and code blocks
+MD013:
+  line_length: 120
+  tables: false
+  code_blocks: false
+
+# Allow multiple top-level headings (needed for multi-section docs)
+MD025: false
+
+# Allow inline HTML (for diagrams and special formatting)
+MD033: false
+
+# Allow emphasis as heading (used in TL;DR blocks)
+MD036: false
