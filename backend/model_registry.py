@@ -593,7 +593,8 @@ def _download_civitai_model(model_version_id: str) -> None:
     if CIV_TOKEN:
         headers["Authorization"] = "Bearer " + CIV_TOKEN
 
-    # Resume an interrupted download if a .incomplete file is present
+    # Resume an interrupted download if a .incomplete file is present and non-empty.
+    # A zero-byte file means nothing was received yet, so resuming would waste a Round-trip.
     resume_from = 0
     if incomplete_path.exists():
         resume_from = incomplete_path.stat().st_size
@@ -618,7 +619,8 @@ def _download_civitai_model(model_version_id: str) -> None:
             f"CivitAI download failed with status {response.status_code}: {response.text[:200]}"
         )
 
-    # If server doesn't support Range, start over to avoid corrupted file
+    # If server doesn't support Range, start over to avoid corrupted file.
+    # reset resume_from to 0 here so the open_mode decision below uses "wb" (overwrite).
     if resume_from > 0 and response.status_code == 200:
         logger.warning("Server ignored Range header — restarting download from scratch")
         resume_from = 0
@@ -640,7 +642,7 @@ def _download_civitai_model(model_version_id: str) -> None:
 
     downloaded_bytes = [resume_from]
 
-    # Write in append mode when resuming; write mode otherwise
+    # "ab" appends to existing bytes when resuming; "wb" starts fresh for new or restarted downloads.
     open_mode = "ab" if resume_from > 0 else "wb"
     with open(incomplete_path, open_mode) as f:
         for chunk in response.iter_content(chunk_size=1024 * 1024):
@@ -672,15 +674,18 @@ def find_incomplete_civitai_downloads() -> list[str]:
 
     An incomplete download leaves a civitai_<id>.safetensors.incomplete file on
     disk.  On startup the backend can call this to detect and re-queue them.
+    Globs for the .incomplete suffix, strips the known prefix/suffix to extract
+    the numeric version ID, and validates it before returning.
     """
     import re
     incomplete: list[str] = []
     if not MODELS_CACHE_DIR.exists():
         return incomplete
     for f in MODELS_CACHE_DIR.glob("civitai_*.safetensors.incomplete"):
-        # Extract numeric version ID from filename civitai_<id>.safetensors.incomplete
+        # Strip "civitai_" prefix and ".safetensors.incomplete" suffix to get the version ID
         stem = f.name.replace(".safetensors.incomplete", "")
         version_id = stem.removeprefix("civitai_")
+        # Validate that it's numeric before re-queuing (guards against unexpected filenames)
         if re.fullmatch(r"\d+", version_id):
             incomplete.append(version_id)
     return incomplete
