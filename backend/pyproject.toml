@@ -112,6 +112,7 @@ lines-after-imports = 2
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
+# D=docstrings, ANN=annotations, S101=assert-used, PLR2004=magic-value-comparison
 "tests/**/*.py" = ["D", "ANN", "S101", "PLR2004"]
 "app/adapters/**/*.py" = ["ANN401"]
 
