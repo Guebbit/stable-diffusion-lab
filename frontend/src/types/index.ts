@@ -1,178 +1,204 @@
+import type { ModelSource } from '@/types/models'
+
 /**
- * Shared TypeScript types for the frontend.
- * These mirror the backend Pydantic schemas — they define the shape of
- * data flowing between frontend ↔ backend API calls.
+ * Backend status including active device and loaded model info.
  */
-
-// Where a model lives (HuggingFace repo vs CivitAI community checkpoint)
-export type ModelSource = 'huggingface' | 'civitai'
-
-// Backend generation task — determines which pipeline class gets loaded
-export type GenerationTask = 'text2img' | 'img2img' | 'sketch2ink'
-
-// Model architecture family
-export type ModelFamily = 'sd15' | 'sdxl'
-
-// Preset config for img2img workflows (each one tweaks strength/steps/guidance)
-export type ImageWorkflowPreset = 'general' | 'recolor' | 'style-transfer' | 'upscale'
-
-// UI-level mode selector (maps to a GenerationTask + preset combo on submit)
-export type GenerationMode =
-  | 'text-to-image'
-  | 'image-to-image'
-  | 'recolor-image'
-  | 'style-transfer'
-  | 'upscale-image'
-  | 'sketch-to-ink'
-
-/** Request sent to /api/describe-image (vision captioning). */
-export interface DescribeImageRequest {
-  image: File
-  model_id: string
+export interface BackendStatus {
+  device: 'cpu' | 'cuda' | 'mps'
+  vram_used_mb: number
+  loaded_model_key: string
+  task_type: 'text2img' | 'img2img' | 'inpainting' | 'sketch2ink'
 }
 
-/** Response from the describe-image endpoint. */
-export interface DescribeImageResponse {
-  description: string
-  model_id: string
-  elapsed_seconds: number
-}
-
-// ─── Model Registry types ─────────────────────────────────────────────────
-
-/** A model entry in the centralized registry (from GET /api/models). */
-export interface ModelRegistryEntry {
-  id: string
-  name: string
-  source: ModelSource
-  family: ModelFamily
-  description: string
-  long_description: string
-  tags: string[]
-  source_url: string
-  size: string
-  downloaded: boolean
-}
-
-/** Payload for registering a new model (POST /api/models). */
-export interface ModelRegistryAddRequest {
-  id: string
-  name: string
-  source: ModelSource
-  family: ModelFamily
-  description?: string
-  long_description?: string
-  tags?: string[]
-  source_url?: string
-  size?: string
-}
-
-/** A selectable model entry shown in the dropdown (kept for backward compat). */
-export interface ModelOption {
-  id: string
-  name: string
-  source: ModelSource
-  description?: string          // Brief one-liner shown in the select dropdown
-  family?: 'sd15' | 'sdxl'     // Architecture family for filtering and UI badges (also determines pipeline class on the backend)
-  tags?: string[]               // e.g. ['photorealistic', 'anime', 'fast']
-  longDescription?: string      // Detailed description shown on the Models catalog page
-  sourceUrl?: string            // Link to the HuggingFace page or CivitAI model page
-}
-
-/** Payload sent to /api/generate (text-to-image). */
+/**
+ * Standard text-to-image generation request.
+ */
 export interface GenerationRequest {
   prompt: string
   negative_prompt?: string
-  model_id: string
-  model_source: ModelSource
-  width: number
-  height: number
-  num_inference_steps: number   // Denoising iterations (more = better quality, slower)
-  guidance_scale: number        // How strictly the AI follows your prompt
-  seed?: number                 // For reproducible results
-  num_images: number
-}
-
-/** Payload sent to /api/generate-from-image (img2img workflows). */
-export interface ImageGenerationRequest {
-  image: File                            // The uploaded reference image
-  prompt: string
-  negative_prompt?: string
-  model_id: string
-  model_source: ModelSource
-  workflow_preset?: ImageWorkflowPreset  // Which preset defaults to use
-  strength: number                       // How much to change the original (0=none, 1=total)
   num_inference_steps: number
   guidance_scale: number
+  num_images: number
   width?: number
   height?: number
   seed?: number
-  num_images: number
+  workflow_preset?: 'turbo' | 'hd' | 'realistic'
+  img2img_strength?: number
+  img2img_denoising?: number
 }
 
-/** Payload sent to /api/generate-sketch-to-ink (ControlNet scribble pipeline). */
-export interface SketchToInkRequest {
-  image: File                              // The sketch/scribble to clean up
-  prompt: string
-  negative_prompt?: string
-  model_id: string
-  model_source: 'huggingface'              // Only HF models supported for ControlNet
-  controlnet_conditioning_scale: number    // How strongly the sketch constrains output
-  num_inference_steps: number
-  guidance_scale: number
-  width?: number
-  height?: number
-  seed?: number
-  num_images: number
-}
-
-/** A single generated image displayed in the gallery — includes generation metrics. */
-export interface GeneratedImage {
-  id: string
-  url: string           // Base64 data URL (embedded PNG)
-  prompt: string
-  negative_prompt?: string
-  model_id: string
-  width: number
-  height: number
-  seed: number          // Seed used — for "recreate this exact image" feature
-  created_at: string
-  // ─── Generation metrics (observability) ─────────────────────────────
-  num_inference_steps: number
-  guidance_scale: number
-  generation_time_seconds: number
-  model_load_time_seconds?: number | null
-  device: string
-  vram_used_mb?: number | null
-  scheduler: string
-  pipeline_class: string
-}
-
-/** Response returned by all generation endpoints. */
+/**
+ * Response containing generated images and timing info.
+ */
 export interface GenerationResponse {
   images: GeneratedImage[]
-  model_id: string
-  elapsed_seconds: number   // How long the AI took to generate
+  elapsed_seconds: number
+  seed_used: number
+  prompts: {
+    prompt: string
+    negative_prompt?: string
+  }
 }
 
-/** Payload sent to /api/models/load (pre-load a model before generating). */
+/**
+ * Single generated image with metadata.
+ */
+export interface GeneratedImage {
+  uuid: string
+  image_url: string
+  thumbnail_url?: string
+  prompt: string
+  negative_prompt?: string
+  seed: number
+  width: number
+  height: number
+  steps: number
+  guidance_scale: number
+  workflow_preset?: string
+  workflow_metadata?: any
+  device: 'cpu' | 'cuda' | 'mps'
+  vram_used_mb?: number
+}
+
+/**
+ * Request to load a specific model for a generation task.
+ */
 export interface ModelLoadRequest {
   model_id: string
   model_source: ModelSource
   task?: GenerationTask
 }
 
-/** Response from model load endpoint. */
+/**
+ * Response confirming model load with timing and resource info.
+ */
 export interface ModelLoadResponse {
-  success: boolean
   model_id: string
+  model_source: ModelSource
+  task?: GenerationTask
   message: string
+  elapsed_seconds: number
+  device?: 'cpu' | 'cuda' | 'mps'
+  vram_mb?: number
+  loaded: boolean
 }
 
-/** Backend health status (polled periodically by the UI). */
-export interface BackendStatus {
-  status: 'ok' | 'loading' | 'error'
-  loaded_model?: string    // Currently cached model key (or undefined if cold start)
-  device: string           // "cuda" or "cpu"
+/**
+ * Supported generation task types.
+ */
+export type GenerationTask = 'text2img' | 'img2img' | 'inpainting' | 'sketch2ink'
+
+/**
+ * Image-based generation request (img2img, inpainting, sketch2ink).
+ */
+export interface ImageGenerationRequest {
+  image: File
+  prompt: string
+  model_id: string
+  model_source: ModelSource
+  negative_prompt?: string
+  num_inference_steps: number
+  guidance_scale: number
+  num_images: number
+  width?: number
+  height?: number
+  seed?: number
+  workflow_preset?: 'turbo' | 'hd' | 'realistic'
+  strength?: number
+  img2img_denoising?: number
+  controlnet_conditioning_scale?: number
+}
+
+/**
+ * Vision model request to describe an uploaded image.
+ */
+export interface DescribeImageRequest {
+  image: File
+  model_id: string
+}
+
+/**
+ * Vision model response with generated caption.
+ */
+export interface DescribeImageResponse {
+  image_url: string
+  caption: string
+  elapsed_seconds: number
+}
+
+/**
+ * Model source enumeration.
+ */
+export type ModelSource = 'huggingface' | 'civitai' | 'local'
+
+/**
+ * Model registry entry showing download status.
+ */
+export interface ModelRegistryEntry {
+  model_id: string
+  task_type: GenerationTask
+  model_url: string
+  model_source: ModelSource
+  is_downloaded: boolean
+  loaded: boolean
+  device?: 'cpu' | 'cuda' | 'mps'
+  vram_mb?: number
+  last_loaded_at?: string
   message?: string
+  error?: string
+}
+
+/**
+ * Request to add a model manually to the registry.
+ */
+export interface ModelRegistryAddRequest {
+  model_id: string
+  task_type: GenerationTask
+  model_url: string
+  model_source: ModelSource
+}
+
+/**
+ * Download event for tracking background download operations.
+ */
+export interface DownloadEvent {
+  model_id: string
+  source: string
+  timestamp: string
+  status: 'started' | 'completed' | 'failed'
+  message?: string
+  error?: string
+}
+
+/**
+ * Sketch-to-ink generation request.
+ */
+export interface SketchToInkRequest {
+  image: File
+  prompt: string
+  model_id: string
+  model_source: ModelSource
+  negative_prompt?: string
+  num_inference_steps: number
+  guidance_scale: number
+  num_images: number
+  width?: number
+  height?: number
+  seed?: number
+  workflow_preset?: 'turbo' | 'hd' | 'realistic'
+  controlnet_conditioning_scale?: number
+}
+
+/**
+ * Download history entry.
+ */
+export interface DownloadHistoryEntry {
+  model_id: string
+  model_name: string
+  download_date: string
+  source: ModelSource
+  task_type?: GenerationTask
+  size_gb: number
+  status: 'completed' | 'failed' | 'partial'
+  error?: string
 }

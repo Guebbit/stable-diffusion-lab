@@ -11,6 +11,7 @@ import type {
   ImageGenerationRequest,
   ModelSource,
   SketchToInkRequest,
+  DownloadEvent,
 } from '../types'
 
 export const useDiffusionStore = defineStore('diffusion', () => {
@@ -24,6 +25,15 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   const isLoadingModel = ref(false)
   /** User-friendly error message displayed by the UI. */
   const error = ref<string | null>(null)
+
+  // ─── Download Progress ──
+
+  /** Currently downloading model info (modelId, source, progress). */
+  const downloadingModelId = ref<string | null>(null)
+  const downloadingModelSource = ref<ModelSource>('huggingface')
+  const downloadProgress = ref<{ downloaded_bytes: number; total_bytes: number; percentage: number } | null>(null)
+  /** Interval ID for the download progress polling (stored as number for cleanup). */
+  const downloadProgressInterval = ref<number | null>(null)
 
   /** Fetch backend status and silently reset status if the request fails. */
   function fetchStatus() {
@@ -130,12 +140,85 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     error.value = null
   }
 
+  // ─── Download Events ──
+
+  /**
+   * Fetch all download events from the backend.
+   */
+  function getDownloadEvents(): Promise<DownloadEvent[]> {
+    return diffusionApi.getDownloadEvents().then((events) => events || [])
+  }
+
+  /**
+   * Clear all download events from the backend.
+   */
+  function clearDownloadEvents() {
+    return diffusionApi.clearDownloadEvents()
+  }
+
+  /**
+   * Start polling download progress for a model.
+   */
+  function startDownloadProgressPolling(modelId: string, source: ModelSource) {
+    downloadingModelId.value = modelId
+    downloadingModelSource.value = source
+    downloadProgress.value = null
+
+    // Clear any existing interval first
+    if (downloadProgressInterval.value !== null) {
+      clearInterval(downloadProgressInterval.value)
+    }
+
+    // Poll every 500ms for near-real-time progress
+    downloadProgressInterval.value = window.setInterval(async () => {
+      try {
+        const progress = await diffusionApi.getDownloadProgress(modelId, source)
+        downloadProgress.value = progress
+        // If download is complete (100%), stop polling
+        if (progress.percentage >= 100) {
+          stopDownloadProgressPolling()
+          // Refresh the models list — caller should handle this
+        }
+      } catch {
+        // No active download or endpoint error — will be caught by error handling
+      }
+    }, 500)
+  }
+
+  /**
+   * Stop polling download progress.
+   */
+  function stopDownloadProgressPolling() {
+    if (downloadProgressInterval.value !== null) {
+      clearInterval(downloadProgressInterval.value)
+      downloadProgressInterval.value = null
+    }
+    // Only clear model IDs if progress is null (external request)
+    if (downloadProgress.value === null) {
+      downloadingModelId.value = null
+      downloadingModelSource.value = 'huggingface'
+    }
+  }
+
+  /**
+   * Clear download progress state completely.
+   */
+  function clearDownloadProgress() {
+    stopDownloadProgressPolling()
+    downloadingModelId.value = null
+    downloadingModelSource.value = 'huggingface'
+    downloadProgress.value = null
+  }
+
   return {
     status,
     generatedImages,
     isGenerating,
     isLoadingModel,
     error,
+    downloadingModelId,
+    downloadingModelSource,
+    downloadProgress,
     fetchStatus,
     loadModel,
     generate,
@@ -143,5 +226,10 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     generateSketchToInk,
     clearImages,
     clearError,
+    getDownloadEvents,
+    clearDownloadEvents,
+    startDownloadProgressPolling,
+    stopDownloadProgressPolling,
+    clearDownloadProgress,
   }
 })

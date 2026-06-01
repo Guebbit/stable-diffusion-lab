@@ -13,6 +13,12 @@ import { diffusionApi } from '../api/diffusion'
 import { useNotificationStore } from './notifications'
 import type { ModelRegistryEntry, ModelRegistryAddRequest, ModelSource } from '../types'
 
+export interface DownloadProgressState {
+  downloaded_bytes: number
+  total_bytes: number
+  percentage: number
+}
+
 // Polling config for download status checks
 const POLL_INTERVAL_MS = 10_000  // Check every 10 seconds
 const MAX_POLL_ATTEMPTS = 60     // Give up after ~10 minutes
@@ -25,6 +31,7 @@ export const useModelsStore = defineStore('models', () => {
   // Loading states
   const isLoading = ref(false)
   const isDownloading = ref<Set<string>>(new Set())
+  const downloadProgress = ref<Map<string, DownloadProgressState>>(new Map())
 
   // Computed: models grouped by source for convenience
   const huggingfaceModels = computed(() =>
@@ -96,17 +103,18 @@ export const useModelsStore = defineStore('models', () => {
       })
   }
 
-  /** Trigger a background download for a model. */
-  function downloadModel(modelId: string, source: ModelSource) {
-    const notif = useNotificationStore()
-    const key = `${source}:${modelId}`
-    isDownloading.value.add(key)
+   /** Trigger a background download for a model. */
+   function downloadModel(modelId: string, source: ModelSource) {
+     const notif = useNotificationStore()
+     const key = `${source}:${modelId}`
+     isDownloading.value = new Set(isDownloading.value)
+     isDownloading.value.add(key)
 
     notif.push('info', `Downloading model "${modelId}"…`)
     return diffusionApi.downloadModel(modelId, source)
       .then((res) => {
         notif.push('info', res.detail)
-        // Poll for completion after a delay
+        // Start polling for progress and completion
         _pollDownloadStatus(modelId, source)
       })
       .catch((err: unknown) => {
@@ -122,7 +130,7 @@ export const useModelsStore = defineStore('models', () => {
   }
 
   /**
-   * Poll the registry periodically to detect when a download finishes.
+   * Poll the download progress and completion endpoints periodically.
    * Stops after the model shows as downloaded or after MAX_POLL_ATTEMPTS.
    */
   function _pollDownloadStatus(modelId: string, source: ModelSource) {
@@ -131,19 +139,38 @@ export const useModelsStore = defineStore('models', () => {
 
     const interval = setInterval(() => {
       attempts++
+
+      // Try to fetch progress
+      diffusionApi.getDownloadProgress(modelId, source)
+        .then((progress) => {
+          downloadProgress.value.set(key, progress as DownloadProgressState)
+        })
+        .catch(() => {
+          // Progress endpoint not available — fall back to registry polling
+        })
+
+      // Also check completion status
       diffusionApi.getModels()
         .then((models) => {
           registry.value = models
           const model = models.find(m => m.id === modelId && m.source === source)
-          if (model?.downloaded) {
-            clearInterval(interval)
-            isDownloading.value.delete(key)
-            useNotificationStore().push('success', `Model "${model.name}" downloaded successfully!`)
-            // Refresh the downloaded models list
-            fetchDownloadedModels()
-          } else if (attempts >= MAX_POLL_ATTEMPTS) {
-            clearInterval(interval)
-            isDownloading.value.delete(key)
+           if (model?.status === 'downloaded') {
+             clearInterval(interval)
+             isDownloading.value.delete(key)
+             downloadProgress.value.delete(key)
+             useNotificationStore().push('success', `Model "${model.name}" downloaded successfully!`)
+             // Refresh the downloaded models list
+             fetchDownloadedModels()
+           } else if (model && (model.status === 'error' || model.status === 'deleted')) {
+             // Download failed or was removed
+             clearInterval(interval)
+             isDownloading.value.delete(key)
+             downloadProgress.value.delete(key)
+             useNotificationStore().push('error', `Model "${modelId}" download failed: ${model.status}`)
+           } else if (attempts >= MAX_POLL_ATTEMPTS) {
+             clearInterval(interval)
+             isDownloading.value.delete(key)
+             downloadProgress.value.delete(key)
             useNotificationStore().push('warning', `Download polling timed out for "${modelId}"`)
           }
         })
@@ -158,6 +185,7 @@ export const useModelsStore = defineStore('models', () => {
     downloadedModels,
     isLoading,
     isDownloading,
+    downloadProgress,
     huggingfaceModels,
     civitaiModels,
     fetchRegistry,

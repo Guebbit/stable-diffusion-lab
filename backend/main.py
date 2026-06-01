@@ -30,6 +30,8 @@ import time
 from typing import Optional
 
 import torch
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -45,11 +47,14 @@ from model_service import ensure_model, get_active_pipeline, get_device, get_loa
 from model_registry import (
     add_model,
     download_model_background,
+    get_download_progress,
     is_downloading,
     is_model_downloaded,
     list_downloaded_models,
     list_models,
     remove_model,
+    list_download_events_api,
+    clear_download_events_api,
 )
 from vision_service import describe_image
 from history_service import (
@@ -60,6 +65,7 @@ from history_service import (
 )
 from schemas import (
     BackendStatus,
+    DownloadProgress,
     GeneratedImage,
     GenerationRequest,
     GenerationResponse,
@@ -84,10 +90,33 @@ logger = get_logger(__name__)
 
 # FastAPI auto-generates interactive docs at /docs (Swagger UI) and /redoc.
 # The title/description/version appear there.
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    """Startup: scan the models cache and refresh the registry download status."""
+    # On every container start, re-check which models are already present on disk
+    from model_registry import _load_registry, is_model_downloaded  # noqa: F811
+    registry = _load_registry()
+    refreshed = 0
+    for entry in registry:
+        was_downloaded = entry.get("downloaded", False)
+        now_downloaded = is_model_downloaded(entry["id"], entry["source"])
+        if was_downloaded != now_downloaded:
+            entry["downloaded"] = now_downloaded
+            refreshed += 1
+    if refreshed:
+        from model_registry import _save_registry  # noqa: F811
+        _save_registry(registry)
+        logger.info("Registry refreshed: %d models re-scanned on startup", refreshed)
+    yield
+    # Shutdown cleanup (if needed) goes here
+
+
 app = FastAPI(
     title="Stable Diffusion Lab API",
     description="Backend API for Stable Diffusion image generation",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS (Cross-Origin Resource Sharing):
@@ -335,6 +364,36 @@ async def download_model(model_id: str, source: ModelSource = "huggingface") -> 
     download_model_background(model_id, source)
     logger.info("Started background download: %s (%s)", model_id, source)
     return JSONResponse(content={"detail": "Download started", "status": "downloading"})
+
+
+@app.get("/api/models/{model_id:path}/progress", response_model=DownloadProgress)
+async def get_model_download_progress(model_id: str, source: ModelSource = "huggingface") -> JSONResponse:
+    """Return download progress for a model (percentage, downloaded_bytes, total_bytes).
+    Returns 404 if no download or progress data is available for this model."""
+    progress = get_download_progress(model_id, source)
+    if progress is None:
+        return JSONResponse(content={"detail": "No active download for this model"}, status_code=404)
+    return {
+        "downloaded_bytes": progress["downloaded_bytes"],
+        "total_bytes": progress["total_bytes"],
+        "percentage": progress["percentage"],
+    }
+
+
+# ─── Download events endpoints ────────────────────────────────────────────
+
+@app.get("/api/models/download-events", response_model=list[dict])
+async def get_download_events() -> list[dict]:
+    """Return all persisted download events, newest first."""
+    return list_download_events_api()
+
+
+@app.delete("/api/models/download-events")
+async def delete_download_events() -> JSONResponse:
+    """Clear all persisted download events."""
+    count = clear_download_events_api()
+    logger.info("Cleared all download events — %d entries removed", count)
+    return JSONResponse(content={"detail": f"Cleared {count} download events"})
 
 
 # ─── Text-to-image generation ─────────────────────────────────────────────

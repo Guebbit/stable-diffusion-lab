@@ -309,6 +309,24 @@ function handleGenerate() {
 }
 
 /**
+ * Whether the currently selected model is loaded in the backend.
+ */
+const isCurrentModelLoaded = computed(
+  () =>
+    !useCustomModel.value &&
+    activeModelId.value.trim().length > 0 &&
+    store.status?.loaded_model === activeModelId.value,
+)
+
+/**
+ * Trigger model loading for the currently selected model.
+ */
+function loadSelectedModel() {
+  if (useCustomModel.value || !activeModelId.value) return
+  return store.loadModel(activeModelId.value, modelSourceSelection.value)
+}
+
+/**
  * Keep one uploaded file and manage its local preview URL lifecycle safely.
  */
 function handleImageSelection(value: File | File[] | null) {
@@ -570,18 +588,55 @@ onBeforeUnmount(() => {
       </v-row>
     </v-card-text>
 
-    <v-card-actions class="pa-4 pt-0">
-      <v-btn
-          color="primary"
-          size="large"
-          :loading="store.isGenerating"
-          :disabled="!formValid"
-          prepend-icon="mdi-creation"
-          block
-          @click="handleGenerate"
-      >
-        {{ store.isGenerating ? 'Generating...' : 'Generate' }}
-      </v-btn>
-    </v-card-actions>
+      <!-- Model Loading Status -->
+      <div class="mb-4" v-if="!useCustomModel && activeModelId">
+        <v-alert
+            :type="isCurrentModelLoaded ? 'success' : 'warning'"
+            :text="isCurrentModelLoaded ? 'Model loaded' : 'Model not loaded — click to load'"
+            :icon="isCurrentModelLoaded ? 'mdi-check-circle' : 'mdi-memory'"
+            variant="tonal"
+            density="compact"
+            class="mb-2"
+        >
+          <template #default>
+            <span class="text-body-2">{{ activeModelId }}</span>
+          </template>
+        </v-alert>
+        <v-btn
+            v-if="!isCurrentModelLoaded && !store.isLoadingModel"
+            color="primary"
+            variant="tonal"
+            size="small"
+            prepend-icon="mdi-download"
+            :disabled="!isCurrentModelLoaded && !store.isLoadingModel"
+            @click="loadSelectedModel"
+        >
+          Load Model
+        </v-btn>
+        <v-btn
+            v-else-if="store.isLoadingModel"
+            color="primary"
+            variant="tonal"
+            size="small"
+            loading
+            disabled
+        >
+          Loading…
+        </v-btn>
+      </div>
+
+      <v-card-actions class="pa-4 pt-0">
+        <v-btn
+            color="primary"
+            size="large"
+            :loading="store.isGenerating || store.isLoadingModel"
+            :disabled="!formValid || store.isLoadingModel"
+            prepend-icon="mdi-creation"
+            block
+            @click="handleGenerate"
+        >
+          {{ store.isGenerating ? 'Generating...' : store.isLoadingModel ? 'Loading Model...' : 'Generate' }}
+        </v-btn>
+      </v-card-actions>
   </v-card>
 </template>

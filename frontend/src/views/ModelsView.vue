@@ -25,8 +25,8 @@ const filteredModels = computed(() =>
   modelsStore.registry.filter(m => {
     if (activeSource.value !== 'all' && m.source !== activeSource.value) return false
     if (activeFamily.value !== 'all' && m.family !== activeFamily.value) return false
-    if (activeDownloaded.value === 'downloaded' && !m.downloaded) return false
-    if (activeDownloaded.value === 'not-downloaded' && m.downloaded) return false
+    if (activeDownloaded.value === 'downloaded' && m.status !== 'downloaded') return false
+    if (activeDownloaded.value === 'not-downloaded' && m.status === 'downloaded') return false
     return true
   }),
 )
@@ -98,6 +98,22 @@ function familyLabel(family?: string) {
   if (family === 'sd15') return 'SD 1.x'
   return 'Unknown'
 }
+
+// ─── Download Progress ───────────────────────────────────────────────────
+
+function downloadPercentageFor(model: typeof modelsStore.registry[0]): number {
+  const key = `${model.source}:${model.id}`
+  const p = modelsStore.downloadProgress.get(key)
+  if (!p || p.total_bytes === 0) return 0
+  return Math.round((p.percentage) || 0)
+}
+
+function downloadProgressFor(model: typeof modelsStore.registry[0]): { downloaded_bytes: number; total_bytes: number } | null {
+  const key = `${model.source}:${model.id}`
+  return modelsStore.downloadProgress.get(key) ?? null
+}
+
+const progressColor = 'blue'
 </script>
 
 <template>
@@ -206,11 +222,11 @@ function familyLabel(family?: string) {
             <v-spacer />
             <!-- Download status badge -->
             <v-chip
-              :color="model.downloaded ? 'success' : 'grey'"
+              :color="model.status === 'downloaded' ? 'success' : 'grey'"
               size="x-small"
-              :prepend-icon="model.downloaded ? 'mdi-check-circle' : 'mdi-cloud-download'"
+              :prepend-icon="model.status === 'downloaded' ? 'mdi-check-circle' : 'mdi-cloud-download'"
             >
-              {{ model.downloaded ? 'Ready' : 'Not downloaded' }}
+              {{ model.status === 'downloaded' ? 'Ready' : 'Not downloaded' }}
             </v-chip>
           </v-card-title>
 
@@ -225,6 +241,22 @@ function familyLabel(family?: string) {
               {{ familyLabel(model.family) }}
             </v-chip>
             <!-- Source badge -->
+            <v-chip
+              v-if="modelsStore.isModelDownloading(model.id, model.source)"
+              :color="progressColor"
+              size="x-small"
+              class="mr-1"
+              label
+            >
+              <v-progress-circular
+                :model-value="downloadPercentageFor(model)"
+                size="14"
+                width="2"
+                :color="progressColor"
+                class="mr-1"
+              />
+              {{ downloadPercentageFor(model) }}%
+            </v-chip>
             <v-chip
               :color="model.source === 'huggingface' ? 'teal' : 'orange'"
               size="x-small"
@@ -290,17 +322,43 @@ function familyLabel(family?: string) {
 
           <v-card-actions class="px-4 pb-4">
             <!-- Download button (only if not yet downloaded) -->
-            <v-btn
-              v-if="!model.downloaded"
-              color="primary"
-              variant="tonal"
-              size="small"
-              prepend-icon="mdi-download"
-              :loading="modelsStore.isModelDownloading(model.id, model.source)"
-              @click="handleDownload(model.id, model.source)"
-            >
-              Download
-            </v-btn>
+            <div v-if="model.status !== 'downloaded'" class="d-flex align-center gap-2">
+              <v-progress-linear
+                v-if="modelsStore.isModelDownloading(model.id, model.source)"
+                :model-value="downloadPercentageFor(model)"
+                height="8"
+                width="200"
+                color="blue"
+                rounded
+              >
+                <template #default>
+                  <strong class="text-caption">{{ downloadPercentageFor(model) }}%</strong>
+                </template>
+              </v-progress-linear>
+
+              <v-btn
+                v-if="!modelsStore.isModelDownloading(model.id, model.source)"
+                color="primary"
+                variant="tonal"
+                size="small"
+                prepend-icon="mdi-download"
+                @click="handleDownload(model.id, model.source)"
+              >
+                Download
+              </v-btn>
+
+              <v-btn
+                v-if="modelsStore.isModelDownloading(model.id, model.source)"
+                color="primary"
+                variant="tonal"
+                size="small"
+                prepend-icon="mdi-download"
+                :loading="true"
+                :disabled="true"
+              >
+                Downloading...
+              </v-btn>
+            </div>
 
             <v-spacer />
 

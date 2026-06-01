@@ -163,6 +163,7 @@ class ModelRegistryEntry(BaseModel):
     source_url: str = ""                # Link to HuggingFace page or CivitAI model page
     size: str = ""                      # Approximate download size (e.g. "~4.3 GB")
     downloaded: bool = False            # Whether the model files are present on disk
+    status: str = "unknown"             # Current status: "downloaded", "downloading", "not_downloaded", "error", "unknown"
 
 
 class ModelRegistryAddRequest(BaseModel):
@@ -177,4 +178,12 @@ class ModelRegistryAddRequest(BaseModel):
     tags: list[str] = []
     source_url: str = ""
     size: str = ""
+
+
+class DownloadProgress(BaseModel):
+    """Download progress info returned to the frontend."""
+
+    downloaded_bytes: int
+    total_bytes: Optional[int] = None
+    percentage: int
 

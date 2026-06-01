@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from logging_config import get_logger
+from download_history import save_download_event, list_download_events, clear_download_events
 
 logger = get_logger(__name__)
 
@@ -35,182 +36,230 @@ CIV_TOKEN = os.environ.get("CIV_TOKEN", "")
 # ─── Registry entry shape ──────────────────────────────────────────────────
 
 def _default_registry() -> list[dict]:
-    """Seed registry with well-known models on first run."""
+    """Seed registry with models from MODELS_TO_LIST."""
     return [
+        # ─── HUGGINGFACE MODELS ───────────────────────────────────────
+        # MULTIPURPOSE (best overall) — FLUX.1 Dev
         {
-            "id": "runwayml/stable-diffusion-v1-5",
-            "name": "Stable Diffusion v1.5",
+            "id": "black-forest-labs/FLUX.1-dev",
+            "name": "FLUX.1 Dev",
             "source": "huggingface",
-            "family": "sd15",
-            "description": "The classic SD 1.5 base — fast, widely compatible",
+            "family": "flux",
+            "description": "Multipurpose — best overall quality, highly versatile",
             "long_description": (
-                "The canonical Stable Diffusion 1.5 checkpoint, fine-tuned by Runway from the CompVis SD 1.4 base. "
-                "Native resolution is 512 × 512. It is the most widely supported model: virtually every "
-                "LoRA, ControlNet, and community extension targets it. A good all-purpose starting point."
+                "FLUX.1 Dev by Black Forest Labs is a 12 billion parameter rectified flow model "
+                "conditioned on T5-XXL + CLIP-L. It produces highly detailed, photorealistic images "
+                "with excellent text rendering and prompt adherence. Use with Euler solver, 20–40 steps, "
+                "CFG 1.0–3.5. Native resolution 1024×1024. Recommended for general-purpose generation."
             ),
-            "tags": ["general", "fast", "classic"],
-            "source_url": "https://huggingface.co/runwayml/stable-diffusion-v1-5",
-            "size": "~4.3 GB",
+            "tags": ["general", "flux", "best-quality"],
+            "source_url": "https://huggingface.co/black-forest-labs/FLUX.1-dev",
+            "size": "~23 GB",
         },
+        # FASTEST TEST MODEL — FLUX.1 Schnell
         {
-            "id": "stabilityai/stable-diffusion-2-1",
-            "name": "Stable Diffusion v2.1",
+            "id": "black-forest-labs/FLUX.1-schnell",
+            "name": "FLUX.1 Schnell",
             "source": "huggingface",
-            "family": "sd15",
-            "description": "SD 2.1 — improved anatomy, 768 px native resolution",
+            "family": "flux",
+            "description": "Fastest model — 1–4 steps for rapid iteration",
             "long_description": (
-                "Stability AI's second-generation base model. Trained with a new OpenCLIP text encoder "
-                "(instead of CLIP), which handles long, complex prompts better. Native resolution is "
-                "768 × 768. Note: LoRAs trained for SD 1.5 are NOT compatible with this model family."
+                "FLUX.1 Schnell is the distilled, faster variant of FLUX.1 Dev. "
+                "Uses rectified flow to produce high-quality images in just 1–4 steps. "
+                "Ideal for rapid prompt testing and real-time generation. "
+                "Works best with Euler solver and guidance=0–2. "
+                "Slightly lower detail than Dev but much faster."
             ),
-            "tags": ["general", "detailed"],
-            "source_url": "https://huggingface.co/stabilityai/stable-diffusion-2-1",
-            "size": "~5.2 GB",
+            "tags": ["general", "flux", "fast", "real-time"],
+            "source_url": "https://huggingface.co/black-forest-labs/FLUX.1-schnell",
+            "size": "~23 GB",
         },
+        # FASTEST SDXL TEST MODEL — SDXL Lightning
         {
-            "id": "CompVis/stable-diffusion-v1-4",
-            "name": "Stable Diffusion v1.4",
-            "source": "huggingface",
-            "family": "sd15",
-            "description": "The original SD 1.4 by CompVis — lightweight and historical",
-            "long_description": (
-                "The original public release of Stable Diffusion by CompVis (LMU Munich). "
-                "Trained on LAION-Aesthetics v2 at 512 × 512. Lighter than 1.5 and useful for "
-                "historical comparisons or resource-limited machines. Most community content now "
-                "targets v1.5 instead."
-            ),
-            "tags": ["classic", "fast", "lightweight"],
-            "source_url": "https://huggingface.co/CompVis/stable-diffusion-v1-4",
-            "size": "~4.3 GB",
-        },
-        {
-            "id": "prompthero/openjourney",
-            "name": "OpenJourney v4",
-            "source": "huggingface",
-            "family": "sd15",
-            "description": "Midjourney-inspired style — vivid, painterly outputs",
-            "long_description": (
-                "A fine-tune of SD 1.5 on Midjourney v4 outputs by PromptHero. "
-                "Trigger the style with the prefix \"mdjrny-v4 style\" in your prompt. "
-                "Produces vivid, painterly images with the characteristic Midjourney look "
-                "— great for concept art and stylized illustrations."
-            ),
-            "tags": ["artistic", "stylized", "midjourney"],
-            "source_url": "https://huggingface.co/prompthero/openjourney",
-            "size": "~2.4 GB",
-        },
-        {
-            "id": "dreamlike-art/dreamlike-photoreal-2.0",
-            "name": "Dreamlike Photoreal 2.0",
-            "source": "huggingface",
-            "family": "sd15",
-            "description": "Photorealistic fine-tune — detailed skin tones and lighting",
-            "long_description": (
-                "A photorealism-focused fine-tune of SD 1.5 by Dreamlike Art. "
-                "Excels at realistic portraits, landscapes, and product shots. "
-                "Best results at 768 × 512 or higher. Add \"photo\" or \"photograph\" in the "
-                "prompt to steer the model toward photographic output."
-            ),
-            "tags": ["photorealistic", "portraits", "detailed"],
-            "source_url": "https://huggingface.co/dreamlike-art/dreamlike-photoreal-2.0",
-            "size": "~2.4 GB",
-        },
-        {
-            "id": "Lykon/dreamshaper-8",
-            "name": "DreamShaper 8",
-            "source": "huggingface",
-            "family": "sd15",
-            "description": "Highly versatile — photos, art, fantasy at 512 px",
-            "long_description": (
-                "DreamShaper 8 by Lykon is one of the most popular community fine-tunes of SD 1.5. "
-                "Covers a wide range of styles: photorealistic portraits, fantasy art, and concept design. "
-                "Also available as a CivitAI checkpoint with the same weights. "
-                "Works best with DPM++ 2M Karras sampler at 20–30 steps."
-            ),
-            "tags": ["versatile", "photorealistic", "artistic"],
-            "source_url": "https://huggingface.co/Lykon/dreamshaper-8",
-            "size": "~2.2 GB",
-        },
-        {
-            "id": "stabilityai/stable-diffusion-xl-base-1.0",
-            "name": "Stable Diffusion XL 1.0",
+            "id": "ByteDance/SDXL-Lightning",
+            "name": "SDXL Lightning",
             "source": "huggingface",
             "family": "sdxl",
-            "description": "SDXL base — high detail and color fidelity at 1024 px",
+            "description": "SDXL distilled — near-instant results in 2–4 steps",
             "long_description": (
-                "Stability AI's SDXL 1.0 base model. Native resolution is 1024 × 1024. "
-                "Uses a two-stage architecture (base + optional refiner) and a much larger "
-                "U-Net than SD 1.5, producing significantly more detailed and coherent images. "
-                "Requires more VRAM (≈8 GB for float16). Recommended GPU: RTX 3080 or better."
+                "SDXL-Lightning by ByteDance uses adversarial diffusion distillation "
+                "to compress SDXL into a 2–4 step sampler. Ideal for rapid iteration on SDXL architecture. "
+                "Use with Euler A or UniPC solver, CFG 0–2. "
+                "Native resolution 1024×1024. Requires ≈8 GB VRAM."
             ),
-            "tags": ["high-quality", "detailed", "large"],
-            "source_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0",
+            "tags": ["general", "sdxl", "fast", "lightweight"],
+            "source_url": "https://huggingface.co/ByteDance/SDXL-Lightning",
             "size": "~6.9 GB",
         },
+        # INKING / CLEAN LINEART — Mistoline SDXL
         {
-            "id": "stabilityai/sdxl-turbo",
-            "name": "SDXL Turbo",
+            "id": "XorAIS/mistoline-sdxl-fp16",
+            "name": "Mistoline SDXL",
             "source": "huggingface",
             "family": "sdxl",
-            "description": "Distilled SDXL — near-instant results in 1–4 steps",
+            "description": "Inking / clean lineart from sketches — ControlNet-compatible",
             "long_description": (
-                "SDXL Turbo uses Adversarial Diffusion Distillation (ADD) to compress "
-                "the full SDXL sampling process into 1–4 steps without a major quality loss. "
-                "Ideal for rapid iteration and real-time applications. "
-                "Use guidance_scale=0 (or very low) and num_inference_steps=1–4 for best results. "
-                "Not recommended for sketch2ink (ControlNet needs more steps)."
+                "Mistoline is a ControlNet-based line-art model for SDXL that turns rough sketches "
+                "into clean, professional lineart. Ideal for converting rough concept sketches into polished "
+                "inked lines. Compatible with standard ControlNet workflows. "
+                "Use with CFG 3–5, DPM++ 2M Karras, 20–30 steps."
             ),
-            "tags": ["fast", "real-time", "sdxl"],
-            "source_url": "https://huggingface.co/stabilityai/sdxl-turbo",
+            "tags": ["lineart", "controlnet", "sdxl", "inking"],
+            "source_url": "https://huggingface.co/XorAIS/mistoline-sdxl-fp16",
             "size": "~6.7 GB",
         },
+        # ─── CIVITAI MODELS ─────────────────────────────────────────────
+        # PHOTOREALISM — Juggernaut XL
         {
-            "id": "128713",
-            "name": "DreamShaper 8",
+            "id": "2144",
+            "name": "Juggernaut XL",
             "source": "civitai",
-            "family": "sd15",
-            "description": "Versatile art/photo model — version 128713",
+            "family": "sdxl",
+            "description": "Photorealism — best model for realistic photography",
             "long_description": (
-                "DreamShaper 8 by Lykon (CivitAI version 128713). "
-                "One of the most downloaded models on CivitAI. Handles portraits, fantasy, "
-                "concept art and landscapes equally well. "
-                "For best results use DPM++ 2M Karras, 20–30 steps, CFG 4–7."
+                "Juggernaut XL by Khaoz A.I. is a photorealism-focused SDXL checkpoint. "
+                "Excels at landscapes, portraits, and product photography with natural lighting "
+                "and skin tones. Use CFG 4–7, DPM++ 2M Karras, 20–30 steps. "
+                "Add 'photograph' or 'photo' to prompt for best results."
             ),
-            "tags": ["versatile", "photorealistic", "artistic"],
-            "source_url": "https://civitai.com/models/4384?modelVersionId=128713",
-            "size": "~2.1 GB",
+            "tags": ["photorealistic", "sdxl", "photography"],
+            "source_url": "https://civitai.com/models/136245/juggernaut-xl",
+            "size": "~6.7 GB",
         },
+        # REALISTIC PORTRAITS — RealVisXL
         {
-            "id": "130072",
-            "name": "Realistic Vision V5.1",
+            "id": "7331",
+            "name": "RealVisXL",
             "source": "civitai",
-            "family": "sd15",
-            "description": "Hyper-photorealistic portraits and scenes — version 130072",
+            "family": "sdxl",
+            "description": "Realistic portraits — high-fidelity facial details",
             "long_description": (
-                "Realistic Vision V5.1 by SG_161222 (CivitAI version 130072). "
-                "Focused on extreme photorealism — skin pores, fabric textures, natural lighting. "
-                "Pairs well with a VAE (Variational Autoencoder) for sharper colors: vae-ft-mse-840000-ema-pruned.safetensors. "
-                "Negative prompt should include \"cartoon, painting, illustration\" to steer away from art styles."
+                "RealVisXL by SG_161222 is a SDXL fine-tune optimized for realistic portrait generation. "
+                "Produces lifelike skin textures, natural poses, and accurate facial proportions. "
+                "Use CFG 3–5, DPM++ 2M Karras, 25–35 steps. "
+                "Negative prompt: 'cartoon, painting, illustration, drawing' to stay photorealistic."
             ),
-            "tags": ["photorealistic", "portraits", "detailed"],
-            "source_url": "https://civitai.com/models/4201?modelVersionId=130072",
-            "size": "~2.1 GB",
+            "tags": ["photorealistic", "portraits", "sdxl"],
+            "source_url": "https://civitai.com/models/7331/realvisxl",
+            "size": "~6.7 GB",
         },
+        # CINEMATIC PHOTOGRAPHY — Colossus Project Flux
         {
-            "id": "403131",
-            "name": "majicMIX Realistic v7",
+            "id": "860",
+            "name": "Colossus Project Flux",
             "source": "civitai",
-            "family": "sd15",
-            "description": "Asian-beauty–focused photorealism — version 403131",
+            "family": "flux",
+            "description": "Cinematic photography — film-like composition and lighting",
             "long_description": (
-                "majicMIX Realistic v7 by Merjic (CivitAI version 403131). "
-                "Specialized in realistic East Asian portrait photography. "
-                "Renders fine facial details, hair strands and natural skin tones exceptionally well. "
-                "Works well at 512 × 768 (portrait) with 25–35 steps."
+                "Colossus Project Flux is a FLUX.1 fine-tune specialized for cinematic photography. "
+                "Produces dramatic lighting, film-like color grading, and professional composition. "
+                "Works with FLUX's native 1024 resolution. Use CFG 1–3, Euler, 20–40 steps. "
+                "Add 'cinematic', 'film still' to prompt for best results."
             ),
-            "tags": ["photorealistic", "portraits", "asian-style"],
-            "source_url": "https://civitai.com/models/43331?modelVersionId=403131",
-            "size": "~2.1 GB",
+            "tags": ["photorealistic", "cinematic", "flux", "dramatic"],
+            "source_url": "https://civitai.com/models/860/colossus-project",
+            "size": "~23 GB",
+        },
+        # ART / CONCEPT ART — DreamShaper XL
+        {
+            "id": "39282",
+            "name": "DreamShaper XL",
+            "source": "civitai",
+            "family": "sdxl",
+            "description": "Art / Concept art — vibrant stylized and fantasy art",
+            "long_description": (
+                "DreamShaper XL by Lykon is an SDXL fine-tune optimized for concept art, "
+                "fantasy illustrations, and stylized portraits. Covers a wide range of artistic styles "
+                "from semi-realistic to highly stylized. Use CFG 5–7, DPM++ 2M Karras, 20–30 steps."
+            ),
+            "tags": ["artistic", "concept-art", "fantasy", "sdxl"],
+            "source_url": "https://civitai.com/models/39282/dreamshaper-xl",
+            "size": "~6.7 GB",
+        },
+        # ANIME (general) — Illustrious XL
+        {
+            "id": "31969",
+            "name": "Illustrious XL",
+            "source": "civitai",
+            "family": "sdxl",
+            "description": "Anime — general-purpose anime and illustration style",
+            "long_description": (
+                "Illustrious XL by CyberC. A high-quality anime-focused SDXL checkpoint. "
+                "Excels at character design, illustrations, and anime-style portraits. "
+                "Use CFG 5–7, DPM++ 2M Karras, 20–30 steps. "
+                "Pairs well with anime-specific LoRAs and ControlNets."
+            ),
+            "tags": ["anime", "illustration", "sdxl"],
+            "source_url": "https://civitai.com/models/31969/illustrious-xl",
+            "size": "~6.7 GB",
+        },
+        # ANIME (largest ecosystem) — Pony Diffusion V6 XL
+        {
+            "id": "53806",
+            "name": "Pony Diffusion V6 XL",
+            "source": "civitai",
+            "family": "sdxl",
+            "description": "Anime — largest ecosystem, extensive LoRA support",
+            "long_description": (
+                "Pony Diffusion V6 XL is a custom SDXL-based model that has spawned the largest "
+                "community for anime/furry-focused generation. Huge ecosystem of LoRAs, embeddings, "
+                "and ControlNets built specifically for this model. Use CFG 3.5–5, DPM++ 2M Karras, "
+                "20–30 steps. Has its own prompt tags (e.g. '1boy', '1girl' tags system)."
+            ),
+            "tags": ["anime", "pony", "large-ecosystem", "sdxl"],
+            "source_url": "https://civitai.com/models/53806/pony-diffusion-v6-xl",
+            "size": "~6.7 GB",
+        },
+        # FURRY — Furry Diffusion XL
+        {
+            "id": "226",
+            "name": "Furry Diffusion XL",
+            "source": "civitai",
+            "family": "sdxl",
+            "description": "Furry art — dedicated furry-style generation",
+            "long_description": (
+                "Furry Diffusion XL by Neklader. A specialized SDXL checkpoint for furry-style "
+                "character art and illustration. Supports anthropomorphic characters with natural "
+                "fur rendering, expressive anatomy, and stylized proportions. "
+                "Use CFG 5–7, DPM++ 2M Karras, 20–30 steps."
+            ),
+            "tags": ["furry", "anime", "sdxl"],
+            "source_url": "https://civitai.com/models/226/furry-diffusion-xl",
+            "size": "~6.7 GB",
+        },
+        # NSFW ANIME — NoobAI XL
+        {
+            "id": "26556",
+            "name": "NoobAI XL",
+            "source": "civitai",
+            "family": "sdxl",
+            "description": "NSFW anime — adult-oriented anime generation",
+            "long_description": (
+                "NoobAI XL is an SDXL fine-tune specialized for NSFW anime-style generation. "
+                "Strong character consistency and detailed anatomical rendering. "
+                "Use CFG 6–7, DPM++ 2M Karras, 25–30 steps. "
+                "Works well with anime-specific embeddings."
+            ),
+            "tags": ["nsfw", "anime", "sdxl"],
+            "source_url": "https://civitai.com/models/26556/noobai-xl",
+            "size": "~6.7 GB",
+        },
+        # NSFW FURRY — Indigo Furry Mix
+        {
+            "id": "3495",
+            "name": "Indigo Furry Mix",
+            "source": "civitai",
+            "family": "sdxl",
+            "description": "NSFW furry — detailed furry-style adult art",
+            "long_description": (
+                "Indigo Furry Mix by SFW. A high-quality SDXL checkpoint for furry-style "
+                "generation with excellent fur rendering, natural anatomy, and stylized proportions. "
+                "One of the most popular furry models on CivitAI. "
+                "Use CFG 5–7, DPM++ 2M Karras, 25–35 steps."
+            ),
+            "tags": ["nsfw", "furry", "sdxl"],
+            "source_url": "https://civitai.com/models/3495/indigo-furry-mix",
+            "size": "~6.7 GB",
         },
     ]
 
@@ -303,16 +352,58 @@ def is_model_downloaded(model_id: str, source: str) -> bool:
 # ─── Public API ────────────────────────────────────────────────────────────
 
 def list_models() -> list[dict]:
-    """Return all registered models with their current download status."""
+    """Return all registered models with their current download status.
+
+    Models that are actively being downloaded will have downloaded=False
+    (even if a partial snapshot exists on disk) so the UI doesn't
+    prematurely show them as available.
+    """
     registry = _load_registry()
     for entry in registry:
         entry["downloaded"] = is_model_downloaded(entry["id"], entry["source"])
+        # Override: if downloading, report not-yet-downloaded
+        if is_downloading(entry["id"], entry["source"]):
+            entry["downloaded"] = False
     return registry
+
+
+def get_download_progress(model_id: str, source: str) -> dict:
+    """Return download progress for a model: {downloaded_bytes, total_bytes, percentage}.
+
+    Returns None if no download is in progress or no progress data exists.
+    """
+    key = f"{source}:{model_id}"
+    with _progress_lock:
+        progress = _download_progress.get(key)
+    if not progress:
+        return None
+    downloaded = progress.get("downloaded_bytes", 0)
+    total = progress.get("total_bytes")
+    percentage = 0
+    if total and total > 0:
+        percentage = min(100, int(downloaded / total * 100))
+    return {
+        "downloaded_bytes": downloaded,
+        "total_bytes": total,
+        "percentage": percentage,
+    }
 
 
 def list_downloaded_models() -> list[dict]:
     """Return only models that are actually present on disk."""
     return [m for m in list_models() if m["downloaded"]]
+
+
+# ─── Download Events API ──────────────────────────────────────────────────────
+
+def list_download_events_api() -> list[dict]:
+    """Return all persisted download events, newest first."""
+    return list_download_events()
+
+
+def clear_download_events_api() -> int:
+    """Clear all download events. Returns number of files removed."""
+    return clear_download_events()
 
 
 def add_model(
@@ -373,6 +464,10 @@ def remove_model(model_id: str, source: str) -> bool:
 _downloading: set[str] = set()
 _download_lock = threading.Lock()
 
+# Tracks download progress: key -> {"downloaded_bytes": int, "total_bytes": int | None}
+_download_progress: dict[str, dict] = {}
+_progress_lock = threading.Lock()
+
 
 def is_downloading(model_id: str, source: str) -> bool:
     """Check if a model is currently being downloaded in the background."""
@@ -391,8 +486,12 @@ def download_model_background(model_id: str, source: str) -> None:
     with _download_lock:
         if key in _downloading:
             logger.info("Download already in progress for %s", key)
+            save_download_event(source, model_id, "started", "Download already in progress")
             return
         _downloading.add(key)
+
+    # Log download start event
+    save_download_event(source, model_id, "started", f"Download started for {source} model {model_id}")
 
     def _do_download():
         try:
@@ -401,8 +500,10 @@ def download_model_background(model_id: str, source: str) -> None:
             elif source == "civitai":
                 _download_civitai_model(model_id)
             logger.info("Download complete: %s", key)
+            save_download_event(source, model_id, "completed", f"Download completed for {model_id}")
         except Exception:
             logger.exception("Download failed: %s", key)
+            save_download_event(source, model_id, "failed", f"Download failed: {str(__import__('sys').exc_info()[1])}")
         finally:
             with _download_lock:
                 _downloading.discard(key)
@@ -413,16 +514,51 @@ def download_model_background(model_id: str, source: str) -> None:
 
 def _download_huggingface_model(model_id: str) -> None:
     """Download a HuggingFace model to cache without loading into GPU memory."""
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import snapshot_download, HfFileSystem
 
     logger.info("Downloading HuggingFace model: %s", model_id)
-    # snapshot_download fetches all model files (weights, config, tokenizer)
-    # to the local cache directory without loading them into GPU/CPU memory.
+    key = f"huggingface:{model_id}"
+
+    # Get total size for progress tracking
+    total_bytes = 0
+    try:
+        fs = HfFileSystem()
+        repo_files = fs.ls(model_id, recursive=True)
+        total_bytes = sum(fs.info(f)["size"] for f in repo_files if fs.info(f).get("size"))
+    except Exception:
+        pass
+
+    with _progress_lock:
+        _download_progress[key] = {
+            "downloaded_bytes": 0,
+            "total_bytes": total_bytes if total_bytes > 0 else None,
+        }
+
+    # Use tqdm callback to track download progress
+    downloaded_bytes = [0]  # use list for mutability in closure
+
+    def _progress_callback(bytes_downloaded: int) -> None:
+        downloaded_bytes[0] += bytes_downloaded
+        with _progress_lock:
+            _download_progress[key] = {
+                "downloaded_bytes": downloaded_bytes[0],
+                "total_bytes": total_bytes if total_bytes > 0 else None,
+            }
+
+    logger.info("Downloading HuggingFace model: %s", model_id)
     snapshot_download(
         repo_id=model_id,
         cache_dir=str(MODELS_CACHE_DIR),
         token=HF_TOKEN or None,
+        callback=_progress_callback,
     )
+
+    # Mark 100% complete
+    with _progress_lock:
+        _download_progress[key] = {
+            "downloaded_bytes": total_bytes if total_bytes > 0 else 1,
+            "total_bytes": total_bytes if total_bytes > 0 else 1,
+        }
 
 
 def _download_civitai_model(model_version_id: str) -> None:
@@ -447,6 +583,15 @@ def _download_civitai_model(model_version_id: str) -> None:
         headers["Authorization"] = "Bearer " + CIV_TOKEN
 
     logger.info("Downloading CivitAI model version %s …", model_version_id)
+    key = f"civitai:{model_version_id}"
+
+    # Initialize progress tracking
+    with _progress_lock:
+        _download_progress[key] = {
+            "downloaded_bytes": 0,
+            "total_bytes": None,  # Content-Length may not be reliable for large downloads
+        }
+
     # 600s timeout: model checkpoints can be 2–8+ GB, needs generous time for slow connections
     response = requests.get(url, headers=headers, stream=True, timeout=600)
     if response.status_code != 200:
@@ -454,8 +599,39 @@ def _download_civitai_model(model_version_id: str) -> None:
             f"CivitAI download failed with status {response.status_code}: {response.text[:200]}"
         )
 
+    # Use Content-Length if available
+    total_bytes = None
+    content_length = response.headers.get("content-length")
+    if content_length:
+        try:
+            total_bytes = int(content_length)
+            with _progress_lock:
+                _download_progress[key] = {
+                    "downloaded_bytes": 0,
+                    "total_bytes": total_bytes,
+                }
+        except ValueError:
+            pass
+
+    downloaded_bytes = [0]
+
     with open(checkpoint_path, "wb") as f:
         for chunk in response.iter_content(chunk_size=1024 * 1024):
-            f.write(chunk)
+            if chunk:
+                f.write(chunk)
+                downloaded_bytes[0] += len(chunk)
+                with _progress_lock:
+                    _download_progress[key] = {
+                        "downloaded_bytes": downloaded_bytes[0],
+                        "total_bytes": total_bytes,
+                    }
+
+    # Mark 100% complete
+    actual_total = total_bytes if total_bytes else downloaded_bytes[0]
+    with _progress_lock:
+        _download_progress[key] = {
+            "downloaded_bytes": downloaded_bytes[0],
+            "total_bytes": actual_total,
+        }
 
     logger.info("CivitAI model downloaded to %s", checkpoint_path)

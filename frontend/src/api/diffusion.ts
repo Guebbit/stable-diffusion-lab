@@ -13,6 +13,7 @@ import type {
   ModelRegistryEntry,
   ModelSource,
   SketchToInkRequest,
+  DownloadEvent,
 } from '../types'
 
 const api = axios.create({
@@ -119,7 +120,7 @@ export const diffusionApi = {
     return api.post<DescribeImageResponse>('/describe-image', formData).then((r) => r.data)
   },
 
-  // ─── Model Registry endpoints ───────────────────────────────────────────
+  // ─── Model Registry endpoints ──
 
   /**
    * Get all registered models with their download status.
@@ -160,7 +161,17 @@ export const diffusionApi = {
     ).then((r) => r.data)
   },
 
-  // ─── History endpoints ──────────────────────────────────────────────────
+  /**
+   * Get download progress for a specific model.
+   */
+  getDownloadProgress(modelId: string, source: ModelSource): Promise<{ downloaded_bytes: number; total_bytes: number; percentage: number }> {
+    return api.get<{ downloaded_bytes: number; total_bytes: number; percentage: number }>(
+      `/models/${encodeURIComponent(modelId)}/progress`,
+      { params: { source } },
+    ).then((r) => r.data)
+  },
+
+  // ─── History endpoints ──
 
   /**
    * Fetch all persisted generations from the backend (newest first).
@@ -181,5 +192,21 @@ export const diffusionApi = {
    */
   clearAllHistory(): Promise<void> {
     return api.delete('/history').then(() => undefined)
+  },
+
+  // ─── Download Events endpoints ──
+
+  /**
+   * Fetch all download events from the backend.
+   */
+  getDownloadEvents(): Promise<DownloadEvent[]> {
+    return api.get<DownloadEvent[]>('/models/download-events').then((r) => r.data)
+  },
+
+  /**
+   * Clear all download events from the backend.
+   */
+  clearDownloadEvents(): Promise<{ detail: string }> {
+    return api.delete('/models/download-events').then((r) => r.data)
   },
 }
