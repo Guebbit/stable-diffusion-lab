@@ -160,8 +160,8 @@ class JobWorker:
         """
         settings = get_settings()
 
-        # Determine backend override (if specified in job params)
-        backend_str = params.pop("backend", None)
+        # Determine backend override (if specified in job params) — use .get() to avoid mutating
+        backend_str = params.get("backend")
         backend = InferenceBackend(backend_str) if backend_str else None
 
         # Build progress callback that publishes to the event bus

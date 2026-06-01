@@ -53,7 +53,7 @@ class ComfyUIModelManager:
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(
-                    f"{self._client._base_url}/free",
+                    f"{self._client.base_url}/free",
                     json={"unload_models": True},
                 )
         except Exception:

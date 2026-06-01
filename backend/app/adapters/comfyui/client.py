@@ -47,6 +47,11 @@ class ComfyUIClient:
         self._client_id = str(uuid.uuid4())
 
     @property
+    def base_url(self) -> str:
+        """Base URL of the ComfyUI server."""
+        return self._base_url
+
+    @property
     def ws_url(self) -> str:
         """WebSocket URL for real-time events."""
         http_url = self._base_url.replace("http://", "ws://").replace("https://", "wss://")
@@ -103,6 +108,7 @@ class ComfyUIClient:
             TimeoutError: If execution takes longer than timeout.
             RuntimeError: If ComfyUI reports an execution error.
         """
+        # Deferred import: websockets is optional (only needed when ComfyUI is enabled)
         import websockets
 
         async with websockets.connect(self.ws_url) as ws:
