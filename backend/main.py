@@ -93,7 +93,11 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
-    """Startup: scan the models cache and refresh the registry download status."""
+    """Startup: scan the models cache and refresh the registry download status.
+
+    Also detects any interrupted CivitAI downloads (.incomplete files) and
+    automatically re-queues them so they resume where they left off.
+    """
     # On every container start, re-check which models are already present on disk
     from model_registry import _load_registry, is_model_downloaded  # noqa: F811
     registry = _load_registry()
@@ -108,6 +112,14 @@ async def lifespan(app_instance: FastAPI):
         from model_registry import _save_registry  # noqa: F811
         _save_registry(registry)
         logger.info("Registry refreshed: %d models re-scanned on startup", refreshed)
+
+    # Detect and resume any interrupted CivitAI downloads
+    from model_registry import find_incomplete_civitai_downloads, download_model_background  # noqa: F811
+    incomplete = find_incomplete_civitai_downloads()
+    for version_id in incomplete:
+        logger.info("Found incomplete CivitAI download for version %s — re-queuing", version_id)
+        download_model_background(version_id, "civitai")
+
     yield
     # Shutdown cleanup (if needed) goes here
 

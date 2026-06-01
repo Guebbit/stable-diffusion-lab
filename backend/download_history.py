@@ -58,6 +58,7 @@ def save_download_event(source: str, model_id: str, status: str, detail: str = "
     }
     try:
         path = _event_path(source, model_id, now)
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(event, f, ensure_ascii=False)
         logger.debug("Download event saved: %s", event)

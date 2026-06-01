@@ -20,8 +20,8 @@ export interface DownloadProgressState {
 }
 
 // Polling config for download status checks
-const POLL_INTERVAL_MS = 10_000  // Check every 10 seconds
-const MAX_POLL_ATTEMPTS = 60     // Give up after ~10 minutes
+const POLL_INTERVAL_MS = 1_000   // Check every second for responsive progress display
+const MAX_POLL_ATTEMPTS = 600    // Give up after ~10 minutes
 
 export const useModelsStore = defineStore('models', () => {
   // All registered models (full catalog with download status)
