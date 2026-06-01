@@ -34,9 +34,10 @@ GenerationTask = Literal["text2img", "img2img", "sketch2ink"]
 # img2img    → reference image + text prompt → transformed image
 # sketch2ink → hand-drawn sketch + text prompt → cleaned ink render (uses ControlNet)
 
-ModelFamily = Literal["sd15", "sdxl"]
+ModelFamily = Literal["sd15", "sdxl", "flux"]
 # sd15 = Stable Diffusion 1.5 — smaller, faster, 512px native resolution
 # sdxl = Stable Diffusion XL   — larger, higher quality, 1024px native resolution
+# flux = FLUX architecture      — latest generation, different UNet structure
 # This matters because ControlNet weights are architecture-specific (can't mix families)
 
 ImageWorkflowPreset = Literal["general", "recolor", "style-transfer", "upscale"]

@@ -58,6 +58,9 @@ def save_download_event(source: str, model_id: str, status: str, detail: str = "
     }
     try:
         path = _event_path(source, model_id, now)
+        # Use the known constant directory (not the user-derived path.parent) to avoid
+        # any chance of directory traversal even though the filename is sanitized.
+        DOWNLOAD_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(event, f, ensure_ascii=False)
         logger.debug("Download event saved: %s", event)

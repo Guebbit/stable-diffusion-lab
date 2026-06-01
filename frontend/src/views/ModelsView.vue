@@ -108,11 +108,6 @@ function downloadPercentageFor(model: typeof modelsStore.registry[0]): number {
   return Math.round((p.percentage) || 0)
 }
 
-function downloadProgressFor(model: typeof modelsStore.registry[0]): { downloaded_bytes: number; total_bytes: number } | null {
-  const key = `${model.source}:${model.id}`
-  return modelsStore.downloadProgress.get(key) ?? null
-}
-
 const progressColor = 'blue'
 </script>
 

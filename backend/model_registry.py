@@ -330,7 +330,11 @@ def _is_huggingface_model_downloaded(model_id: str) -> bool:
 
 
 def _is_civitai_model_downloaded(model_version_id: str) -> bool:
-    """Check if a CivitAI .safetensors checkpoint exists on disk."""
+    """Check if a CivitAI .safetensors checkpoint exists on disk (and is complete).
+
+    Downloads write to a .safetensors.incomplete temp file and rename only on
+    completion, so the final .safetensors file only exists when fully received.
+    """
     import re
     normalized = model_version_id.strip()
     # Only allow numeric IDs to prevent path injection
@@ -562,7 +566,13 @@ def _download_huggingface_model(model_id: str) -> None:
 
 
 def _download_civitai_model(model_version_id: str) -> None:
-    """Download a CivitAI checkpoint .safetensors file."""
+    """Download a CivitAI checkpoint .safetensors file.
+
+    Writes to a .incomplete temp file during the download, then renames it to
+    the final .safetensors path only when the download is fully received.
+    This ensures _is_civitai_model_downloaded() never returns True for partial files,
+    and allows resuming interrupted downloads using the HTTP Range header.
+    """
     import re
     import requests
 
@@ -572,6 +582,7 @@ def _download_civitai_model(model_version_id: str) -> None:
 
     MODELS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     checkpoint_path = MODELS_CACHE_DIR / f"civitai_{normalized}.safetensors"
+    incomplete_path = MODELS_CACHE_DIR / f"civitai_{normalized}.safetensors.incomplete"
 
     if checkpoint_path.exists():
         logger.info("CivitAI model already cached at %s", checkpoint_path)
@@ -582,40 +593,59 @@ def _download_civitai_model(model_version_id: str) -> None:
     if CIV_TOKEN:
         headers["Authorization"] = "Bearer " + CIV_TOKEN
 
+    # Resume an interrupted download if a .incomplete file is present and non-empty.
+    # A zero-byte file means nothing was received yet, so resuming would waste a round-trip.
+    resume_from = 0
+    if incomplete_path.exists():
+        resume_from = incomplete_path.stat().st_size
+        if resume_from > 0:
+            logger.info("Resuming CivitAI download from byte %d: %s", resume_from, incomplete_path)
+            headers["Range"] = f"bytes={resume_from}-"
+
     logger.info("Downloading CivitAI model version %s …", model_version_id)
     key = f"civitai:{model_version_id}"
 
-    # Initialize progress tracking
+    # Initialize progress tracking (pre-seed with bytes already on disk)
     with _progress_lock:
         _download_progress[key] = {
-            "downloaded_bytes": 0,
+            "downloaded_bytes": resume_from,
             "total_bytes": None,  # Content-Length may not be reliable for large downloads
         }
 
     # 600s timeout: model checkpoints can be 2–8+ GB, needs generous time for slow connections
     response = requests.get(url, headers=headers, stream=True, timeout=600)
-    if response.status_code != 200:
+    if response.status_code not in (200, 206):
         raise RuntimeError(
             f"CivitAI download failed with status {response.status_code}: {response.text[:200]}"
         )
 
-    # Use Content-Length if available
-    total_bytes = None
+    # If server doesn't support Range, start over to avoid corrupted file.
+    # reset resume_from to 0 here so the open_mode decision below uses "wb" (overwrite).
+    if resume_from > 0 and response.status_code == 200:
+        logger.warning("Server ignored Range header — restarting download from scratch")
+        resume_from = 0
+
+    # Use Content-Length / Content-Range if available
+    total_bytes: int | None = None
     content_length = response.headers.get("content-length")
     if content_length:
         try:
-            total_bytes = int(content_length)
+            remaining = int(content_length)
+            total_bytes = resume_from + remaining
             with _progress_lock:
                 _download_progress[key] = {
-                    "downloaded_bytes": 0,
+                    "downloaded_bytes": resume_from,
                     "total_bytes": total_bytes,
                 }
         except ValueError:
             pass
 
-    downloaded_bytes = [0]
+    # Use a list so the nested progress callback can mutate the byte count without a nonlocal declaration.
+    downloaded_bytes = [resume_from]
 
-    with open(checkpoint_path, "wb") as f:
+    # "ab" appends to existing bytes when resuming; "wb" starts fresh for new or restarted downloads.
+    open_mode = "ab" if resume_from > 0 else "wb"
+    with open(incomplete_path, open_mode) as f:
         for chunk in response.iter_content(chunk_size=1024 * 1024):
             if chunk:
                 f.write(chunk)
@@ -626,6 +656,9 @@ def _download_civitai_model(model_version_id: str) -> None:
                         "total_bytes": total_bytes,
                     }
 
+    # Rename the complete temp file to the final path
+    incomplete_path.rename(checkpoint_path)
+
     # Mark 100% complete
     actual_total = total_bytes if total_bytes else downloaded_bytes[0]
     with _progress_lock:
@@ -635,3 +668,25 @@ def _download_civitai_model(model_version_id: str) -> None:
         }
 
     logger.info("CivitAI model downloaded to %s", checkpoint_path)
+
+
+def find_incomplete_civitai_downloads() -> list[str]:
+    """Return version IDs of CivitAI models with incomplete download temp files.
+
+    An incomplete download leaves a civitai_<id>.safetensors.incomplete file on
+    disk.  On startup the backend can call this to detect and re-queue them.
+    Globs for the .incomplete suffix, strips the known prefix/suffix to extract
+    the numeric version ID, and validates it before returning.
+    """
+    import re
+    incomplete: list[str] = []
+    if not MODELS_CACHE_DIR.exists():
+        return incomplete
+    for f in MODELS_CACHE_DIR.glob("civitai_*.safetensors.incomplete"):
+        # Strip "civitai_" prefix and ".safetensors.incomplete" suffix to get the version ID
+        stem = f.name.replace(".safetensors.incomplete", "")
+        version_id = stem.removeprefix("civitai_")
+        # Validate that it's numeric before re-queuing (guards against unexpected filenames)
+        if re.fullmatch(r"\d+", version_id):
+            incomplete.append(version_id)
+    return incomplete
