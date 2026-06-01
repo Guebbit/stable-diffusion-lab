@@ -3,8 +3,18 @@ AI Lab Backend — Root application package.
 
 Architecture layers (dependency flows downward only):
 
-    API → Service → Orchestrator → Adapter → Infrastructure
+    API (routers, schemas, websocket)
+     ↓
+    Services (business logic orchestration)
+     ↓
+    Orchestrator (job queue, event bus)
+     ↓
+    Adapters (direct/bentoml/comfyui inference)
+     ↓
+    Infrastructure (config, database, storage)
+     ↓
+    Domain (enums, value objects, protocols — no dependencies)
 
-Each layer has a single responsibility and strict boundary rules.
-See docs/architecture.md for the full design rationale.
+Entry point: app.main:create_app (FastAPI factory)
+See docs/architecture/step-2-project-structure.md for full design.
 """
