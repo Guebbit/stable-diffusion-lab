@@ -1,4 +1,20 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ailab
+      POSTGRES_USER: ailab
+      POSTGRES_PASSWORD: ailab_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ailab"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -6,11 +22,16 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - models_cache:/app/models_cache
+      - storage_data:/app/storage
     environment:
-      - MODELS_CACHE_DIR=/app/models_cache
-      # Set your CivitAI API key here or via a .env file
-      - CIVITAI_API_KEY=${CIVITAI_API_KEY:-}
+      - DATABASE_URL=******db:5432/ailab
+      - STORAGE_ROOT=/app/storage
+      - HF_TOKEN=${HF_TOKEN:-}
+      - CIVITAI_TOKEN=${CIVITAI_TOKEN:-}
+      - INFERENCE_DEVICE=auto
+    depends_on:
+      db:
+        condition: service_healthy
     # Uncomment to enable NVIDIA GPU support:
     # deploy:
     #   resources:
@@ -32,6 +53,8 @@ services:
     command: sh -c "npm install && npm run dev -- --host"
     depends_on:
       - backend
+
 volumes:
-  models_cache:
+  pgdata:
+  storage_data:
   frontend_node_modules:
