@@ -103,15 +103,15 @@ class JobWorker:
             await self._job_repo.mark_cancelled(job_id)
             return
 
-        try:
-            # Acquire GPU for inference jobs
-            needs_gpu = job_type in {
-                JobType.TEXT_TO_IMAGE,
-                JobType.IMAGE_TO_IMAGE,
-                JobType.VIDEO_GENERATION,
-                JobType.LLM_INFERENCE,
-            }
+        # Determine if this job needs GPU before entering try block
+        needs_gpu = job_type in {
+            JobType.TEXT_TO_IMAGE,
+            JobType.IMAGE_TO_IMAGE,
+            JobType.VIDEO_GENERATION,
+            JobType.LLM_INFERENCE,
+        }
 
+        try:
             if needs_gpu:
                 await self._resource_coordinator.acquire(job_id_str)
 

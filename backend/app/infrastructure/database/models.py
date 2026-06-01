@@ -36,7 +36,7 @@ class ModelRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     # --- Metadata ---
     description: Mapped[str] = mapped_column(Text, default="")
-    tags: Mapped[dict] = mapped_column(JSONB, default=list)
+    tags: Mapped[list] = mapped_column(JSONB, default=list)
     source_url: Mapped[str] = mapped_column(String(1024), default="")
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
 

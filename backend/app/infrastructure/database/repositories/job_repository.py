@@ -6,7 +6,7 @@ The job orchestrator uses this to claim, update, and query jobs.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -53,7 +53,7 @@ class JobRepository:
 
         if record:
             record.status = "running"
-            record.started_at = datetime.utcnow()
+            record.started_at = datetime.now(timezone.utc)
             await self._session.flush()
 
         return record
@@ -87,7 +87,7 @@ class JobRepository:
             .values(
                 status="completed",
                 progress_percent=100,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
                 result=result or {},
             )
         )
@@ -100,7 +100,7 @@ class JobRepository:
             .where(JobRecord.id == job_id)
             .values(
                 status="failed",
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
                 error=error,
             )
         )
@@ -113,7 +113,7 @@ class JobRepository:
             .where(JobRecord.id == job_id)
             .values(
                 status="cancelled",
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         )
         await self._session.execute(stmt)
