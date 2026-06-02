@@ -122,6 +122,9 @@ class ResourceCoordinator:
         self._estimated_vram_used_mb = 0
         self._total_jobs_processed += 1
         self._last_activity = datetime.now(timezone.utc)
+        # Guard against unexpected release-without-acquire edge cases.
+        if self._acquired_at is None:
+            logger.warning("Release called without a recorded acquire for job %s", job_id)
         held_seconds = (
             (self._last_activity - self._acquired_at).total_seconds() if self._acquired_at else 0.0
         )

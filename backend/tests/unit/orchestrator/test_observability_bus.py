@@ -18,6 +18,7 @@ def test_metrics_registry_tracks_counter_gauge_histogram() -> None:
 
 def test_observability_bus_buffers_recent_and_job_timeline() -> None:
     bus = ObservabilityBus(max_events=3)
+    # max_events=3 keeps only the newest three global events (FIFO eviction).
     bus.publish_sync(ObservabilityEvent(event_type="one", job_id="job-1", correlation_id="job-1"))
     bus.publish_sync(ObservabilityEvent(event_type="two", job_id="job-2", correlation_id="job-2"))
     bus.publish_sync(ObservabilityEvent(event_type="three", job_id="job-1", correlation_id="job-1"))
@@ -29,4 +30,3 @@ def test_observability_bus_buffers_recent_and_job_timeline() -> None:
         "three",
         "four",
     ]
-

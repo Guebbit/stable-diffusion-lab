@@ -1,5 +1,11 @@
 """
 In-process observability event bus with recent-event buffering and metrics.
+
+Design:
+- FIFO global buffer for recent events to support "what just happened?" debugging.
+- Per-job timeline buffers to support end-to-end traceability per job id.
+- Subscriber fan-out for live consumers (e.g. WebSocket streaming).
+- Embedded metrics registry for counters, gauges, and histogram summaries.
 """
 
 from __future__ import annotations
@@ -20,11 +26,19 @@ ObservabilitySubscriber = Callable[[ObservabilityEvent], Any]
 
 
 class MetricsRegistry:
-    """Lightweight in-memory metrics registry for counters, gauges, and timings."""
+    """
+    Lightweight in-memory metrics registry.
+
+    - Counters: monotonically increasing totals (events/jobs/errors).
+    - Gauges: latest snapshot values (queue depth, active jobs, memory).
+    - Histograms: statistical timing/value summaries (count/sum/min/max/avg/last).
+    """
 
     def __init__(self) -> None:
         self._counters: dict[str, float] = defaultdict(float)
         self._gauges: dict[str, float] = defaultdict(float)
+        # Histogram storage by metric name:
+        # count/sum for averages, min/max range, and last observed value.
         self._hist: dict[str, dict[str, float]] = defaultdict(
             lambda: {
                 "count": 0.0,
@@ -107,13 +121,21 @@ class MetricsRegistry:
 
 
 class ObservabilityBus:
-    """Event bus that stores recent events and supports async subscribers."""
+    """
+    Event bus for structured observability events.
 
-    def __init__(self, max_events: int = 1000) -> None:
+    Maintains dual buffers (global recent events + per-job timelines), records
+    metrics, and broadcasts events to async subscribers. `publish` is async and
+    awaits subscribers; `publish_sync` records immediately and schedules
+    subscribers only when an event loop is available.
+    """
+
+    def __init__(self, max_events: int = 1000, job_timeline_size: int = 300) -> None:
         self._subscribers: list[ObservabilitySubscriber] = []
         self._recent_events: deque[ObservabilityEvent] = deque(maxlen=max_events)
+        # Per-job timelines are bounded independently to keep local debugging context.
         self._job_events: dict[str, deque[ObservabilityEvent]] = defaultdict(
-            lambda: deque(maxlen=300)
+            lambda: deque(maxlen=job_timeline_size)
         )
         self.metrics = MetricsRegistry()
 
@@ -134,7 +156,12 @@ class ObservabilityBus:
                 logger.exception("Observability subscriber failed for %s", event.event_id)
 
     def publish_sync(self, event: ObservabilityEvent) -> None:
-        """Publish from sync/threaded contexts (non-blocking for subscribers)."""
+        """
+        Publish from sync/threaded contexts (non-blocking for subscribers).
+
+        If no event loop is active, the event is still recorded in buffers/metrics,
+        but async subscribers are not notified.
+        """
         self._record(event)
         loop = _try_get_loop()
         if not loop:

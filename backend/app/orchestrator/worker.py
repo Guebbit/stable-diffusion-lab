@@ -17,6 +17,7 @@ import asyncio
 import logging
 import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -34,6 +35,11 @@ from app.orchestrator.observability_bus import observability_bus
 
 
 logger = logging.getLogger(__name__)
+ARTIFACT_JOB_TYPES = {
+    JobType.TEXT_TO_IMAGE,
+    JobType.IMAGE_TO_IMAGE,
+    JobType.VIDEO_GENERATION,
+}
 
 
 class JobWorker:
@@ -150,8 +156,11 @@ class JobWorker:
                 job_repo = JobRepository(session)
                 event_repo = JobEventRepository(session)
                 job = await job_repo.get_by_id(job_id)
-                if job and job.created_at and job.started_at:
-                    wait_seconds = (job.started_at - job.created_at).total_seconds()
+                if job and job.created_at:
+                    wait_seconds = (
+                        datetime.now(timezone.utc) - job.created_at
+                    ).total_seconds()
+                    wait_seconds = max(wait_seconds, 0.0)
                     observability_bus.metrics.observe("queue.wait_time_seconds", wait_seconds)
                 await event_repo.record_transition(
                     job_id=job_id,
@@ -235,17 +244,8 @@ class JobWorker:
             if "out of memory" in str(exc).lower():
                 observability_bus.metrics.inc("gpu.oom_errors")
                 event_type = "gpu.oom"
-            if job_type in {JobType.TEXT_TO_IMAGE, JobType.IMAGE_TO_IMAGE, JobType.VIDEO_GENERATION}:
-                await observability_bus.publish(
-                    ObservabilityEvent(
-                        event_type="artifact.save.failed",
-                        component="worker",
-                        level="error",
-                        message=f"Artifact generation failed: {exc}",
-                        job_id=job_id_str,
-                        correlation_id=job_id_str,
-                    )
-                )
+            if job_type in ARTIFACT_JOB_TYPES and event_type != "gpu.oom":
+                event_type = "artifact.save.failed"
             await observability_bus.publish(
                 ObservabilityEvent(
                     event_type=event_type,

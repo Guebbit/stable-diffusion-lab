@@ -1,5 +1,11 @@
 """
 Observability service — centralizes system snapshot, events, timelines, and metrics.
+
+Aggregates state from runtime settings, resource coordinator, pipeline cache,
+job queue records, and the in-memory observability bus. Produces:
+- truthful system snapshots for /system/status
+- recent event lists and per-job timelines
+- metric snapshots and health status/warning heuristics
 """
 
 from __future__ import annotations
@@ -22,13 +28,21 @@ from app.api.schemas.system import (
     SystemEventResponse,
     SystemStatusResponse,
 )
+from app.domain.observability import MetricPoint, ObservabilityEvent
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.models import JobRecord
 from app.orchestrator.observability_bus import observability_bus
 
 
 class ObservabilityService:
-    """Aggregate state from cache, coordinator, queue, and metrics/event bus."""
+    """
+    Build consolidated observability views from real backend state owners.
+
+    Health status is derived from lightweight heuristics (queue backlog, GPU
+    pressure, warming/cache state, OOM/load failure counters, lock duration,
+    and repeated error events) to classify system state as ok/busy/degraded/
+    warming_up/error with machine-readable reasons.
+    """
 
     def __init__(self, app: FastAPI, session: AsyncSession) -> None:
         self._app = app
@@ -46,6 +60,7 @@ class ObservabilityService:
         resource = self._app.state.resource_coordinator
         cache = self._app.state.pipeline_cache
         device_status = resource.get_device_status()
+        loaded_model_ids = cache.get_loaded_ids()
         gpu = GpuSnapshot(
             available=self._torch_cuda_available(),
             device="cuda" if self._torch_cuda_available() else "cpu",
@@ -71,8 +86,8 @@ class ObservabilityService:
             oldest_pending_age_seconds=oldest_pending_age,
         )
         models = ModelCacheSnapshot(
-            loaded_models=cache.get_loaded_ids(),
-            active_model=cache.get_loaded_ids()[-1] if cache.get_loaded_ids() else None,
+            loaded_models=loaded_model_ids,
+            active_model=loaded_model_ids[-1] if loaded_model_ids else None,
             cache_size=cache.size,
             max_cached=cache.max_cached,
             estimated_vram_usage_mb=cache.current_vram_usage_mb,
@@ -169,7 +184,7 @@ class ObservabilityService:
         if jobs.pending >= 5:
             warnings.append("Queue backlog detected.")
             reasons.append("queue_backlog")
-        if gpu.cuda_reserved_mb > 0 and gpu.cuda_allocated_mb / max(gpu.cuda_reserved_mb, 1) > 0.9:
+        if gpu.cuda_reserved_mb > 0 and gpu.cuda_allocated_mb > 0.9 * gpu.cuda_reserved_mb:
             warnings.append("High GPU memory pressure.")
             reasons.append("gpu_memory_pressure")
         if models.cache_size == 0 and jobs.running > 0:
@@ -207,7 +222,7 @@ class ObservabilityService:
         return HealthSnapshot(status=status, warnings=warnings, reasons=reasons)
 
     @staticmethod
-    def _event_to_response(event: Any) -> SystemEventResponse:
+    def _event_to_response(event: ObservabilityEvent) -> SystemEventResponse:
         return SystemEventResponse(
             event_id=event.event_id,
             event_type=event.event_type,
@@ -221,7 +236,7 @@ class ObservabilityService:
         )
 
     @staticmethod
-    def _metric_to_response(metric: Any) -> Any:
+    def _metric_to_response(metric: MetricPoint) -> dict[str, Any]:
         return {
             "name": metric.name,
             "kind": metric.kind,
