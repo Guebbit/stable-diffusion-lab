@@ -169,7 +169,7 @@ async def get_job_events(
             from_status=e.from_status,
             to_status=e.to_status,
             message=e.message,
-            metadata=e.metadata,
+            metadata=e.event_metadata,
             created_at=e.created_at,
         )
         for e in events

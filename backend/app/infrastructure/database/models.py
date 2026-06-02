@@ -195,7 +195,7 @@ class JobEventRecord(Base, UUIDPrimaryKeyMixin):
     from_status: Mapped[str] = mapped_column(String(50), nullable=False)
     to_status: Mapped[str] = mapped_column(String(50), nullable=False)
     message: Mapped[str] = mapped_column(Text, default="")
-    metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    event_metadata: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
     # --- Timestamp (immutable — append-only) ---
     created_at: Mapped[datetime] = mapped_column(
