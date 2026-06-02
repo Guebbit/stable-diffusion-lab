@@ -599,7 +599,7 @@ onBeforeUnmount(() => {
           </template>
         </v-alert>
         <v-btn
-            v-if="!isCurrentModelLoaded && !false"
+            v-if="!isCurrentModelLoaded"
             color="primary"
             variant="tonal"
             size="small"
@@ -607,16 +607,6 @@ onBeforeUnmount(() => {
             @click="loadSelectedModel"
         >
           Load Model
-        </v-btn>
-        <v-btn
-            v-else-if="false"
-            color="primary"
-            variant="tonal"
-            size="small"
-            loading
-            disabled
-        >
-          Loading…
         </v-btn>
       </div>
 
