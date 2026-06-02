@@ -7,8 +7,17 @@ used across all test modules.
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType, SimpleNamespace
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+
+
+if "torch" not in sys.modules:
+    torch_stub = ModuleType("torch")
+    torch_stub.cuda = SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None)
+    sys.modules["torch"] = torch_stub
 
 from app.main import create_app
 

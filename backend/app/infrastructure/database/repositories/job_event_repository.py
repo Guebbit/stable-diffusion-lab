@@ -41,7 +41,7 @@ class JobEventRepository:
             from_status=from_status,
             to_status=to_status,
             message=message,
-            metadata=metadata or {},
+            event_metadata=metadata or {},
         )
         self._session.add(event)
         await self._session.flush()

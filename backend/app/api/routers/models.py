@@ -6,7 +6,7 @@ Handles model catalog CRUD, download triggering, and status queries.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import (
@@ -34,10 +34,13 @@ def _get_model_service(session: AsyncSession = Depends(get_async_session)) -> Mo
 @router.get("/", response_model=list[ModelRegistryResponse])
 async def list_models(
     source: str | None = None,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     service: ModelService = Depends(_get_model_service),
 ) -> list[ModelRegistryResponse]:
     """List all registered models, optionally filtered by source."""
     models = await service.list_models(source=source)
+    models = models[offset : offset + limit]
     return [
         ModelRegistryResponse(
             id=m.id,
@@ -61,6 +64,37 @@ async def list_models(
         )
         for m in models
     ]
+
+
+@router.get("/{model_id}", response_model=ModelRegistryResponse)
+async def get_model(
+    model_id: str,
+    service: ModelService = Depends(_get_model_service),
+) -> ModelRegistryResponse:
+    """Get details for a specific model by external model_id."""
+    model = await service.get_model(model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return ModelRegistryResponse(
+        id=model.id,
+        model_id=model.model_id,
+        name=model.name,
+        source=model.source,
+        family=model.family,
+        variant=model.variant,
+        description=model.description,
+        tags=model.tags if isinstance(model.tags, list) else [],
+        source_url=model.source_url,
+        capabilities=model.capabilities if isinstance(model.capabilities, list) else [],
+        status=model.status,
+        total_size_bytes=model.total_size_bytes,
+        disk_size_bytes=model.disk_size_bytes,
+        download_progress=model.download_progress,
+        is_verified=model.is_verified,
+        last_verified_at=model.last_verified_at,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
 
 
 @router.post("/", response_model=ModelRegistryResponse, status_code=201)
