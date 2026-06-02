@@ -19,6 +19,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -27,10 +28,13 @@ from app.adapters.adapter_registry import AdapterRegistry
 from app.adapters.resource_coordinator import ResourceCoordinator
 from app.domain.events import ArtifactEvent, JobEvent, ModelEvent, ResourceEvent
 from app.domain.enums import InferenceBackend, JobType
-from app.domain.value_objects import GenerationParams, JobProgress
+from app.domain.value_objects import GenerationParams
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.repositories import JobRepository
 from app.orchestrator.event_bus import event_bus
+
+if TYPE_CHECKING:
+    from app.domain.value_objects import JobProgress
 
 
 logger = logging.getLogger(__name__)
@@ -171,14 +175,6 @@ class JobWorker:
                 job_repo = JobRepository(session)
                 await job_repo.mark_completed(job_id)
                 await session.commit()
-            await event_bus.publish(
-                JobProgress(
-                    job_id=job_id,
-                    status="completed",
-                    progress_percent=100,
-                    message="Job completed successfully",
-                )
-            )
             await event_bus.publish_event(
                 JobEvent(
                     event_type="job.completed",
@@ -207,13 +203,6 @@ class JobWorker:
                 job_repo = JobRepository(session)
                 await job_repo.mark_failed(job_id, error_msg)
                 await session.commit()
-            await event_bus.publish(
-                JobProgress(
-                    job_id=job_id,
-                    status="failed",
-                    message=str(exc),
-                )
-            )
             await event_bus.publish_event(
                 JobEvent(
                     event_type="job.failed",
@@ -262,23 +251,11 @@ class JobWorker:
         backend_str = params.get("backend")
         backend = InferenceBackend(backend_str) if backend_str else None
 
-        # Build progress callback that publishes to the event bus
-        def on_progress(progress: JobProgress) -> None:
-            # Replace placeholder job_id with the real one
-            real_progress = JobProgress(
-                job_id=job_id,
-                status=progress.status,
-                progress_percent=progress.progress_percent,
-                current_step=progress.current_step,
-                total_steps=progress.total_steps,
-                message=progress.message,
-            )
+        # Build progress callback that publishes typed events to the event bus
+        def on_progress(progress: "JobProgress") -> None:
+            """Convert adapter progress callback into a typed observability event."""
 
             async def _publish_progress() -> None:
-                # Dual publish keeps legacy /ws/progress clients working while typed
-                # observability consumers receive richer events during migration.
-                # The legacy branch is intended for eventual deprecation.
-                await event_bus.publish(real_progress)
                 await event_bus.publish_event(
                     JobEvent(
                         event_type="job.progress",
@@ -410,12 +387,12 @@ class JobWorker:
         model_id = params["model_id"]
         source = params.get("source", "huggingface")
 
-        await event_bus.publish(
-            JobProgress(
-                job_id=job_id,
-                status="running",
-                progress_percent=0,
+        await event_bus.publish_event(
+            JobEvent(
+                event_type="job.progress",
+                job_id=str(job_id),
                 message=f"Starting download: {model_id}",
+                payload={"status": "running", "progress_percent": 0},
             )
         )
 
@@ -444,12 +421,12 @@ class JobWorker:
             await model_repo.update_status(model_id, ModelStatus.DOWNLOADED)
             await session.commit()
 
-        await event_bus.publish(
-            JobProgress(
-                job_id=job_id,
-                status="running",
-                progress_percent=100,
+        await event_bus.publish_event(
+            JobEvent(
+                event_type="job.progress",
+                job_id=str(job_id),
                 message=f"Download complete: {model_id}",
+                payload={"status": "running", "progress_percent": 100},
             )
         )
 
@@ -462,12 +439,12 @@ class JobWorker:
         model_id = params["model_id"]
         device = params.get("device", "cuda")
 
-        await event_bus.publish(
-            JobProgress(
-                job_id=job_id,
-                status="running",
-                progress_percent=0,
+        await event_bus.publish_event(
+            JobEvent(
+                event_type="job.progress",
+                job_id=str(job_id),
                 message=f"Loading model: {model_id}",
+                payload={"status": "running", "progress_percent": 0},
             )
         )
 
@@ -486,11 +463,11 @@ class JobWorker:
         else:
             raise RuntimeError("No pipeline cache available for model loading")
 
-        await event_bus.publish(
-            JobProgress(
-                job_id=job_id,
-                status="running",
-                progress_percent=100,
+        await event_bus.publish_event(
+            JobEvent(
+                event_type="job.progress",
+                job_id=str(job_id),
                 message=f"Model loaded: {model_id}",
+                payload={"status": "running", "progress_percent": 100},
             )
         )

@@ -4,11 +4,8 @@
  * Broad and experimental: users can pick different vision models.
  */
 import { ref, computed, onBeforeUnmount } from 'vue'
-import { useDiffusionStore } from '../stores/diffusion'
 import { useNotificationStore } from '../stores/notifications'
-import { diffusionApi } from '../api/diffusion'
 
-const store = useDiffusionStore()
 const notif = useNotificationStore()
 
 // Available vision models for captioning
@@ -52,19 +49,9 @@ function handleDescribe() {
   description.value = null
   notif.push('info', 'Analyzing image…')
 
-  diffusionApi.describeImage({ image: imageFile.value, model_id: selectedModel.value })
-    .then((res) => {
-      description.value = res.description
-      notif.push('success', 'Image described successfully')
-    })
-    .catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'Failed to describe image'
-      store.error = msg
-      notif.push('error', msg)
-    })
-    .finally(() => {
-      isProcessing.value = false
-    })
+  // TODO: Vision/captioning v1 endpoint not yet implemented
+  notif.push('warning', 'Image description endpoint not yet available in API v1')
+  isProcessing.value = false
 }
 
 onBeforeUnmount(() => {

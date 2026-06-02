@@ -1,12 +1,16 @@
 /**
- * Backend status response from /api/status.
- * The frontend polls this to show connection state and which model is loaded.
+ * System state snapshot from /api/v1/system/status.
+ * Comprehensive health + resource info from the observability service.
  */
-export interface BackendStatus {
-  status: 'ok' | 'loading' | 'error'
-  loaded_model: string | null
+export interface SystemStatus {
+  status: string
+  version: string
   device: string
-  message?: string
+  runtime: { app_name: string; uptime_seconds: number; inference_backend: string }
+  gpu: { busy: boolean; active_job_id: string | null; cuda_allocated_mb: number; cuda_reserved_mb: number }
+  models: { cache_size: number; max_cached: number; active_model: string | null; loaded_models: string[] }
+  jobs: { pending: number; running: number; failed: number; oldest_pending_age_seconds: number }
+  health: { status: string; warnings: string[]; blockers: string[]; recommendations: string[] }
 }
 
 /**
@@ -18,12 +22,12 @@ export type ModelSource = 'huggingface' | 'civitai'
  * Stable Diffusion architecture family.
  * Matters for ControlNet compatibility and native resolution defaults.
  */
-export type ModelFamily = 'sd15' | 'sdxl' | 'flux'
+export type ModelFamily = 'sd15' | 'sdxl' | 'flux' | 'custom'
 
 /**
- * Supported generation task types (matches backend GenerationTask).
+ * Supported generation task types (matches backend JobType).
  */
-export type GenerationTask = 'text2img' | 'img2img' | 'sketch2ink'
+export type GenerationTask = 'text_to_image' | 'image_to_image' | 'video_generation'
 
 /**
  * Frontend-only generation mode — maps to backend tasks + workflow presets.
@@ -43,7 +47,7 @@ export type GenerationMode =
 export type ImageWorkflowPreset = 'general' | 'recolor' | 'style-transfer' | 'upscale'
 
 /**
- * Standard text-to-image generation request (JSON body to /api/generate).
+ * Text-to-image generation request (JSON body to /api/v1/generation/text-to-image).
  */
 export interface GenerationRequest {
   prompt: string
@@ -59,151 +63,121 @@ export interface GenerationRequest {
 }
 
 /**
- * Response from all generation endpoints (/api/generate, /api/generate-from-image, etc.).
+ * Async job submission response — returned immediately with a job_id to track.
  */
-export interface GenerationResponse {
-  images: GeneratedImage[]
-  model_id: string
-  elapsed_seconds: number
-}
-
-/**
- * Single generated image with metadata (returned by generation endpoints and /api/history).
- */
-export interface GeneratedImage {
-  id: string
-  url: string
-  prompt: string
-  negative_prompt?: string
-  model_id: string
-  width: number
-  height: number
-  seed: number
-  created_at: string
-  num_inference_steps: number
-  guidance_scale: number
-  generation_time_seconds: number
-  model_load_time_seconds?: number
-  device: string
-  vram_used_mb?: number
-  scheduler: string
-  pipeline_class: string
-}
-
-/**
- * Request to pre-load a model pipeline (so the first generation is faster).
- */
-export interface ModelLoadRequest {
-  model_id: string
-  model_source: ModelSource
-  task?: GenerationTask
-}
-
-/**
- * Response after a model load attempt.
- */
-export interface ModelLoadResponse {
-  success: boolean
-  model_id: string
+export interface JobSubmissionResponse {
+  job_id: string
+  status: string
   message: string
 }
 
 /**
- * Multipart-form request for image-based generation (img2img, recolor, style-transfer, upscale).
+ * Full job status as returned by /api/v1/jobs/{job_id}.
  */
-export interface ImageGenerationRequest {
-  image: File
+export interface JobStatusResponse {
+  id: string
+  job_type: string
+  status: string
+  progress_percent: number
+  current_step: number
+  total_steps: number
+  message: string
+  params: Record<string, unknown>
+  result: Record<string, unknown>
+  error: string
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+/**
+ * Artifact entry from /api/v1/artifacts (replaces legacy GeneratedImage).
+ */
+export interface ArtifactEntry {
+  id: string
+  job_id: string
+  file_path: string
+  thumbnail_path: string
+  media_type: string
+  size_bytes: number
+  width: number
+  height: number
   prompt: string
-  model_id: string
-  model_source: ModelSource
-  negative_prompt?: string
-  num_inference_steps: number
-  guidance_scale: number
-  num_images: number
-  width?: number
-  height?: number
-  seed?: number
-  workflow_preset?: ImageWorkflowPreset
-  strength?: number
+  negative_prompt: string
+  seed: number
+  model_name: string
+  model_id_ref: string
+  generation_params: Record<string, unknown>
+  is_favorite: boolean
+  rating: number
+  notes: string
+  created_at: string
+  updated_at: string | null
 }
 
 /**
- * Multipart-form request for sketch-to-ink ControlNet generation.
+ * Paginated response wrapper from backend list endpoints.
  */
-export interface SketchToInkRequest {
-  image: File
-  prompt: string
-  model_id: string
-  model_source: ModelSource
-  negative_prompt?: string
-  num_inference_steps: number
-  guidance_scale: number
-  num_images: number
-  width?: number
-  height?: number
-  seed?: number
-  controlnet_conditioning_scale?: number
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
+  has_more: boolean
 }
 
 /**
- * Vision model request to describe an uploaded image.
- */
-export interface DescribeImageRequest {
-  image: File
-  model_id: string
-}
-
-/**
- * Vision model response with the generated text description.
- */
-export interface DescribeImageResponse {
-  description: string
-  model_id: string
-  elapsed_seconds: number
-}
-
-/**
- * Model registry entry as returned by /api/models.
- * Mirrors the backend ModelRegistryEntry Pydantic schema.
+ * Model registry entry from /api/v1/models.
+ * Mirrors the backend ModelRegistryResponse schema.
  */
 export interface ModelRegistryEntry {
   id: string
+  model_id: string
   name: string
-  source: ModelSource
-  family: ModelFamily
+  source: string
+  family: string
+  variant: string
   description: string
-  long_description: string
   tags: string[]
   source_url: string
-  size: string
-  downloaded: boolean
+  capabilities: string[]
   status: string
+  total_size_bytes: number
+  disk_size_bytes: number
+  download_progress: number
+  is_verified: boolean
+  created_at: string
+  updated_at: string | null
 }
 
 /**
- * Payload to register a new model in the catalog (POST /api/models).
+ * Payload to register a new model in the catalog (POST /api/v1/models).
  */
 export interface ModelRegistryAddRequest {
-  id: string
+  model_id: string
   name: string
   source: ModelSource
-  family: ModelFamily
+  family: string
+  variant?: string
   description: string
-  long_description: string
   tags: string[]
   source_url: string
-  size: string
+  capabilities: string[]
 }
 
 /**
- * Download event for tracking background download operations.
+ * Typed observability event from /ws/observability stream.
  */
-export interface DownloadEvent {
-  model_id: string
-  source: string
+export interface ObservabilityEvent {
+  event_id: string
+  event_type: string
   timestamp: string
-  status: 'started' | 'completed' | 'failed'
-  detail?: string
+  correlation_id: string | null
+  job_id: string | null
+  level: string
+  message: string
+  payload: Record<string, unknown>
+  type: string
 }
 
 /**

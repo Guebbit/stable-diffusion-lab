@@ -63,20 +63,18 @@ function handleImageSelection(value: File | File[] | null) {
   }
 }
 
-/** Submit the image + prompt to img2img endpoint. */
+/** Submit the image + prompt to generation endpoint. */
 function handleEdit() {
   if (!imageFile.value || !prompt.value.trim()) return
 
   const model = models.find((m) => m.id === selectedModelId.value) ?? models[0]!
 
-  store.generateFromImage({
-    image: imageFile.value,
+  // TODO: img2img v1 endpoint not yet available, using text-to-image as placeholder
+  store.generate({
     prompt: prompt.value.trim(),
     negative_prompt: negativePrompt.value.trim() || undefined,
     model_id: model.id,
     model_source: model.source,
-    workflow_preset: 'general',
-    strength: strength.value,
     num_inference_steps: steps.value,
     guidance_scale: guidanceScale.value,
     seed: seed.value ?? undefined,
@@ -236,7 +234,7 @@ onBeforeUnmount(() => {
           <v-row>
             <v-col v-for="img in store.generatedImages" :key="img.id" cols="12" sm="6" md="4">
               <v-card elevation="1" class="image-card">
-                <v-img :src="img.url" :aspect-ratio="img.width / img.height" cover class="bg-grey-darken-3">
+                <v-img :src="img.file_path" :aspect-ratio="img.width / img.height" cover class="bg-grey-darken-3">
                   <template #placeholder>
                     <div class="d-flex align-center justify-center fill-height">
                       <v-progress-circular indeterminate color="primary" />
@@ -255,7 +253,7 @@ onBeforeUnmount(() => {
 
                 <v-card-actions class="pa-2 pt-0">
                   <v-btn
-                    :href="img.url"
+                    :href="img.file_path"
                     target="_blank"
                     download
                     size="small"

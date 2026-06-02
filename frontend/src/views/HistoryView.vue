@@ -6,34 +6,25 @@
  */
 import { ref, onMounted } from 'vue'
 import { useHistoryStore } from '../stores/history'
-import type { GeneratedImage } from '../types'
+import type { ArtifactEntry } from '../types'
 
 const store = useHistoryStore()
 
 // Detail dialog state — which image is being inspected
-const detailImage = ref<GeneratedImage | null>(null)
+const detailImage = ref<ArtifactEntry | null>(null)
 const showDetail = ref(false)
 
-// Confirmation dialog before wiping everything
-const showClearConfirm = ref(false)
-
 /** Open the detail dialog for the selected image. */
-function openDetail(image: GeneratedImage) {
+function openDetail(image: ArtifactEntry) {
   detailImage.value = image
   showDetail.value = true
 }
 
 /** Delete the image shown in the detail dialog, closing the panel first. */
-function confirmDelete(image: GeneratedImage) {
+function confirmDelete(image: ArtifactEntry) {
   // Close the detail panel first so the deleted card doesn't linger
   showDetail.value = false
   store.deleteEntry(image.id)
-}
-
-/** Dismiss the clear-all confirmation dialog and execute the wipe. */
-function confirmClearAll() {
-  showClearConfirm.value = false
-  store.clearAll()
 }
 
 // Load history when the page mounts
@@ -68,17 +59,6 @@ onMounted(() => {
         >
           Refresh
         </v-btn>
-        <!-- Wipe everything button -->
-        <v-btn
-          v-if="store.images.length"
-          variant="text"
-          color="error"
-          size="small"
-          prepend-icon="mdi-delete-sweep"
-          @click="showClearConfirm = true"
-        >
-          Clear All
-        </v-btn>
       </div>
     </v-card-title>
 
@@ -110,7 +90,7 @@ onMounted(() => {
         >
           <v-card elevation="1" class="history-card" @click="openDetail(image)">
             <v-img
-              :src="image.url"
+              :src="image.file_path"
               :aspect-ratio="image.width / image.height"
               cover
               class="bg-grey-darken-3"
@@ -137,7 +117,7 @@ onMounted(() => {
             <v-card-actions class="pa-2 pt-0">
               <!-- Download the image directly (no extra round-trip) -->
               <v-btn
-                :href="image.url"
+                :href="image.file_path"
                 target="_blank"
                 download
                 size="small"
@@ -179,13 +159,13 @@ onMounted(() => {
           <!-- Image preview -->
           <v-col cols="12" md="6">
             <v-img
-              :src="detailImage.url"
+              :src="detailImage.file_path"
               :aspect-ratio="detailImage.width / detailImage.height"
               class="rounded bg-grey-darken-3"
             />
             <div class="mt-2 text-center d-flex justify-center gap-2">
               <v-btn
-                :href="detailImage.url"
+                :href="detailImage.file_path"
                 target="_blank"
                 download
                 size="small"
@@ -226,51 +206,23 @@ onMounted(() => {
               <tbody>
                 <tr>
                   <td class="text-caption font-weight-bold">Model</td>
-                  <td class="text-caption">{{ detailImage.model_id }}</td>
-                </tr>
-                <tr>
-                  <td class="text-caption font-weight-bold">Pipeline</td>
-                  <td class="text-caption">{{ detailImage.pipeline_class || '—' }}</td>
-                </tr>
-                <tr>
-                  <td class="text-caption font-weight-bold">Scheduler</td>
-                  <td class="text-caption">{{ detailImage.scheduler || '—' }}</td>
+                  <td class="text-caption">{{ detailImage.model_name || detailImage.model_id_ref || '—' }}</td>
                 </tr>
                 <tr>
                   <td class="text-caption font-weight-bold">Resolution</td>
                   <td class="text-caption">{{ detailImage.width }} × {{ detailImage.height }}</td>
                 </tr>
                 <tr>
-                  <td class="text-caption font-weight-bold">Inference Steps</td>
-                  <td class="text-caption">{{ detailImage.num_inference_steps }}</td>
-                </tr>
-                <tr>
-                  <td class="text-caption font-weight-bold">CFG Scale</td>
-                  <td class="text-caption">{{ detailImage.guidance_scale }}</td>
-                </tr>
-                <tr>
                   <td class="text-caption font-weight-bold">Seed</td>
                   <td class="text-caption">{{ detailImage.seed }}</td>
                 </tr>
                 <tr>
-                  <td class="text-caption font-weight-bold">Generation Time</td>
-                  <td class="text-caption">{{ detailImage.generation_time_seconds }}s</td>
-                </tr>
-                <tr v-if="detailImage.model_load_time_seconds">
-                  <td class="text-caption font-weight-bold">Model Load Time</td>
-                  <td class="text-caption">{{ detailImage.model_load_time_seconds }}s</td>
+                  <td class="text-caption font-weight-bold">Media Type</td>
+                  <td class="text-caption">{{ detailImage.media_type }}</td>
                 </tr>
                 <tr>
-                  <td class="text-caption font-weight-bold">Device</td>
-                  <td class="text-caption">
-                    <v-chip size="x-small" :color="detailImage.device === 'cuda' ? 'success' : 'warning'">
-                      {{ detailImage.device.toUpperCase() }}
-                    </v-chip>
-                  </td>
-                </tr>
-                <tr v-if="detailImage.vram_used_mb">
-                  <td class="text-caption font-weight-bold">Peak VRAM</td>
-                  <td class="text-caption">{{ detailImage.vram_used_mb }} MB</td>
+                  <td class="text-caption font-weight-bold">File Size</td>
+                  <td class="text-caption">{{ Math.round(detailImage.size_bytes / 1024) }} KB</td>
                 </tr>
                 <tr>
                   <td class="text-caption font-weight-bold">Created</td>
@@ -281,27 +233,6 @@ onMounted(() => {
           </v-col>
         </v-row>
       </v-card-text>
-    </v-card>
-  </v-dialog>
-
-  <!-- ─── Confirm clear-all dialog ────────────────────────────────────── -->
-  <v-dialog v-model="showClearConfirm" max-width="400">
-    <v-card>
-      <v-card-title>
-        <v-icon icon="mdi-alert-outline" color="error" class="mr-2" />
-        Clear all history?
-      </v-card-title>
-      <v-card-text>
-        This will permanently delete <strong>all {{ store.images.length }} saved images</strong>
-        from disk. This cannot be undone.
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="showClearConfirm = false">Cancel</v-btn>
-        <v-btn color="error" variant="tonal" prepend-icon="mdi-delete-sweep" @click="confirmClearAll">
-          Delete all
-        </v-btn>
-      </v-card-actions>
     </v-card>
   </v-dialog>
 </template>

@@ -2,20 +2,20 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { diffusionApi } from '../api/diffusion'
 import { useNotificationStore } from './notifications'
-import type { GeneratedImage } from '../types'
+import type { ArtifactEntry } from '../types'
 
 export const useHistoryStore = defineStore('history', () => {
-  // All persisted images loaded from the backend (newest first)
-  const images = ref<GeneratedImage[]>([])
+  // All persisted artifacts loaded from the backend (newest first)
+  const images = ref<ArtifactEntry[]>([])
   // True while fetching or deleting
   const isLoading = ref(false)
 
-  /** Fetch the full history from the backend and replace the local list. */
+  /** Fetch the full artifact gallery from the backend. */
   function fetchHistory() {
     isLoading.value = true
-    return diffusionApi.getHistory()
+    return diffusionApi.getArtifacts({ limit: 100 })
       .then((data) => {
-        images.value = data
+        images.value = data.items
       })
       .catch(() => {
         useNotificationStore().push('error', 'Failed to load generation history')
@@ -25,11 +25,10 @@ export const useHistoryStore = defineStore('history', () => {
       })
   }
 
-  /** Delete one image by ID and remove it from the local list immediately. */
+  /** Delete one artifact by ID and remove it from the local list immediately. */
   function deleteEntry(imageId: string) {
-    return diffusionApi.deleteHistoryEntry(imageId)
+    return diffusionApi.deleteArtifact(imageId)
       .then(() => {
-        // Remove from local state without a full refetch for a snappy UI
         images.value = images.value.filter((img) => img.id !== imageId)
         useNotificationStore().push('success', 'History entry deleted')
       })
@@ -38,23 +37,10 @@ export const useHistoryStore = defineStore('history', () => {
       })
   }
 
-  /** Wipe all history entries on the backend and clear local state. */
-  function clearAll() {
-    return diffusionApi.clearAllHistory()
-      .then(() => {
-        images.value = []
-        useNotificationStore().push('success', 'All history cleared')
-      })
-      .catch(() => {
-        useNotificationStore().push('error', 'Failed to clear history')
-      })
-  }
-
   return {
     images,
     isLoading,
     fetchHistory,
     deleteEntry,
-    clearAll,
   }
 })

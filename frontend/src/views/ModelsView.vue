@@ -35,29 +35,27 @@ const filteredModels = computed(() =>
 
 const showAddDialog = ref(false)
 const addForm = ref<ModelRegistryAddRequest>({
-  id: '',
+  model_id: '',
   name: '',
   source: 'huggingface',
   family: 'sd15',
   description: '',
-  long_description: '',
   tags: [],
   source_url: '',
-  size: '',
+  capabilities: [],
 })
 const tagInput = ref('')
 
 function resetAddForm() {
   addForm.value = {
-    id: '',
+    model_id: '',
     name: '',
     source: 'huggingface',
     family: 'sd15',
     description: '',
-    long_description: '',
     tags: [],
     source_url: '',
-    size: '',
+    capabilities: [],
   }
   tagInput.value = ''
 }
@@ -77,12 +75,12 @@ function handleAddModel() {
 
 // ─── Actions ──────────────────────────────────────────────────────────────
 
-function handleDownload(modelId: string, source: ModelSource) {
-  modelsStore.downloadModel(modelId, source)
+function handleDownload(modelId: string) {
+  modelsStore.downloadModel(modelId)
 }
 
-function handleRemove(modelId: string, source: ModelSource) {
-  modelsStore.removeModel(modelId, source)
+function handleRemove(modelId: string) {
+  modelsStore.removeModel(modelId)
 }
 
 // ─── UI helpers ───────────────────────────────────────────────────────────
@@ -102,10 +100,7 @@ function familyLabel(family?: string) {
 // ─── Download Progress ───────────────────────────────────────────────────
 
 function downloadPercentageFor(model: typeof modelsStore.registry[0]): number {
-  const key = `${model.source}:${model.id}`
-  const p = modelsStore.downloadProgress.get(key)
-  if (!p || p.total_bytes === 0) return 0
-  return Math.round((p.percentage) || 0)
+  return model.download_progress || 0
 }
 
 const progressColor = 'blue'
@@ -237,7 +232,7 @@ const progressColor = 'blue'
             </v-chip>
             <!-- Source badge -->
             <v-chip
-              v-if="modelsStore.isModelDownloading(model.id, model.source)"
+              v-if="modelsStore.isModelDownloading(model.model_id)"
               :color="progressColor"
               size="x-small"
               class="mr-1"
@@ -274,19 +269,19 @@ const progressColor = 'blue'
             </p>
 
             <!-- Long description -->
-            <p v-if="model.long_description" class="text-body-2 mb-3">
-              {{ model.long_description }}
+            <p v-if="model.description" class="text-body-2 mb-3">
+              {{ model.description }}
             </p>
 
             <!-- Size + source link row -->
             <div class="d-flex align-center flex-wrap gap-2 mb-3">
               <v-chip
-                v-if="model.size"
+                v-if="model.total_size_bytes"
                 size="x-small"
                 variant="tonal"
                 prepend-icon="mdi-database"
               >
-                {{ model.size }}
+                {{ Math.round(model.total_size_bytes / 1024 / 1024) }} MB
               </v-chip>
               <v-btn
                 v-if="model.source_url"
@@ -319,7 +314,7 @@ const progressColor = 'blue'
             <!-- Download button (only if not yet downloaded) -->
             <div v-if="model.status !== 'downloaded'" class="d-flex align-center gap-2">
               <v-progress-linear
-                v-if="modelsStore.isModelDownloading(model.id, model.source)"
+                v-if="modelsStore.isModelDownloading(model.model_id)"
                 :model-value="downloadPercentageFor(model)"
                 height="8"
                 width="200"
@@ -332,18 +327,18 @@ const progressColor = 'blue'
               </v-progress-linear>
 
               <v-btn
-                v-if="!modelsStore.isModelDownloading(model.id, model.source)"
+                v-if="!modelsStore.isModelDownloading(model.model_id)"
                 color="primary"
                 variant="tonal"
                 size="small"
                 prepend-icon="mdi-download"
-                @click="handleDownload(model.id, model.source)"
+                @click="handleDownload(model.model_id)"
               >
                 Download
               </v-btn>
 
               <v-btn
-                v-if="modelsStore.isModelDownloading(model.id, model.source)"
+                v-if="modelsStore.isModelDownloading(model.model_id)"
                 color="primary"
                 variant="tonal"
                 size="small"
@@ -363,7 +358,7 @@ const progressColor = 'blue'
               variant="text"
               size="small"
               icon="mdi-delete-outline"
-              @click="handleRemove(model.id, model.source)"
+              @click="handleRemove(model.model_id)"
             />
           </v-card-actions>
         </v-card>
@@ -390,7 +385,7 @@ const progressColor = 'blue'
 
         <v-card-text>
           <v-text-field
-            v-model="addForm.id"
+            v-model="addForm.model_id"
             label="Model ID"
             hint="HuggingFace: org/repo (e.g. runwayml/stable-diffusion-v1-5) · CivitAI: version number (e.g. 128713)"
             persistent-hint
@@ -430,19 +425,10 @@ const progressColor = 'blue'
             </v-col>
           </v-row>
 
-          <v-text-field
+          <v-textarea
             v-model="addForm.description"
             label="Description (optional)"
-            hint="Brief one-liner shown in the card header"
-            persistent-hint
-            variant="outlined"
-            class="mb-3"
-          />
-
-          <v-textarea
-            v-model="addForm.long_description"
-            label="Long description (optional)"
-            hint="Detailed multi-sentence description of the model"
+            hint="Describe what the model does and its strengths"
             persistent-hint
             variant="outlined"
             rows="3"
@@ -460,9 +446,9 @@ const progressColor = 'blue'
             </v-col>
             <v-col cols="12" sm="6">
               <v-text-field
-                v-model="addForm.size"
-                label="Approximate size (optional)"
-                placeholder="e.g. ~2.1 GB"
+                v-model="addForm.variant"
+                label="Variant (optional)"
+                placeholder="e.g. fp16"
                 variant="outlined"
               />
             </v-col>
@@ -484,7 +470,7 @@ const progressColor = 'blue'
           <v-btn
             color="primary"
             variant="elevated"
-            :disabled="!addForm.id.trim() || !addForm.name.trim()"
+            :disabled="!addForm.model_id.trim() || !addForm.name.trim()"
             @click="handleAddModel"
           >
             Add Model

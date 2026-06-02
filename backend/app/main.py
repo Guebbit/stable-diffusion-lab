@@ -29,7 +29,7 @@ from app.adapters.direct import (
     PipelineCache,
 )
 from app.adapters.resource_coordinator import ResourceCoordinator
-from app.api.routers import artifacts, generation, jobs, legacy, models, system
+from app.api.routers import artifacts, generation, jobs, models, system
 from app.api.websocket.hub import ws_hub
 from app.domain.enums import InferenceBackend, JobType
 from app.infrastructure.config.settings import get_settings
@@ -170,7 +170,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     model_manager = DirectModelManager(pipeline_cache)
 
     # --- Connect event bus to WebSocket hub ---
-    event_bus.subscribe(ws_hub.broadcast)
     event_bus.subscribe_typed(ws_hub.broadcast_typed)
 
     # --- Build metrics + observability ---
@@ -209,7 +208,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Shutdown ---
     await worker.stop()
     await pipeline_cache.evict_all()
-    event_bus.unsubscribe(ws_hub.broadcast)
     event_bus.unsubscribe_typed(ws_hub.broadcast_typed)
     event_bus.unsubscribe_typed(metrics_registry.record_event)
     logger.info("Application shutdown complete")
@@ -248,21 +246,7 @@ def create_app() -> FastAPI:
     app.include_router(artifacts.router, prefix=api_prefix)
     app.include_router(system.router, prefix=api_prefix)
 
-    # --- Legacy compatibility routes (match frontend /api/{path} calls) ---
-    app.include_router(legacy.router, prefix="/api")
-
     # --- WebSocket endpoint ---
-    @app.websocket("/ws/progress")
-    async def websocket_progress(websocket: WebSocket) -> None:
-        """WebSocket endpoint for real-time job progress events."""
-        await ws_hub.connect(websocket)
-        try:
-            # Keep connection alive — client sends pings, we just listen
-            while True:
-                await websocket.receive_text()
-        except WebSocketDisconnect:
-            ws_hub.disconnect(websocket)
-
     @app.websocket("/ws/observability")
     async def websocket_observability(websocket: WebSocket) -> None:
         """WebSocket endpoint for typed observability event streaming."""

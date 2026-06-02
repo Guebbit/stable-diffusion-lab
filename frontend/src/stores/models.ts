@@ -3,45 +3,39 @@
  *
  * Responsibilities:
  *  - Fetch all registered models (with download status)
- *  - Fetch only downloaded models (for generation form selects)
  *  - Add/remove models from the registry
- *  - Trigger model downloads
+ *  - Trigger model downloads (async job-based)
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { diffusionApi } from '../api/diffusion'
 import { useNotificationStore } from './notifications'
-import type { ModelRegistryEntry, ModelRegistryAddRequest, ModelSource } from '../types'
-
-export interface DownloadProgressState {
-  downloaded_bytes: number
-  total_bytes: number
-  percentage: number
-}
+import type { ModelRegistryEntry, ModelRegistryAddRequest } from '../types'
 
 // Polling config for download status checks
-const POLL_INTERVAL_MS = 1_000   // Check every second for responsive progress display
-const MAX_POLL_ATTEMPTS = 600    // Give up after ~10 minutes
+const POLL_INTERVAL_MS = 2_000   // Check every 2 seconds
+const MAX_POLL_ATTEMPTS = 300    // Give up after ~10 minutes
 
 export const useModelsStore = defineStore('models', () => {
   // All registered models (full catalog with download status)
   const registry = ref<ModelRegistryEntry[]>([])
-  // Only models that are downloaded and ready for generation
-  const downloadedModels = ref<ModelRegistryEntry[]>([])
   // Loading states
   const isLoading = ref(false)
   const isDownloading = ref<Set<string>>(new Set())
-  const downloadProgress = ref<Map<string, DownloadProgressState>>(new Map())
 
   // Computed: models grouped by source for convenience
   const huggingfaceModels = computed(() =>
-    downloadedModels.value.filter(m => m.source === 'huggingface'),
+    registry.value.filter(m => m.source === 'huggingface' && m.status === 'downloaded'),
   )
   const civitaiModels = computed(() =>
-    downloadedModels.value.filter(m => m.source === 'civitai'),
+    registry.value.filter(m => m.source === 'civitai' && m.status === 'downloaded'),
+  )
+  // Downloaded models (ready for generation)
+  const downloadedModels = computed(() =>
+    registry.value.filter(m => m.status === 'downloaded'),
   )
 
-  /** Fetch the full model registry (used by the Models management page). */
+  /** Fetch the full model registry. */
   function fetchRegistry() {
     isLoading.value = true
     return diffusionApi.getModels()
@@ -54,18 +48,6 @@ export const useModelsStore = defineStore('models', () => {
       })
       .finally(() => {
         isLoading.value = false
-      })
-  }
-
-  /** Fetch only downloaded models (used by generation form selects). */
-  function fetchDownloadedModels() {
-    return diffusionApi.getDownloadedModels()
-      .then((models) => {
-        downloadedModels.value = models
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'Failed to fetch downloaded models'
-        useNotificationStore().push('error', msg)
       })
   }
 
@@ -85,16 +67,11 @@ export const useModelsStore = defineStore('models', () => {
   }
 
   /** Remove a model from the registry. */
-  function removeModel(modelId: string, source: ModelSource) {
+  function removeModel(modelId: string) {
     const notif = useNotificationStore()
-    return diffusionApi.removeModel(modelId, source)
+    return diffusionApi.removeModel(modelId)
       .then(() => {
-        registry.value = registry.value.filter(
-          m => !(m.id === modelId && m.source === source),
-        )
-        downloadedModels.value = downloadedModels.value.filter(
-          m => !(m.id === modelId && m.source === source),
-        )
+        registry.value = registry.value.filter(m => m.model_id !== modelId)
         notif.push('success', `Model "${modelId}" removed from registry`)
       })
       .catch((err: unknown) => {
@@ -103,74 +80,55 @@ export const useModelsStore = defineStore('models', () => {
       })
   }
 
-   /** Trigger a background download for a model. */
-   function downloadModel(modelId: string, source: ModelSource) {
-     const notif = useNotificationStore()
-     const key = `${source}:${modelId}`
-     isDownloading.value = new Set(isDownloading.value)
-     isDownloading.value.add(key)
+  /** Trigger a background download for a model. */
+  function downloadModel(modelId: string) {
+    const notif = useNotificationStore()
+    isDownloading.value = new Set(isDownloading.value)
+    isDownloading.value.add(modelId)
 
     notif.push('info', `Downloading model "${modelId}"…`)
-    return diffusionApi.downloadModel(modelId, source)
+    return diffusionApi.downloadModel(modelId)
       .then((res) => {
-        notif.push('info', res.detail)
-        // Start polling for progress and completion
-        _pollDownloadStatus(modelId, source)
+        notif.push('info', res.message)
+        // Poll registry for completion
+        _pollDownloadStatus(modelId)
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : 'Failed to start download'
         notif.push('error', msg)
-        isDownloading.value.delete(key)
+        isDownloading.value.delete(modelId)
       })
   }
 
   /** Check if a specific model is currently being downloaded. */
-  function isModelDownloading(modelId: string, source: ModelSource): boolean {
-    return isDownloading.value.has(`${source}:${modelId}`)
+  function isModelDownloading(modelId: string): boolean {
+    return isDownloading.value.has(modelId)
   }
 
   /**
-   * Poll the download progress and completion endpoints periodically.
-   * Stops after the model shows as downloaded or after MAX_POLL_ATTEMPTS.
+   * Poll the model registry until the model shows as downloaded or fails.
    */
-  function _pollDownloadStatus(modelId: string, source: ModelSource) {
-    const key = `${source}:${modelId}`
+  function _pollDownloadStatus(modelId: string) {
     let attempts = 0
 
     const interval = setInterval(() => {
       attempts++
 
-      // Try to fetch progress
-      diffusionApi.getDownloadProgress(modelId, source)
-        .then((progress) => {
-          downloadProgress.value.set(key, progress as DownloadProgressState)
-        })
-        .catch(() => {
-          // Progress endpoint not available — fall back to registry polling
-        })
-
-      // Also check completion status
       diffusionApi.getModels()
         .then((models) => {
           registry.value = models
-          const model = models.find(m => m.id === modelId && m.source === source)
-           if (model?.status === 'downloaded') {
-             clearInterval(interval)
-             isDownloading.value.delete(key)
-             downloadProgress.value.delete(key)
-             useNotificationStore().push('success', `Model "${model.name}" downloaded successfully!`)
-             // Refresh the downloaded models list
-             fetchDownloadedModels()
-           } else if (model && (model.status === 'error' || model.status === 'deleted')) {
-             // Download failed or was removed
-             clearInterval(interval)
-             isDownloading.value.delete(key)
-             downloadProgress.value.delete(key)
-             useNotificationStore().push('error', `Model "${modelId}" download failed: ${model.status}`)
-           } else if (attempts >= MAX_POLL_ATTEMPTS) {
-             clearInterval(interval)
-             isDownloading.value.delete(key)
-             downloadProgress.value.delete(key)
+          const model = models.find(m => m.model_id === modelId)
+          if (model?.status === 'downloaded') {
+            clearInterval(interval)
+            isDownloading.value.delete(modelId)
+            useNotificationStore().push('success', `Model "${model.name}" downloaded successfully!`)
+          } else if (model && (model.status === 'error' || model.status === 'deleted')) {
+            clearInterval(interval)
+            isDownloading.value.delete(modelId)
+            useNotificationStore().push('error', `Model "${modelId}" download failed: ${model.status}`)
+          } else if (attempts >= MAX_POLL_ATTEMPTS) {
+            clearInterval(interval)
+            isDownloading.value.delete(modelId)
             useNotificationStore().push('warning', `Download polling timed out for "${modelId}"`)
           }
         })
@@ -185,11 +143,9 @@ export const useModelsStore = defineStore('models', () => {
     downloadedModels,
     isLoading,
     isDownloading,
-    downloadProgress,
     huggingfaceModels,
     civitaiModels,
     fetchRegistry,
-    fetchDownloadedModels,
     addModel,
     removeModel,
     downloadModel,

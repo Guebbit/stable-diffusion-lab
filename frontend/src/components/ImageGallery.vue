@@ -7,15 +7,15 @@
  */
 import { ref } from 'vue'
 import { useDiffusionStore } from '../stores/diffusion'
-import type { GeneratedImage } from '../types'
+import type { ArtifactEntry } from '../types'
 
 const store = useDiffusionStore()
 
 // Currently displayed image in the metrics detail dialog
-const detailImage = ref<GeneratedImage | null>(null)
+const detailImage = ref<ArtifactEntry | null>(null)
 const showDetail = ref(false)
 
-function openDetail(image: GeneratedImage) {
+function openDetail(image: ArtifactEntry) {
   detailImage.value = image
   showDetail.value = true
 }
@@ -83,8 +83,8 @@ function openDetail(image: GeneratedImage) {
         >
           <v-card elevation="1" class="image-card" @click="openDetail(image)">
             <v-img
-              :src="image.url"
-              :aspect-ratio="image.width / image.height"
+              :src="image.file_path"
+              :aspect-ratio="image.width / image.height || 1"
               cover
               class="bg-grey-darken-3"
             >
@@ -101,13 +101,12 @@ function openDetail(image: GeneratedImage) {
               </div>
               <div class="text-caption text-medium-emphasis">
                 {{ image.width }}×{{ image.height }} · seed {{ image.seed }}
-                · {{ image.generation_time_seconds }}s
               </div>
             </v-card-text>
 
             <v-card-actions class="pa-2 pt-0">
               <v-btn
-                :href="image.url"
+                :href="image.file_path"
                 target="_blank"
                 download
                 size="small"
@@ -140,13 +139,13 @@ function openDetail(image: GeneratedImage) {
           <!-- Image preview -->
           <v-col cols="12" md="6">
             <v-img
-              :src="detailImage.url"
-              :aspect-ratio="detailImage.width / detailImage.height"
+              :src="detailImage.file_path"
+              :aspect-ratio="detailImage.width / detailImage.height || 1"
               class="rounded bg-grey-darken-3"
             />
             <div class="mt-2 text-center">
               <v-btn
-                :href="detailImage.url"
+                :href="detailImage.file_path"
                 target="_blank"
                 download
                 size="small"
@@ -179,51 +178,23 @@ function openDetail(image: GeneratedImage) {
               <tbody>
                 <tr>
                   <td class="text-caption font-weight-bold">Model</td>
-                  <td class="text-caption">{{ detailImage.model_id }}</td>
-                </tr>
-                <tr>
-                  <td class="text-caption font-weight-bold">Pipeline</td>
-                  <td class="text-caption">{{ detailImage.pipeline_class || '—' }}</td>
-                </tr>
-                <tr>
-                  <td class="text-caption font-weight-bold">Scheduler</td>
-                  <td class="text-caption">{{ detailImage.scheduler || '—' }}</td>
+                  <td class="text-caption">{{ detailImage.model_name || detailImage.model_id_ref || '—' }}</td>
                 </tr>
                 <tr>
                   <td class="text-caption font-weight-bold">Resolution</td>
                   <td class="text-caption">{{ detailImage.width }} × {{ detailImage.height }}</td>
                 </tr>
                 <tr>
-                  <td class="text-caption font-weight-bold">Inference Steps</td>
-                  <td class="text-caption">{{ detailImage.num_inference_steps }}</td>
-                </tr>
-                <tr>
-                  <td class="text-caption font-weight-bold">CFG Scale</td>
-                  <td class="text-caption">{{ detailImage.guidance_scale }}</td>
-                </tr>
-                <tr>
                   <td class="text-caption font-weight-bold">Seed</td>
                   <td class="text-caption">{{ detailImage.seed }}</td>
                 </tr>
                 <tr>
-                  <td class="text-caption font-weight-bold">Generation Time</td>
-                  <td class="text-caption">{{ detailImage.generation_time_seconds }}s</td>
-                </tr>
-                <tr v-if="detailImage.model_load_time_seconds">
-                  <td class="text-caption font-weight-bold">Model Load Time</td>
-                  <td class="text-caption">{{ detailImage.model_load_time_seconds }}s</td>
+                  <td class="text-caption font-weight-bold">Media Type</td>
+                  <td class="text-caption">{{ detailImage.media_type }}</td>
                 </tr>
                 <tr>
-                  <td class="text-caption font-weight-bold">Device</td>
-                  <td class="text-caption">
-                    <v-chip size="x-small" :color="detailImage.device === 'cuda' ? 'success' : 'warning'">
-                      {{ detailImage.device.toUpperCase() }}
-                    </v-chip>
-                  </td>
-                </tr>
-                <tr v-if="detailImage.vram_used_mb">
-                  <td class="text-caption font-weight-bold">Peak VRAM</td>
-                  <td class="text-caption">{{ detailImage.vram_used_mb }} MB</td>
+                  <td class="text-caption font-weight-bold">File Size</td>
+                  <td class="text-caption">{{ Math.round(detailImage.size_bytes / 1024) }} KB</td>
                 </tr>
                 <tr>
                   <td class="text-caption font-weight-bold">Created</td>

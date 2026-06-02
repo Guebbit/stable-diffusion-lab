@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 
-import torch
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 
 from app.api.schemas import (
@@ -12,7 +11,6 @@ from app.api.schemas import (
     JobTimelineResponse,
     MetricsSnapshot,
     SystemStateSnapshot,
-    SystemStatusResponse,
     TypedEventResponse,
 )
 from app.orchestrator.observability import ObservabilityService
@@ -44,29 +42,6 @@ async def get_system_status(
     snapshot = await observability.get_system_snapshot(correlation_id=resolved_id)
     response.headers["X-Correlation-ID"] = resolved_id
     return SystemStateSnapshot.model_validate(snapshot.to_dict())
-
-
-@router.get("/status/legacy", response_model=SystemStatusResponse)
-async def get_system_status_legacy(
-    request: Request,
-    response: Response,
-    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
-) -> SystemStatusResponse:
-    """Backward-compatible status payload with legacy fields."""
-    resolved_id = _resolve_correlation_id(correlation_id)
-    observability = _get_observability_service(request)
-    snapshot = await observability.get_system_snapshot(correlation_id=resolved_id)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    response.headers["X-Correlation-ID"] = resolved_id
-    return SystemStatusResponse(
-        status=snapshot.health.status,
-        version=snapshot.runtime.version,
-        device=device,
-        gpu_busy=snapshot.gpu.busy,
-        loaded_models=snapshot.models.loaded_models,
-        pending_jobs=snapshot.jobs.pending,
-        correlation_id=resolved_id,
-    )
 
 
 @router.get("/events", response_model=list[TypedEventResponse])
