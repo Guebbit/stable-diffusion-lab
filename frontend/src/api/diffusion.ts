@@ -1,212 +1,108 @@
 import axios from 'axios'
 import type {
-  BackendStatus,
-  DescribeImageRequest,
-  DescribeImageResponse,
-  GeneratedImage,
+  ArtifactEntry,
   GenerationRequest,
-  GenerationResponse,
-  ImageGenerationRequest,
-  ModelLoadRequest,
-  ModelLoadResponse,
+  JobStatusResponse,
+  JobSubmissionResponse,
   ModelRegistryAddRequest,
   ModelRegistryEntry,
-  ModelSource,
-  SketchToInkRequest,
-  DownloadEvent,
+  PaginatedResponse,
+  SystemStatus,
 } from '../types'
 
+// Base client pointing to versioned API
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: '/api/v1',
   timeout: 600000,
 })
 
-interface ImageMultipartPayload {
-  image: File
-  prompt: string
-  model_id: string
-  model_source: ModelSource
-  negative_prompt?: string
-  num_inference_steps: number
-  guidance_scale: number
-  num_images: number
-  width?: number
-  height?: number
-  seed?: number
-}
-
-/**
- * Append multipart fields only when they are explicitly set.
- */
-function appendOptionalField(formData: FormData, key: string, value?: string | number): void {
-  if (typeof value === 'undefined') return
-  formData.append(key, String(value))
-}
-
-/**
- * Build shared multipart payload fields used by image-guided requests.
- */
-function buildImageMultipartData(payload: ImageMultipartPayload): FormData {
-  const formData = new FormData()
-  formData.append('image', payload.image)
-  formData.append('prompt', payload.prompt)
-  formData.append('model_id', payload.model_id)
-  formData.append('model_source', payload.model_source)
-  appendOptionalField(formData, 'num_inference_steps', payload.num_inference_steps)
-  appendOptionalField(formData, 'guidance_scale', payload.guidance_scale)
-  appendOptionalField(formData, 'num_images', payload.num_images)
-  appendOptionalField(formData, 'width', payload.width)
-  appendOptionalField(formData, 'height', payload.height)
-  appendOptionalField(formData, 'seed', payload.seed)
-
-  if (payload.negative_prompt) {
-    formData.append('negative_prompt', payload.negative_prompt)
-  }
-
-  return formData
-}
-
 export const diffusionApi = {
+  // ─── System / Status ──
+
   /**
-   * Read backend status, including active device and loaded model key.
+   * Fetch comprehensive system status from the observability service.
    */
-  getStatus(): Promise<BackendStatus> {
-    return api.get<BackendStatus>('/status').then((r) => r.data)
+  getStatus(): Promise<SystemStatus> {
+    return api.get<SystemStatus>('/system/status').then((r) => r.data)
+  },
+
+  // ─── Generation (async job-based) ──
+
+  /**
+   * Submit a text-to-image generation job. Returns immediately with a job_id.
+   */
+  submitTextToImage(payload: GenerationRequest): Promise<JobSubmissionResponse> {
+    return api.post<JobSubmissionResponse>('/generation/text-to-image', payload).then((r) => r.data)
+  },
+
+  // ─── Jobs ──
+
+  /**
+   * Get detailed status for a specific job (poll for progress/completion).
+   */
+  getJobStatus(jobId: string): Promise<JobStatusResponse> {
+    return api.get<JobStatusResponse>(`/jobs/${encodeURIComponent(jobId)}`).then((r) => r.data)
   },
 
   /**
-   * Ask the backend to load or switch the model pipeline for a task.
+   * Cancel a running or pending job.
    */
-  loadModel(payload: ModelLoadRequest): Promise<ModelLoadResponse> {
-    return api.post<ModelLoadResponse>('/models/load', payload).then((r) => r.data)
+  cancelJob(jobId: string): Promise<{ job_id: string; status: string; message: string }> {
+    return api.post(`/jobs/${encodeURIComponent(jobId)}/cancel`).then((r) => r.data)
+  },
+
+  // ─── Artifacts (replaces legacy /history) ──
+
+  /**
+   * Fetch paginated artifact gallery (generated outputs).
+   */
+  getArtifacts(params?: { limit?: number; offset?: number; model_name?: string }): Promise<PaginatedResponse<ArtifactEntry>> {
+    return api.get<PaginatedResponse<ArtifactEntry>>('/artifacts/', { params }).then((r) => r.data)
   },
 
   /**
-   * Run standard text-to-image generation.
+   * Delete a single artifact by UUID.
    */
-  generate(payload: GenerationRequest): Promise<GenerationResponse> {
-    return api.post<GenerationResponse>('/generate', payload).then((r) => r.data)
+  deleteArtifact(artifactId: string): Promise<void> {
+    return api.delete(`/artifacts/${encodeURIComponent(artifactId)}`).then(() => undefined)
+  },
+
+  // ─── Model Registry ──
+
+  /**
+   * Get all registered models with their download/status info.
+   */
+  getModels(params?: { limit?: number; offset?: number }): Promise<ModelRegistryEntry[]> {
+    return api.get<ModelRegistryEntry[]>('/models/', { params }).then((r) => r.data)
   },
 
   /**
-   * Run img2img generation by sending prompt settings + uploaded input image.
+   * Get a single model's details.
    */
-  generateFromImage(payload: ImageGenerationRequest): Promise<GenerationResponse> {
-    const formData = buildImageMultipartData(payload)
-    appendOptionalField(formData, 'workflow_preset', payload.workflow_preset)
-    appendOptionalField(formData, 'strength', payload.strength)
-
-    return api.post<GenerationResponse>('/generate-from-image', formData).then((r) => r.data)
-  },
-
-  /**
-   * Run sketch-to-ink generation using the backend ControlNet workflow.
-   */
-  generateSketchToInk(payload: SketchToInkRequest): Promise<GenerationResponse> {
-    const formData = buildImageMultipartData(payload)
-    appendOptionalField(formData, 'controlnet_conditioning_scale', payload.controlnet_conditioning_scale)
-
-    return api.post<GenerationResponse>('/generate-sketch-to-ink', formData).then((r) => r.data)
-  },
-
-  /**
-   * Send an image to the vision model for captioning/description.
-   */
-  describeImage(payload: DescribeImageRequest): Promise<DescribeImageResponse> {
-    const formData = new FormData()
-    formData.append('image', payload.image)
-    formData.append('model_id', payload.model_id)
-
-    return api.post<DescribeImageResponse>('/describe-image', formData).then((r) => r.data)
-  },
-
-  // ─── Model Registry endpoints ──
-
-  /**
-   * Get all registered models with their download status.
-   */
-  getModels(): Promise<ModelRegistryEntry[]> {
-    return api.get<ModelRegistryEntry[]>('/models').then((r) => r.data)
-  },
-
-  /**
-   * Get only models that are downloaded and ready to use.
-   */
-  getDownloadedModels(): Promise<ModelRegistryEntry[]> {
-    return api.get<ModelRegistryEntry[]>('/models/downloaded').then((r) => r.data)
+  getModel(modelId: string): Promise<ModelRegistryEntry> {
+    return api.get<ModelRegistryEntry>(`/models/${encodeURIComponent(modelId)}`).then((r) => r.data)
   },
 
   /**
    * Register a new model in the catalog.
    */
   addModel(payload: ModelRegistryAddRequest): Promise<ModelRegistryEntry> {
-    return api.post<ModelRegistryEntry>('/models', payload).then((r) => r.data)
+    return api.post<ModelRegistryEntry>('/models/', payload).then((r) => r.data)
   },
 
   /**
    * Remove a model from the registry.
    */
-  removeModel(modelId: string, source: ModelSource): Promise<void> {
-    return api.delete(`/models/${encodeURIComponent(modelId)}`, { params: { source } }).then(() => undefined)
+  removeModel(modelId: string): Promise<void> {
+    return api.delete(`/models/${encodeURIComponent(modelId)}`).then(() => undefined)
   },
 
   /**
-   * Trigger a background download for a model.
+   * Trigger a background download for a model (returns 202 with job_id).
    */
-  downloadModel(modelId: string, source: ModelSource): Promise<{ detail: string; status: string }> {
-    return api.post<{ detail: string; status: string }>(
+  downloadModel(modelId: string): Promise<JobSubmissionResponse> {
+    return api.post<JobSubmissionResponse>(
       `/models/${encodeURIComponent(modelId)}/download`,
-      null,
-      { params: { source } },
     ).then((r) => r.data)
-  },
-
-  /**
-   * Get download progress for a specific model.
-   */
-  getDownloadProgress(modelId: string, source: ModelSource): Promise<{ downloaded_bytes: number; total_bytes: number; percentage: number }> {
-    return api.get<{ downloaded_bytes: number; total_bytes: number; percentage: number }>(
-      `/models/${encodeURIComponent(modelId)}/progress`,
-      { params: { source } },
-    ).then((r) => r.data)
-  },
-
-  // ─── History endpoints ──
-
-  /**
-   * Fetch all persisted generations from the backend (newest first).
-   */
-  getHistory(): Promise<GeneratedImage[]> {
-    return api.get<GeneratedImage[]>('/history').then((r) => r.data)
-  },
-
-  /**
-   * Permanently delete a single history entry by its UUID.
-   */
-  deleteHistoryEntry(imageId: string): Promise<void> {
-    return api.delete(`/history/${encodeURIComponent(imageId)}`).then(() => undefined)
-  },
-
-  /**
-   * Permanently delete ALL history entries.
-   */
-  clearAllHistory(): Promise<void> {
-    return api.delete('/history').then(() => undefined)
-  },
-
-  // ─── Download Events endpoints ──
-
-  /**
-   * Fetch all download events from the backend.
-   */
-  getDownloadEvents(): Promise<DownloadEvent[]> {
-    return api.get<DownloadEvent[]>('/models/download-events').then((r) => r.data)
-  },
-
-  /**
-   * Clear all download events from the backend.
-   */
-  clearDownloadEvents(): Promise<{ detail: string }> {
-    return api.delete('/models/download-events').then((r) => r.data)
   },
 }

@@ -62,17 +62,15 @@ function handleImageSelection(value: File | File[] | null) {
   }
 }
 
-/** Submit the sketch to the ControlNet inking pipeline. */
+/** Submit the sketch as a text-to-image job (sketch-to-ink v1 route pending). */
 function handleInk() {
   if (!imageFile.value) return
 
-  store.generateSketchToInk({
-    image: imageFile.value,
+  store.generate({
     prompt: PROMPT,
     negative_prompt: NEGATIVE_PROMPT,
     model_id: selectedModelId.value,
     model_source: 'huggingface',
-    controlnet_conditioning_scale: controlnetScale.value,
     num_inference_steps: STEPS,
     guidance_scale: GUIDANCE_SCALE,
     num_images: 1,
@@ -220,7 +218,7 @@ onBeforeUnmount(() => {
           <v-row>
             <v-col v-for="img in store.generatedImages" :key="img.id" cols="12" sm="6">
               <v-card elevation="1" class="image-card">
-                <v-img :src="img.url" :aspect-ratio="img.width / img.height" contain class="bg-grey-darken-3">
+                <v-img :src="img.file_path" :aspect-ratio="img.width / img.height" contain class="bg-grey-darken-3">
                   <template #placeholder>
                     <div class="d-flex align-center justify-center fill-height">
                       <v-progress-circular indeterminate color="primary" />
@@ -236,7 +234,7 @@ onBeforeUnmount(() => {
 
                 <v-card-actions class="pa-2 pt-0">
                   <v-btn
-                    :href="img.url"
+                    :href="img.file_path"
                     target="_blank"
                     download
                     size="small"

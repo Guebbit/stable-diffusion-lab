@@ -1,30 +1,20 @@
 import { ref, onUnmounted } from 'vue'
+import type { ObservabilityEvent } from '../types'
 
 /**
- * Job progress event from the backend WebSocket /ws/progress.
- * Mirrors the backend JobProgress dataclass broadcast format.
- */
-export interface JobProgressEvent {
-  job_id: string
-  status: string
-  progress_percent: number
-  current_step: number
-  total_steps: number
-  message: string
-  timestamp: string
-}
-
-/**
- * Composable that connects to the backend WebSocket for real-time job progress.
- * Provides reactive state for current progress events and connection status.
+ * Composable that connects to /ws/observability for real-time typed events.
+ * Replaces the legacy /ws/progress endpoint with richer event streaming.
  *
  * Usage:
- *   const { events, isConnected, connect, disconnect } = useJobProgress()
- *   connect() // starts listening
+ *   const { events, isConnected, connect, disconnect } = useObservabilityStream()
+ *   connect() // starts listening for all events
+ *   connect('job,resource') // subscribe to specific event categories
  */
-export function useJobProgress() {
-  // Reactive state for the latest progress event per job
-  const events = ref<Map<string, JobProgressEvent>>(new Map())
+export function useObservabilityStream(defaultSubscribe?: string) {
+  // Reactive state: latest event per job for progress tracking
+  const events = ref<Map<string, ObservabilityEvent>>(new Map())
+  // All recent events buffer (for activity log)
+  const recentEvents = ref<ObservabilityEvent[]>([])
   // Connection status flag
   const isConnected = ref(false)
   // Internal WebSocket reference
@@ -33,40 +23,41 @@ export function useJobProgress() {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
-   * Build the WebSocket URL from the current page origin.
-   * Converts http(s) to ws(s) and appends the progress path.
+   * Build the WebSocket URL for the observability stream.
+   * Converts http(s) to ws(s) and appends optional subscription filters.
    */
-  function buildWsUrl(): string {
+  function buildWsUrl(subscribe?: string): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${window.location.host}/ws/progress`
+    const base = `${protocol}//${window.location.host}/ws/observability`
+    const filter = subscribe || defaultSubscribe
+    return filter ? `${base}?subscribe=${encodeURIComponent(filter)}` : base
   }
 
   /**
-   * Open the WebSocket connection and start listening for progress events.
+   * Open the WebSocket and start listening for typed events.
    */
-  function connect() {
+  function connect(subscribe?: string) {
     if (ws && ws.readyState === WebSocket.OPEN) return
 
-    ws = new WebSocket(buildWsUrl())
+    ws = new WebSocket(buildWsUrl(subscribe))
 
     ws.onopen = () => {
       isConnected.value = true
     }
 
     ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data) as JobProgressEvent
-        // Store latest progress per job_id so the UI can track multiple jobs
+      const data = JSON.parse(event.data) as ObservabilityEvent
+      // Track latest event per job_id for progress display
+      if (data.job_id) {
         events.value = new Map(events.value).set(data.job_id, data)
-      } catch {
-        // Ignore malformed messages to avoid disrupting the connection
       }
+      // Keep a rolling buffer of recent events (max 200)
+      recentEvents.value = [data, ...recentEvents.value].slice(0, 200)
     }
 
     ws.onclose = () => {
       isConnected.value = false
-      // Auto-reconnect after 3 seconds
-      scheduleReconnect()
+      scheduleReconnect(subscribe)
     }
 
     ws.onerror = () => {
@@ -77,11 +68,11 @@ export function useJobProgress() {
   /**
    * Schedule an automatic reconnection attempt.
    */
-  function scheduleReconnect() {
+  function scheduleReconnect(subscribe?: string) {
     if (reconnectTimer) return
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
-      connect()
+      connect(subscribe)
     }, 3000)
   }
 
@@ -94,7 +85,7 @@ export function useJobProgress() {
       reconnectTimer = null
     }
     if (ws) {
-      ws.onclose = null // prevent auto-reconnect on intentional close
+      ws.onclose = null
       ws.close()
       ws = null
     }
@@ -117,6 +108,7 @@ export function useJobProgress() {
 
   return {
     events,
+    recentEvents,
     isConnected,
     connect,
     disconnect,

@@ -7,9 +7,9 @@ import type { GenerationMode, ImageWorkflowPreset, ModelSource } from '../types'
 const store = useDiffusionStore()
 const modelsStore = useModelsStore()
 
-// Fetch downloaded models on mount (for the select dropdown)
+// Fetch models on mount (for the select dropdown)
 onMounted(() => {
-  modelsStore.fetchDownloadedModels()
+  modelsStore.fetchRegistry()
 })
 
 /**
@@ -241,19 +241,16 @@ function buildCommonGenerationPayload() {
 
 /**
  * Trigger one of the image-to-image preset workflows.
+ * TODO: Backend /api/v1/generation/image-to-image not yet implemented.
  */
 function generatePresetWorkflow() {
   if (!imageFile.value) return
-  const workflowPreset = selectedPhaseThreePreset.value?.workflowPreset ?? 'general'
   const payload = buildCommonGenerationPayload()
-  return store.generateFromImage({
+  return store.generate({
     ...payload,
-    image: imageFile.value,
     model_source: modelSourceSelection.value,
-    workflow_preset: workflowPreset,
     width: form.value.width,
     height: form.value.height,
-    strength: form.value.strength,
     num_inference_steps: form.value.numInferenceSteps,
     guidance_scale: form.value.guidanceScale,
     seed: form.value.seed ?? undefined,
@@ -262,18 +259,17 @@ function generatePresetWorkflow() {
 }
 
 /**
- * Trigger sketch-to-ink generation with ControlNet conditioning settings.
+ * Trigger sketch-to-ink generation.
+ * TODO: Backend /api/v1/generation/sketch-to-ink not yet implemented.
  */
 function generateSketchWorkflow() {
   if (!imageFile.value) return
   const payload = buildCommonGenerationPayload()
-  return store.generateSketchToInk({
+  return store.generate({
     ...payload,
-    image: imageFile.value,
     model_source: 'huggingface',
     width: form.value.width,
     height: form.value.height,
-    controlnet_conditioning_scale: form.value.controlnetConditioningScale,
     num_inference_steps: form.value.numInferenceSteps,
     guidance_scale: form.value.guidanceScale,
     seed: form.value.seed ?? undefined,
@@ -315,15 +311,15 @@ const isCurrentModelLoaded = computed(
   () =>
     !useCustomModel.value &&
     activeModelId.value.trim().length > 0 &&
-    store.status?.loaded_model === activeModelId.value,
+    store.status?.models?.active_model === activeModelId.value,
 )
 
 /**
- * Trigger model loading for the currently selected model.
+ * Model loading is now automatic — the backend loads models on first use.
+ * This is a no-op placeholder for UI compatibility.
  */
 function loadSelectedModel() {
-  if (useCustomModel.value || !activeModelId.value) return
-  return store.loadModel(activeModelId.value, modelSourceSelection.value)
+  // Models auto-load on generation; no explicit load needed in the v1 API
 }
 
 /**
@@ -603,7 +599,7 @@ onBeforeUnmount(() => {
           </template>
         </v-alert>
         <v-btn
-            v-if="!isCurrentModelLoaded && !store.isLoadingModel"
+            v-if="!isCurrentModelLoaded && !false"
             color="primary"
             variant="tonal"
             size="small"
@@ -613,7 +609,7 @@ onBeforeUnmount(() => {
           Load Model
         </v-btn>
         <v-btn
-            v-else-if="store.isLoadingModel"
+            v-else-if="false"
             color="primary"
             variant="tonal"
             size="small"
@@ -628,13 +624,13 @@ onBeforeUnmount(() => {
         <v-btn
             color="primary"
             size="large"
-            :loading="store.isGenerating || store.isLoadingModel"
-            :disabled="!formValid || store.isLoadingModel"
+            :loading="store.isGenerating || false"
+            :disabled="!formValid || false"
             prepend-icon="mdi-creation"
             block
             @click="handleGenerate"
         >
-          {{ store.isGenerating ? 'Generating...' : store.isLoadingModel ? 'Loading Model...' : 'Generate' }}
+          {{ store.isGenerating ? 'Generating...' : 'Generate' }}
         </v-btn>
       </v-card-actions>
   </v-card>

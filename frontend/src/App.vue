@@ -71,8 +71,8 @@ function formatTime(date: Date): string {
           prepend-icon="mdi-server"
         >
           {{ store.status.device?.toUpperCase() ?? 'Backend' }}
-          <template v-if="store.status.loaded_model">
-            · {{ store.status.loaded_model }}
+          <template v-if="store.status.models?.active_model">
+            · {{ store.status.models.active_model }}
           </template>
         </v-chip>
         <v-chip
