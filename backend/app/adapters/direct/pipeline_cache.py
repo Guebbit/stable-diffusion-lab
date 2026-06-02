@@ -81,6 +81,11 @@ class PipelineCache:
 
         # Serialize load/evict operations to prevent race conditions
         self._lock = asyncio.Lock()
+        self._cache_hits = 0
+        self._cache_misses = 0
+        self._last_load_at: datetime | None = None
+        self._last_unload_at: datetime | None = None
+        self._last_load_failed = False
 
     # --- Public API ---
 
@@ -104,6 +109,7 @@ class PipelineCache:
         """
         # Fast path: already cached — move to end (most recently used)
         if model_id in self._cache:
+            self._cache_hits += 1
             self._cache.move_to_end(model_id)
             entry = self._cache[model_id]
             entry.last_used = datetime.now(timezone.utc)
@@ -114,6 +120,7 @@ class PipelineCache:
         async with self._lock:
             # Double-check after acquiring lock (another coroutine may have loaded it)
             if model_id in self._cache:
+                self._cache_hits += 1
                 self._cache.move_to_end(model_id)
                 return self._cache[model_id].pipeline
 
@@ -121,8 +128,15 @@ class PipelineCache:
             await self._evict_if_needed()
 
             # Load the pipeline
+            self._cache_misses += 1
             logger.info("Cache miss — loading: %s", model_id)
-            pipeline, vram_mb = await loader()
+            try:
+                pipeline, vram_mb = await loader()
+            except Exception:
+                self._last_load_failed = True
+                raise
+            self._last_load_failed = False
+            self._last_load_at = datetime.now(timezone.utc)
 
             # Store in cache
             self._cache[model_id] = LoadedPipeline(
@@ -201,6 +215,7 @@ class PipelineCache:
         entry = self._cache.pop(model_id, None)
         if entry is None:
             return
+        self._last_unload_at = datetime.now(timezone.utc)
 
         # Delete the pipeline object to release GPU memory
         del entry.pipeline
@@ -219,3 +234,14 @@ class PipelineCache:
             model_id,
             entry.estimated_vram_mb,
         )
+
+    def get_cache_stats(self) -> dict[str, object]:
+        """Return cache hit/miss and lifecycle metadata."""
+        return {
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
+            "warm": self.size > 0,
+            "last_load_at": self._last_load_at,
+            "last_unload_at": self._last_unload_at,
+            "last_load_failed": self._last_load_failed,
+        }

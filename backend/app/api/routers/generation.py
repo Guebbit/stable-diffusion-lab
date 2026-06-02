@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import (
@@ -25,7 +25,9 @@ from app.services.generation_service import GenerationService
 router = APIRouter(prefix="/generation", tags=["generation"])
 
 
-def _get_generation_service(session: AsyncSession = Depends(get_async_session)) -> GenerationService:
+def _get_generation_service(
+    session: AsyncSession = Depends(get_async_session),
+) -> GenerationService:
     """Dependency injection for GenerationService."""
     return GenerationService(job_repository=JobRepository(session))
 
@@ -33,7 +35,9 @@ def _get_generation_service(session: AsyncSession = Depends(get_async_session)) 
 @router.post("/text-to-image", response_model=JobResponse, status_code=202)
 async def submit_text_to_image(
     request: TextToImageRequest,
+    response: Response,
     service: GenerationService = Depends(_get_generation_service),
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
 ) -> JobResponse:
     """
     Submit a text-to-image generation job.
@@ -51,8 +55,14 @@ async def submit_text_to_image(
         seed=request.seed,
         num_images=request.num_images,
     )
-    job_id = await service.submit_text_to_image(params, request.model_id)
-    return JobResponse(job_id=job_id, status="pending")
+    job_id = await service.submit_text_to_image(
+        params,
+        request.model_id,
+        correlation_id=correlation_id,
+    )
+    if correlation_id:
+        response.headers["X-Correlation-ID"] = correlation_id
+    return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)

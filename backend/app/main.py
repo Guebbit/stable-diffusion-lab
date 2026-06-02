@@ -34,6 +34,8 @@ from app.api.websocket.hub import ws_hub
 from app.domain.enums import InferenceBackend, JobType
 from app.infrastructure.config.settings import get_settings
 from app.orchestrator.event_bus import event_bus
+from app.orchestrator.metrics import MetricsRegistry
+from app.orchestrator.observability import ObservabilityService
 from app.orchestrator.worker import JobWorker
 
 
@@ -169,12 +171,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # --- Connect event bus to WebSocket hub ---
     event_bus.subscribe(ws_hub.broadcast)
+    event_bus.subscribe_typed(ws_hub.broadcast_typed)
 
-    # --- Start job worker ---
+    # --- Build metrics + observability ---
     from app.infrastructure.database.session import get_session_factory
 
+    session_factory = get_session_factory()
+    metrics_registry = MetricsRegistry()
+    event_bus.subscribe_typed(metrics_registry.record_event)
+    observability = ObservabilityService(
+        session_factory=session_factory,
+        resource_coordinator=resource_coordinator,
+        pipeline_cache=pipeline_cache,
+        event_bus=event_bus,
+        metrics_registry=metrics_registry,
+    )
+
+    # --- Start job worker ---
     worker = JobWorker(
-        session_factory=get_session_factory(),
+        session_factory=session_factory,
         resource_coordinator=resource_coordinator,
         adapter_registry=adapter_registry,
     )
@@ -186,6 +201,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.adapter_registry = adapter_registry
     app.state.model_manager = model_manager
     app.state.worker = worker
+    app.state.metrics_registry = metrics_registry
+    app.state.observability = observability
 
     yield
 
@@ -193,6 +210,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await worker.stop()
     await pipeline_cache.evict_all()
     event_bus.unsubscribe(ws_hub.broadcast)
+    event_bus.unsubscribe_typed(ws_hub.broadcast_typed)
+    event_bus.unsubscribe_typed(metrics_registry.record_event)
     logger.info("Application shutdown complete")
 
 
@@ -243,5 +262,17 @@ def create_app() -> FastAPI:
                 await websocket.receive_text()
         except WebSocketDisconnect:
             ws_hub.disconnect(websocket)
+
+    @app.websocket("/ws/observability")
+    async def websocket_observability(websocket: WebSocket) -> None:
+        """WebSocket endpoint for typed observability event streaming."""
+        subscribe = websocket.query_params.get("subscribe", "")
+        filters = {item.strip() for item in subscribe.split(",") if item.strip()}
+        await ws_hub.connect_typed(websocket, subscribe=filters)
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            ws_hub.disconnect_typed(websocket)
 
     return app

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy import func as sa_func
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,11 +121,7 @@ class JobRepository:
 
     async def list_recent(self, limit: int = 50) -> list[JobRecord]:
         """List recent jobs ordered by creation date (newest first)."""
-        stmt = (
-            select(JobRecord)
-            .order_by(JobRecord.created_at.desc())
-            .limit(limit)
-        )
+        stmt = select(JobRecord).order_by(JobRecord.created_at.desc()).limit(limit)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
@@ -143,19 +140,12 @@ class JobRepository:
             base_stmt = base_stmt.where(JobRecord.job_type == job_type)
 
         # Count total
-        from sqlalchemy import func as sa_func
-
         count_stmt = select(sa_func.count()).select_from(base_stmt.subquery())
         count_result = await self._session.execute(count_stmt)
         total = count_result.scalar_one()
 
         # Paginated items
-        items_stmt = (
-            base_stmt
-            .order_by(JobRecord.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
+        items_stmt = base_stmt.order_by(JobRecord.created_at.desc()).limit(limit).offset(offset)
         items_result = await self._session.execute(items_stmt)
         items = list(items_result.scalars().all())
 
@@ -179,3 +169,38 @@ class JobRepository:
             )
         )
         await self._session.execute(stmt)
+
+    async def get_queue_counts(self) -> dict[str, int]:
+        """Return queue/job counts grouped by status and total depth."""
+        status_stmt = select(JobRecord.status, sa_func.count()).group_by(JobRecord.status)
+        status_result = await self._session.execute(status_stmt)
+        counts = {str(status): int(count) for status, count in status_result.all()}
+        counts.setdefault("pending", 0)
+        counts.setdefault("running", 0)
+        counts.setdefault("completed", 0)
+        counts.setdefault("failed", 0)
+        counts.setdefault("cancelled", 0)
+        counts["queue_depth"] = counts["pending"] + counts["running"]
+        return counts
+
+    async def get_oldest_pending_age_seconds(self) -> float | None:
+        """Return age of the oldest pending job in seconds, if any exist."""
+        stmt = select(sa_func.min(JobRecord.created_at)).where(JobRecord.status == "pending")
+        result = await self._session.execute(stmt)
+        oldest = result.scalar_one_or_none()
+        if oldest is None:
+            return None
+        now = datetime.now(timezone.utc)
+        return max((now - oldest).total_seconds(), 0.0)
+
+    async def get_current_running_job_id(self) -> str | None:
+        """Return the oldest currently running job id, if present."""
+        stmt = (
+            select(JobRecord.id)
+            .where(JobRecord.status == "running")
+            .order_by(JobRecord.started_at.asc().nulls_last(), JobRecord.created_at.asc())
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        running = result.scalar_one_or_none()
+        return str(running) if running else None

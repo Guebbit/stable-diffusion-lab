@@ -13,10 +13,12 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
+from app.domain.events import JobEvent
 from app.domain.enums import JobStatus, JobType
 from app.domain.value_objects import GenerationParams
 from app.infrastructure.database.models import JobRecord
 from app.infrastructure.database.repositories import JobRepository
+from app.orchestrator.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,12 @@ class GenerationService:
     def __init__(self, job_repository: JobRepository) -> None:
         self._job_repo = job_repository
 
-    async def submit_text_to_image(self, params: GenerationParams, model_id: str) -> UUID:
+    async def submit_text_to_image(
+        self,
+        params: GenerationParams,
+        model_id: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
         """
         Submit a text-to-image generation job.
 
@@ -52,10 +59,20 @@ class GenerationService:
                 "seed": params.seed,
                 "num_images": params.num_images,
                 "model_id": model_id,
+                "correlation_id": correlation_id,
                 **params.extra,
             },
         )
         job = await self._job_repo.create(job)
+        await event_bus.publish_event(
+            JobEvent(
+                event_type="job.enqueued",
+                correlation_id=correlation_id,
+                job_id=str(job.id),
+                message="Job enqueued",
+                payload={"job_type": JobType.TEXT_TO_IMAGE, "model_id": model_id},
+            )
+        )
         logger.info("Created text-to-image job: %s", job.id)
         return job.id
 
@@ -65,6 +82,7 @@ class GenerationService:
         model_id: str,
         source_image_path: str,
         strength: float = 0.75,
+        correlation_id: str | None = None,
     ) -> UUID:
         """Submit an image-to-image generation job."""
         job = JobRecord(
@@ -82,9 +100,19 @@ class GenerationService:
                 "model_id": model_id,
                 "source_image_path": source_image_path,
                 "strength": strength,
+                "correlation_id": correlation_id,
             },
         )
         job = await self._job_repo.create(job)
+        await event_bus.publish_event(
+            JobEvent(
+                event_type="job.enqueued",
+                correlation_id=correlation_id,
+                job_id=str(job.id),
+                message="Job enqueued",
+                payload={"job_type": JobType.IMAGE_TO_IMAGE, "model_id": model_id},
+            )
+        )
         logger.info("Created image-to-image job: %s", job.id)
         return job.id
 

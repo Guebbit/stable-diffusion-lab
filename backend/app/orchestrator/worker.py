@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -23,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.adapter_registry import AdapterRegistry
 from app.adapters.resource_coordinator import ResourceCoordinator
+from app.domain.events import ArtifactEvent, JobEvent, ModelEvent, ResourceEvent
 from app.domain.enums import InferenceBackend, JobType
 from app.domain.value_objects import GenerationParams, JobProgress
 from app.infrastructure.config.settings import get_settings
@@ -105,6 +108,8 @@ class JobWorker:
     async def _execute_job(self, job_id: UUID, job_type: str, params: dict) -> None:
         """Execute a single job with resource locking and error handling."""
         job_id_str = str(job_id)
+        correlation_id = params.get("correlation_id")
+        started_at = time.monotonic()
 
         # Check for early cancellation
         if job_id in self._cancelled_jobs:
@@ -113,6 +118,14 @@ class JobWorker:
                 job_repo = JobRepository(session)
                 await job_repo.mark_cancelled(job_id)
                 await session.commit()
+            await event_bus.publish_event(
+                JobEvent(
+                    event_type="job.cancelled",
+                    correlation_id=correlation_id,
+                    job_id=job_id_str,
+                    message="Job cancelled before execution",
+                )
+            )
             return
 
         # Determine if this job needs GPU before entering try block
@@ -125,8 +138,30 @@ class JobWorker:
         }
 
         try:
+            await event_bus.publish_event(
+                JobEvent(
+                    event_type="job.started",
+                    correlation_id=correlation_id,
+                    job_id=job_id_str,
+                    message="Job started",
+                    payload={"job_type": job_type},
+                )
+            )
             if needs_gpu:
+                lock_wait_start = time.monotonic()
                 await self._resource_coordinator.acquire(job_id_str)
+                await event_bus.publish_event(
+                    ResourceEvent(
+                        event_type="resource.lock_acquired",
+                        correlation_id=correlation_id,
+                        job_id=job_id_str,
+                        message="GPU lock acquired",
+                        payload={
+                            "acquired_at": datetime.now(timezone.utc).isoformat(),
+                            "wait_seconds": round(time.monotonic() - lock_wait_start, 6),
+                        },
+                    )
+                )
 
             # Dispatch to appropriate handler via adapter registry
             await self._dispatch(job_id, job_type, params)
@@ -144,6 +179,27 @@ class JobWorker:
                     message="Job completed successfully",
                 )
             )
+            await event_bus.publish_event(
+                JobEvent(
+                    event_type="job.completed",
+                    correlation_id=correlation_id,
+                    job_id=job_id_str,
+                    message="Job completed successfully",
+                    payload={
+                        "job_type": job_type,
+                        "duration_seconds": round(time.monotonic() - started_at, 6),
+                    },
+                )
+            )
+            await event_bus.publish_event(
+                ArtifactEvent(
+                    event_type="job.artifact_saved",
+                    correlation_id=correlation_id,
+                    job_id=job_id_str,
+                    message="Job output persisted",
+                    payload={"output_path": str(get_settings().artifacts_path / job_id_str)},
+                )
+            )
 
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
@@ -158,11 +214,39 @@ class JobWorker:
                     message=str(exc),
                 )
             )
+            await event_bus.publish_event(
+                JobEvent(
+                    event_type="job.failed",
+                    correlation_id=correlation_id,
+                    job_id=job_id_str,
+                    level="error",
+                    message=str(exc),
+                    payload={"job_type": job_type},
+                )
+            )
+            if "out of memory" in str(exc).lower():
+                await event_bus.publish_event(
+                    ResourceEvent(
+                        event_type="resource.oom",
+                        correlation_id=correlation_id,
+                        job_id=job_id_str,
+                        level="error",
+                        message="CUDA out-of-memory detected",
+                    )
+                )
             logger.exception("Job %s failed", job_id)
 
         finally:
             if needs_gpu:
                 self._resource_coordinator.release(job_id_str)
+                await event_bus.publish_event(
+                    ResourceEvent(
+                        event_type="resource.lock_released",
+                        correlation_id=correlation_id,
+                        job_id=job_id_str,
+                        message="GPU lock released",
+                    )
+                )
 
     async def _dispatch(self, job_id: UUID, job_type: str, params: dict) -> None:
         """
@@ -172,6 +256,7 @@ class JobWorker:
         appropriate adapter method based on job_type.
         """
         settings = get_settings()
+        correlation_id = params.get("correlation_id")
 
         # Determine backend override (if specified in job params) — use .get() to avoid mutating
         backend_str = params.get("backend")
@@ -188,7 +273,33 @@ class JobWorker:
                 total_steps=progress.total_steps,
                 message=progress.message,
             )
-            asyncio.get_event_loop().create_task(event_bus.publish(real_progress))
+
+            async def _publish_progress() -> None:
+                # Dual publish keeps legacy /ws/progress clients working while typed
+                # observability consumers receive richer events during migration.
+                # The legacy branch is intended for eventual deprecation.
+                await event_bus.publish(real_progress)
+                await event_bus.publish_event(
+                    JobEvent(
+                        event_type="job.progress",
+                        correlation_id=correlation_id,
+                        job_id=str(job_id),
+                        message=progress.message,
+                        payload={
+                            "status": progress.status,
+                            "progress_percent": progress.progress_percent,
+                            "current_step": progress.current_step,
+                            "total_steps": progress.total_steps,
+                            "model_id": params.get("model_id"),
+                            "pipeline": str(
+                                backend.value if backend else settings.inference_backend
+                            ),
+                            "adapter": "registry_dispatch",
+                        },
+                    )
+                )
+
+            asyncio.get_event_loop().create_task(_publish_progress())
 
         # Get output directory for artifacts
         output_dir = settings.artifacts_path / str(job_id)
@@ -276,6 +387,15 @@ class JobWorker:
         elif job_type == JobType.MODEL_LOAD:
             logger.info("Dispatching model load job %s", job_id)
             await self._handle_model_load(job_id, params)
+            await event_bus.publish_event(
+                ModelEvent(
+                    event_type="job.model_loaded",
+                    correlation_id=params.get("correlation_id"),
+                    job_id=str(job_id),
+                    message=f"Model loaded: {params['model_id']}",
+                    payload={"model_id": params["model_id"]},
+                )
+            )
 
         else:
             raise ValueError(f"Unknown job type: {job_type}")
@@ -356,7 +476,9 @@ class JobWorker:
         from app.adapters.direct.pipeline_cache import PipelineCache
 
         # Get the pipeline cache from any registered direct adapter
-        adapter = self._adapter_registry.get_provider(JobType.TEXT_TO_IMAGE, InferenceBackend.DIRECT_PYTHON)
+        adapter = self._adapter_registry.get_provider(
+            JobType.TEXT_TO_IMAGE, InferenceBackend.DIRECT_PYTHON
+        )
         if hasattr(adapter, "_cache"):
             cache: PipelineCache = adapter._cache
             model_manager = DirectModelManager(cache)
