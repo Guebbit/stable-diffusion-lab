@@ -28,6 +28,7 @@ def _get_observability_service(request: Request) -> ObservabilityService:
 
 
 def _resolve_correlation_id(correlation_id: str | None) -> str:
+    """Reuse incoming correlation id or create a UUIDv4 for full request/event trace continuity."""
     return correlation_id or str(uuid.uuid4())
 
 

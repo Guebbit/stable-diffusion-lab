@@ -256,6 +256,7 @@ class JobWorker:
         appropriate adapter method based on job_type.
         """
         settings = get_settings()
+        correlation_id = params.get("correlation_id")
 
         # Determine backend override (if specified in job params) — use .get() to avoid mutating
         backend_str = params.get("backend")
@@ -274,7 +275,9 @@ class JobWorker:
             )
 
             async def _publish_progress() -> None:
-                correlation_id = params.get("correlation_id")
+                # Dual publish keeps legacy /ws/progress clients working while typed
+                # observability consumers receive richer events during migration.
+                # The legacy branch is intended for eventual deprecation.
                 await event_bus.publish(real_progress)
                 await event_bus.publish_event(
                     JobEvent(

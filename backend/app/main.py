@@ -222,10 +222,6 @@ def create_app() -> FastAPI:
     Call this from the entry point (main.py) or tests.
     """
     settings = get_settings()
-    logging.basicConfig(
-        level=logging.INFO,
-        format='{"timestamp":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}',
-    )
 
     app = FastAPI(
         title=settings.app_name,

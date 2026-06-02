@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from itertools import islice
 from typing import Any
 from uuid import uuid4
 
@@ -84,7 +85,7 @@ class EventRingBuffer:
         """Get recent events, newest first."""
         if limit <= 0:
             return []
-        return list(reversed(list(self._events)[-limit:]))
+        return list(islice(reversed(self._events), limit))
 
     def get_by_job(self, job_id: str, limit: int = 500) -> list[TypedEvent]:
         """Get events for one job in chronological order."""

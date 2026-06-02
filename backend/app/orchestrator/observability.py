@@ -164,6 +164,9 @@ class ObservabilityService:
         self._metrics.set_gauge("cuda_allocated_mb", gpu.cuda_allocated_mb)
         self._metrics.set_gauge("cuda_reserved_mb", gpu.cuda_reserved_mb)
         self._metrics.set_gauge("disk_free_mb", artifacts.disk_free_mb)
+        # Cache hit/miss values come from PipelineCache's current truth snapshot.
+        # We sync those counters directly, while other counters (jobs_submitted,
+        # jobs_failed, etc.) remain event-driven increments.
         self._metrics.set_counter("cache_hits", models.cache_hits)
         self._metrics.set_counter("cache_misses", models.cache_misses)
 
@@ -319,7 +322,15 @@ class ObservabilityService:
             warnings.append("high_vram_pressure")
             recommendations.append("Reduce resolution/batch size or unload inactive models.")
 
-        if self._metrics.counters.get("oom_errors", 0) > 0:
+        # Keep OOM warning bounded to recent history (15 minutes / last 300 events).
+        # With a 1000-event ring buffer, 300 gives recent signal without scanning
+        # the full buffer; this assumes OOM relevance is short-lived operationally.
+        recent_oom = any(
+            event.event_type == "resource.oom"
+            and datetime.now(timezone.utc) - event.timestamp <= timedelta(minutes=15)
+            for event in self._event_bus.get_recent_events(limit=300)
+        )
+        if recent_oom:
             warnings.append("oom_detected")
 
         if models.last_load_failed:
