@@ -40,7 +40,6 @@ from app.api.schemas.system import (
     ModelStatus,
     RuntimeStatus,
     SystemStateSnapshot,
-    SystemStatusResponse,
     TypedEventResponse,
 )
 
@@ -69,7 +68,6 @@ __all__ = [
     "ModelStatus",
     "RuntimeStatus",
     "SystemStateSnapshot",
-    "SystemStatusResponse",
     "TextToImageRequest",
     "TypedEventResponse",
     "VideoCaptioningRequest",
