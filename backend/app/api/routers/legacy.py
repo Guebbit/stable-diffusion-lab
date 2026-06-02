@@ -11,6 +11,7 @@ All endpoints here delegate to the actual service layer directly.
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -37,6 +38,8 @@ from app.infrastructure.database.session import get_async_session
 from app.infrastructure.storage.storage_manager import StorageManager
 from app.services.generation_service import GenerationService
 from app.services.model_service import ModelService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["legacy"])
 
@@ -115,8 +118,9 @@ async def legacy_load_model(request: Request) -> dict[str, Any]:
     try:
         await model_manager.load_model(model_id)
         return {"success": True, "model_id": model_id, "message": "Model loaded successfully"}
-    except Exception as exc:
-        return {"success": False, "model_id": model_id, "message": str(exc)}
+    except Exception:
+        logger.exception("Failed to load model: %s", model_id)
+        return {"success": False, "model_id": model_id, "message": "Failed to load model"}
 
 
 # ─── Generation ──
