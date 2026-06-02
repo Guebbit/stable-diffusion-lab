@@ -19,6 +19,8 @@ import traceback
 from pathlib import Path
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from app.adapters.adapter_registry import AdapterRegistry
 from app.adapters.resource_coordinator import ResourceCoordinator
 from app.domain.enums import InferenceBackend, JobType
@@ -47,11 +49,11 @@ class JobWorker:
 
     def __init__(
         self,
-        job_repository: JobRepository,
+        session_factory: async_sessionmaker[AsyncSession],
         resource_coordinator: ResourceCoordinator,
         adapter_registry: AdapterRegistry,
     ) -> None:
-        self._job_repo = job_repository
+        self._session_factory = session_factory
         self._resource_coordinator = resource_coordinator
         self._adapter_registry = adapter_registry
         self._running = False
@@ -86,12 +88,14 @@ class JobWorker:
         settings = get_settings()
         while self._running:
             try:
-                job = await self._job_repo.claim_next_pending()
-                if job:
-                    await self._execute_job(job.id, job.job_type, job.params)
-                else:
-                    # No jobs available — wait before polling again
-                    await asyncio.sleep(settings.job_poll_interval)
+                async with self._session_factory() as session:
+                    job_repo = JobRepository(session)
+                    job = await job_repo.claim_next_pending()
+                    if job:
+                        await session.commit()
+                        await self._execute_job(job.id, job.job_type, job.params)
+                    else:
+                        await asyncio.sleep(settings.job_poll_interval)
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -105,7 +109,10 @@ class JobWorker:
         # Check for early cancellation
         if job_id in self._cancelled_jobs:
             self._cancelled_jobs.discard(job_id)
-            await self._job_repo.mark_cancelled(job_id)
+            async with self._session_factory() as session:
+                job_repo = JobRepository(session)
+                await job_repo.mark_cancelled(job_id)
+                await session.commit()
             return
 
         # Determine if this job needs GPU before entering try block
@@ -125,7 +132,10 @@ class JobWorker:
             await self._dispatch(job_id, job_type, params)
 
             # Mark completed
-            await self._job_repo.mark_completed(job_id)
+            async with self._session_factory() as session:
+                job_repo = JobRepository(session)
+                await job_repo.mark_completed(job_id)
+                await session.commit()
             await event_bus.publish(
                 JobProgress(
                     job_id=job_id,
@@ -137,7 +147,10 @@ class JobWorker:
 
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
-            await self._job_repo.mark_failed(job_id, error_msg)
+            async with self._session_factory() as session:
+                job_repo = JobRepository(session)
+                await job_repo.mark_failed(job_id, error_msg)
+                await session.commit()
             await event_bus.publish(
                 JobProgress(
                     job_id=job_id,
@@ -258,13 +271,104 @@ class JobWorker:
 
         elif job_type == JobType.MODEL_DOWNLOAD:
             logger.info("Dispatching model download job %s", job_id)
-            # Model downloads are handled by ModelService, not inference adapters
-            pass
+            await self._handle_model_download(job_id, params)
 
         elif job_type == JobType.MODEL_LOAD:
             logger.info("Dispatching model load job %s", job_id)
-            # Model loads are handled by ModelService → ModelManager
-            pass
+            await self._handle_model_load(job_id, params)
 
         else:
             raise ValueError(f"Unknown job type: {job_type}")
+
+    async def _handle_model_download(self, job_id: UUID, params: dict) -> None:
+        """
+        Download model weights from the configured source.
+
+        Uses huggingface_hub for HuggingFace models. Publishes progress
+        events so the frontend can show download percentage.
+        """
+        model_id = params["model_id"]
+        source = params.get("source", "huggingface")
+
+        await event_bus.publish(
+            JobProgress(
+                job_id=job_id,
+                status="running",
+                progress_percent=0,
+                message=f"Starting download: {model_id}",
+            )
+        )
+
+        if source == "huggingface":
+            from huggingface_hub import snapshot_download
+
+            settings = get_settings()
+            local_dir = settings.models_path / "huggingface" / model_id.replace("/", "--")
+
+            await asyncio.to_thread(
+                snapshot_download,
+                repo_id=model_id,
+                local_dir=str(local_dir),
+                local_dir_use_symlinks=False,
+            )
+        else:
+            raise NotImplementedError(f"Download source '{source}' not yet supported")
+
+        # Update model status in DB
+        async with self._session_factory() as session:
+            from app.infrastructure.database.repositories import ModelRepository
+
+            model_repo = ModelRepository(session)
+            from app.domain.enums import ModelStatus
+
+            await model_repo.update_status(model_id, ModelStatus.DOWNLOADED)
+            await session.commit()
+
+        await event_bus.publish(
+            JobProgress(
+                job_id=job_id,
+                status="running",
+                progress_percent=100,
+                message=f"Download complete: {model_id}",
+            )
+        )
+
+    async def _handle_model_load(self, job_id: UUID, params: dict) -> None:
+        """
+        Load model weights into GPU/CPU memory via the ModelManager.
+
+        Retrieves the model manager from the adapter registry's pipeline cache.
+        """
+        model_id = params["model_id"]
+        device = params.get("device", "cuda")
+
+        await event_bus.publish(
+            JobProgress(
+                job_id=job_id,
+                status="running",
+                progress_percent=0,
+                message=f"Loading model: {model_id}",
+            )
+        )
+
+        # Use DirectModelManager via the pipeline cache in the adapter registry
+        from app.adapters.direct.model_manager import DirectModelManager
+        from app.adapters.direct.pipeline_cache import PipelineCache
+
+        # Get the pipeline cache from any registered direct adapter
+        adapter = self._adapter_registry.get_provider(JobType.TEXT_TO_IMAGE, InferenceBackend.DIRECT_PYTHON)
+        if hasattr(adapter, "_cache"):
+            cache: PipelineCache = adapter._cache
+            model_manager = DirectModelManager(cache)
+            await model_manager.load_model(model_id, device=device)
+        else:
+            raise RuntimeError("No pipeline cache available for model loading")
+
+        await event_bus.publish(
+            JobProgress(
+                job_id=job_id,
+                status="running",
+                progress_percent=100,
+                message=f"Model loaded: {model_id}",
+            )
+        )

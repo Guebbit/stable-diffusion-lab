@@ -41,6 +41,16 @@ _async_session_factory = async_sessionmaker(
 )
 
 
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """
+    Return the session factory for use by background workers.
+
+    Workers create their own sessions per unit of work rather than
+    relying on FastAPI's dependency injection.
+    """
+    return _async_session_factory
+
+
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Yield an async database session for a single unit of work.

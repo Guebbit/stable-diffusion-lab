@@ -102,3 +102,10 @@ class ArtifactRepository:
         record = await self.get_by_id(artifact_id)
         if record:
             await self._session.delete(record)
+
+    async def delete_all(self) -> None:
+        """Delete all artifact records."""
+        from sqlalchemy import delete as sa_delete
+
+        stmt = sa_delete(ArtifactRecord)
+        await self._session.execute(stmt)
