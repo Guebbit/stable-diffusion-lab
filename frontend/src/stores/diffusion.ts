@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { diffusionApi } from '../api/diffusion'
 import { useNotificationStore } from './notifications'
 import { useJobProgress } from '../composables/useJobProgress'
@@ -53,11 +53,11 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   function connectJobProgress() {
     if (!_ws) {
       _ws = useJobProgress()
+      // Keep store refs in sync with composable's reactive state
+      watch(() => _ws!.isConnected.value, (val) => { wsConnected.value = val })
+      watch(() => _ws!.events.value, (val) => { jobProgress.value = val }, { deep: true })
     }
     _ws.connect()
-    // Sync reactive refs
-    wsConnected.value = _ws.isConnected.value
-    jobProgress.value = _ws.events.value
   }
 
   /**

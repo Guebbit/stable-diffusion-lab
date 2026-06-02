@@ -45,7 +45,7 @@ export function useJobProgress() {
    * Open the WebSocket connection and start listening for progress events.
    */
   function connect() {
-    if (ws && ws.readyState <= WebSocket.OPEN) return
+    if (ws && ws.readyState === WebSocket.OPEN) return
 
     ws = new WebSocket(buildWsUrl())
 
@@ -54,9 +54,13 @@ export function useJobProgress() {
     }
 
     ws.onmessage = (event: MessageEvent) => {
-      const data = JSON.parse(event.data) as JobProgressEvent
-      // Store latest progress per job_id so the UI can track multiple jobs
-      events.value = new Map(events.value).set(data.job_id, data)
+      try {
+        const data = JSON.parse(event.data) as JobProgressEvent
+        // Store latest progress per job_id so the UI can track multiple jobs
+        events.value = new Map(events.value).set(data.job_id, data)
+      } catch {
+        // Ignore malformed messages to avoid disrupting the connection
+      }
     }
 
     ws.onclose = () => {
