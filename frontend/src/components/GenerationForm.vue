@@ -608,7 +608,6 @@ onBeforeUnmount(() => {
             variant="tonal"
             size="small"
             prepend-icon="mdi-download"
-            :disabled="!isCurrentModelLoaded && !store.isLoadingModel"
             @click="loadSelectedModel"
         >
           Load Model

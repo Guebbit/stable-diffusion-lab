@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { diffusionApi } from '../api/diffusion'
 import { useNotificationStore } from './notifications'
+import { useJobProgress } from '../composables/useJobProgress'
+import type { JobProgressEvent } from '../composables/useJobProgress'
 import type {
   BackendStatus,
   GenerationRequest,
@@ -34,6 +36,37 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   const downloadProgress = ref<{ downloaded_bytes: number; total_bytes: number; percentage: number } | null>(null)
   /** Interval ID for the download progress polling (stored as number for cleanup). */
   const downloadProgressInterval = ref<number | null>(null)
+
+  // ─── WebSocket Job Progress ──
+
+  /** Real-time job progress via WebSocket (maps job_id → latest event). */
+  const jobProgress = ref<Map<string, JobProgressEvent>>(new Map())
+  /** Whether the WebSocket is connected. */
+  const wsConnected = ref(false)
+  /** WebSocket composable instance (lazy-initialized). */
+  let _ws: ReturnType<typeof useJobProgress> | null = null
+
+  /**
+   * Start the WebSocket connection for real-time job progress.
+   * Safe to call multiple times — only connects once.
+   */
+  function connectJobProgress() {
+    if (!_ws) {
+      _ws = useJobProgress()
+      // Keep store refs in sync with composable's reactive state
+      watch(() => _ws!.isConnected.value, (val) => { wsConnected.value = val })
+      watch(() => _ws!.events.value, (val) => { jobProgress.value = val }, { deep: true })
+    }
+    _ws.connect()
+  }
+
+  /**
+   * Disconnect WebSocket progress listener.
+   */
+  function disconnectJobProgress() {
+    _ws?.disconnect()
+    wsConnected.value = false
+  }
 
   /** Fetch backend status and silently reset status if the request fails. */
   function fetchStatus() {
@@ -219,6 +252,8 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     downloadingModelId,
     downloadingModelSource,
     downloadProgress,
+    jobProgress,
+    wsConnected,
     fetchStatus,
     loadModel,
     generate,
@@ -231,5 +266,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     startDownloadProgressPolling,
     stopDownloadProgressPolling,
     clearDownloadProgress,
+    connectJobProgress,
+    disconnectJobProgress,
   }
 })

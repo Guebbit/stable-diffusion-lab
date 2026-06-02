@@ -151,7 +151,3 @@ Full interactive docs at **http://localhost:8000/docs** (Swagger UI).
 
 See [`docs/`](./docs/) for:
 - [Architecture design](./docs/architecture/) — system design, module boundaries, naming rules
-- [Guides](./docs/guides/) — practical how-to guides
-- [Theory](./docs/theory/) — AI/ML concepts explained
-- [API docs](./docs/api/) — detailed endpoint documentation
-- [Troubleshooting](./docs/troubleshooting/) — common issues and solutions
