@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.common import PaginatedResponse
@@ -18,6 +18,7 @@ from app.api.schemas.jobs import (
     JobDetailResponse,
     JobEventResponse,
 )
+from app.api.schemas.system import JobTimelineResponse, TypedEventResponse
 from app.domain.errors import JobNotFoundError, InvalidStateTransitionError, RetryLimitExceededError
 from app.infrastructure.database.repositories import JobEventRepository, JobRepository
 from app.infrastructure.database.session import get_async_session
@@ -174,3 +175,20 @@ async def get_job_events(
         )
         for e in events
     ]
+
+
+@router.get("/{job_id}/timeline", response_model=JobTimelineResponse)
+async def get_job_timeline(
+    job_id: UUID,
+    request: Request,
+    limit: int = Query(500, ge=1, le=2000),
+) -> JobTimelineResponse:
+    """Get typed observability timeline for a specific job."""
+    observability = getattr(request.app.state, "observability", None)
+    if observability is None:
+        raise HTTPException(status_code=503, detail="Observability service not initialized")
+    events = observability.get_job_timeline(str(job_id), limit=limit)
+    return JobTimelineResponse(
+        job_id=str(job_id),
+        events=[TypedEventResponse.model_validate(event) for event in events],
+    )

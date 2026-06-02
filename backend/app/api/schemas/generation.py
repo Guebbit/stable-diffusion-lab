@@ -80,6 +80,7 @@ class JobResponse(BaseModel):
     job_id: UUID
     status: str = "pending"
     message: str = "Job submitted"
+    correlation_id: str | None = None
 
 
 class JobStatusResponse(BaseModel):
