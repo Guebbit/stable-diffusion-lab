@@ -19,6 +19,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
+from app.domain.observability import ObservabilityEvent
+from app.orchestrator.observability_bus import observability_bus
+
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +111,29 @@ class PipelineCache:
             entry = self._cache[model_id]
             entry.last_used = datetime.now(timezone.utc)
             logger.debug("Cache hit: %s", model_id)
+            observability_bus.metrics.inc("cache.hits")
+            observability_bus.publish_sync(
+                ObservabilityEvent(
+                    event_type="pipeline.acquire.cache_hit",
+                    component="pipeline_cache",
+                    message=f"Cache hit for model {model_id}",
+                    correlation_id=model_id,
+                    payload={"model_id": model_id, "cache_size": len(self._cache)},
+                )
+            )
             return entry.pipeline
 
         # Slow path: need to load — acquire lock to serialize
+        observability_bus.metrics.inc("cache.misses")
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="pipeline.acquire.cache_miss",
+                component="pipeline_cache",
+                message=f"Cache miss for model {model_id}",
+                correlation_id=model_id,
+                payload={"model_id": model_id},
+            )
+        )
         async with self._lock:
             # Double-check after acquiring lock (another coroutine may have loaded it)
             if model_id in self._cache:
@@ -122,7 +145,31 @@ class PipelineCache:
 
             # Load the pipeline
             logger.info("Cache miss — loading: %s", model_id)
-            pipeline, vram_mb = await loader()
+            observability_bus.publish_sync(
+                ObservabilityEvent(
+                    event_type="model.load.started",
+                    component="pipeline_cache",
+                    message=f"Loading model {model_id}",
+                    correlation_id=model_id,
+                    payload={"model_id": model_id, "category": category},
+                )
+            )
+            try:
+                with observability_bus.timed("model.load_duration_seconds"):
+                    pipeline, vram_mb = await loader()
+            except Exception as exc:
+                observability_bus.metrics.inc("model.load_failures")
+                observability_bus.publish_sync(
+                    ObservabilityEvent(
+                        event_type="model.load.failed",
+                        component="pipeline_cache",
+                        level="error",
+                        message=f"Failed loading model {model_id}: {exc}",
+                        correlation_id=model_id,
+                        payload={"model_id": model_id, "error": str(exc)},
+                    )
+                )
+                raise
 
             # Store in cache
             self._cache[model_id] = LoadedPipeline(
@@ -139,6 +186,16 @@ class PipelineCache:
                 vram_mb,
                 len(self._cache),
                 self._max_cached,
+            )
+            observability_bus.metrics.set_gauge("models.cached", float(len(self._cache)))
+            observability_bus.publish_sync(
+                ObservabilityEvent(
+                    event_type="model.load.completed",
+                    component="pipeline_cache",
+                    message=f"Loaded model {model_id}",
+                    correlation_id=model_id,
+                    payload={"model_id": model_id, "vram_mb": vram_mb, "cache_size": len(self._cache)},
+                )
             )
 
             return pipeline
@@ -219,3 +276,17 @@ class PipelineCache:
             model_id,
             entry.estimated_vram_mb,
         )
+        observability_bus.metrics.set_gauge("models.cached", float(len(self._cache)))
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="model.unload.completed",
+                component="pipeline_cache",
+                message=f"Evicted model {model_id}",
+                correlation_id=model_id,
+                payload={"model_id": model_id, "freed_vram_mb": entry.estimated_vram_mb},
+            )
+        )
+
+    @property
+    def max_cached(self) -> int:
+        return self._max_cached

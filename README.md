@@ -119,7 +119,10 @@ All endpoints are prefixed with `/api/v1`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/system/status` | Health, device info, loaded models |
+| `GET` | `/system/status` | Full runtime/GPU/model/job snapshot with health warnings |
+| `GET` | `/system/events` | Recent structured observability events |
+| `GET` | `/system/jobs/{job_id}/timeline` | Per-job observability timeline |
+| `GET` | `/system/metrics` | In-memory counters/gauges/histograms snapshot |
 | `GET` | `/models/` | List registered models |
 | `POST` | `/models/` | Register a new model |
 | `POST` | `/models/{model_id}/download` | Trigger model download |
@@ -127,6 +130,7 @@ All endpoints are prefixed with `/api/v1`.
 | `POST` | `/generation/text-to-image` | Submit text-to-image job (202) |
 | `GET` | `/generation/jobs/{job_id}` | Get job status and progress |
 | `WS` | `/ws/progress` | Real-time job progress updates |
+| `WS` | `/ws/observability` | Real-time structured observability event stream |
 
 Full interactive docs at **http://localhost:8000/docs** (Swagger UI).
 

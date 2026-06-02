@@ -16,8 +16,10 @@ from app.domain.errors import (
     JobNotFoundError,
     RetryLimitExceededError,
 )
+from app.domain.observability import ObservabilityEvent
 from app.infrastructure.database.models import JobEventRecord, JobRecord
 from app.infrastructure.database.repositories import JobEventRepository, JobRepository
+from app.orchestrator.observability_bus import observability_bus
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,16 @@ class JobService:
                 to_status=JobStatus.CANCELLED,
                 message="Cancelled before worker pickup",
             )
+            observability_bus.metrics.inc("jobs.cancelled")
+            observability_bus.publish_sync(
+                ObservabilityEvent(
+                    event_type="job.cancelled",
+                    component="job_service",
+                    message="Cancelled pending job",
+                    job_id=str(job_id),
+                    correlation_id=str(job_id),
+                )
+            )
             logger.info("Cancelled pending job: %s", job_id)
             return JobStatus.CANCELLED
 
@@ -99,6 +111,15 @@ class JobService:
             from_status=job.status,
             to_status=job.status,  # Status hasn't changed yet
             message="Cancellation requested, awaiting worker acknowledgment",
+        )
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="job.cancel_requested",
+                component="job_service",
+                message="Cancellation requested for running job",
+                job_id=str(job_id),
+                correlation_id=str(job_id),
+            )
         )
         logger.info("Cancellation requested for running job: %s", job_id)
         return job.status
@@ -134,6 +155,16 @@ class JobService:
             to_status=JobStatus.PENDING,
             message=f"Retry attempt {job.attempt + 1}/{job.max_attempts}",
             metadata={"attempt": job.attempt + 1, "reason": "manual_retry"},
+        )
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="job.retried",
+                component="job_service",
+                message="Job moved back to pending for retry",
+                job_id=str(job_id),
+                correlation_id=str(job_id),
+                payload={"attempt": job.attempt + 1},
+            )
         )
         logger.info("Retrying job %s (attempt %d)", job_id, job.attempt + 1)
 

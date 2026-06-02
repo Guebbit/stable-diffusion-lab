@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import traceback
 from pathlib import Path
 from uuid import UUID
@@ -23,11 +24,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.adapter_registry import AdapterRegistry
 from app.adapters.resource_coordinator import ResourceCoordinator
-from app.domain.enums import InferenceBackend, JobType
+from app.domain.enums import InferenceBackend, JobStatus, JobType
+from app.domain.observability import ObservabilityEvent
 from app.domain.value_objects import GenerationParams, JobProgress
 from app.infrastructure.config.settings import get_settings
-from app.infrastructure.database.repositories import JobRepository
+from app.infrastructure.database.repositories import JobEventRepository, JobRepository
 from app.orchestrator.event_bus import event_bus
+from app.orchestrator.observability_bus import observability_bus
 
 
 logger = logging.getLogger(__name__)
@@ -105,14 +108,32 @@ class JobWorker:
     async def _execute_job(self, job_id: UUID, job_type: str, params: dict) -> None:
         """Execute a single job with resource locking and error handling."""
         job_id_str = str(job_id)
+        start_monotonic = time.perf_counter()
 
         # Check for early cancellation
         if job_id in self._cancelled_jobs:
             self._cancelled_jobs.discard(job_id)
             async with self._session_factory() as session:
                 job_repo = JobRepository(session)
+                event_repo = JobEventRepository(session)
                 await job_repo.mark_cancelled(job_id)
+                await event_repo.record_transition(
+                    job_id=job_id,
+                    from_status=JobStatus.PENDING,
+                    to_status=JobStatus.CANCELLED,
+                    message="Cancelled before execution",
+                )
                 await session.commit()
+            observability_bus.metrics.inc("jobs.cancelled")
+            await observability_bus.publish(
+                ObservabilityEvent(
+                    event_type="job.cancelled",
+                    component="worker",
+                    message="Job cancelled before execution",
+                    job_id=job_id_str,
+                    correlation_id=job_id_str,
+                )
+            )
             return
 
         # Determine if this job needs GPU before entering try block
@@ -125,17 +146,50 @@ class JobWorker:
         }
 
         try:
+            async with self._session_factory() as session:
+                job_repo = JobRepository(session)
+                event_repo = JobEventRepository(session)
+                job = await job_repo.get_by_id(job_id)
+                if job and job.created_at and job.started_at:
+                    wait_seconds = (job.started_at - job.created_at).total_seconds()
+                    observability_bus.metrics.observe("queue.wait_time_seconds", wait_seconds)
+                await event_repo.record_transition(
+                    job_id=job_id,
+                    from_status=JobStatus.PENDING,
+                    to_status=JobStatus.RUNNING,
+                    message="Worker claimed job",
+                )
+                await session.commit()
+            await observability_bus.publish(
+                ObservabilityEvent(
+                    event_type="job.started",
+                    component="worker",
+                    message=f"Started job {job_id}",
+                    job_id=job_id_str,
+                    correlation_id=job_id_str,
+                    payload={"job_type": job_type},
+                )
+            )
             if needs_gpu:
                 await self._resource_coordinator.acquire(job_id_str)
 
             # Dispatch to appropriate handler via adapter registry
-            await self._dispatch(job_id, job_type, params)
+            with observability_bus.timed("job.execution_time_seconds"):
+                await self._dispatch(job_id, job_type, params)
 
             # Mark completed
             async with self._session_factory() as session:
                 job_repo = JobRepository(session)
+                event_repo = JobEventRepository(session)
                 await job_repo.mark_completed(job_id)
+                await event_repo.record_transition(
+                    job_id=job_id,
+                    from_status=JobStatus.RUNNING,
+                    to_status=JobStatus.COMPLETED,
+                    message="Job completed successfully",
+                )
                 await session.commit()
+            observability_bus.metrics.inc("jobs.completed")
             await event_bus.publish(
                 JobProgress(
                     job_id=job_id,
@@ -144,13 +198,32 @@ class JobWorker:
                     message="Job completed successfully",
                 )
             )
+            await observability_bus.publish(
+                ObservabilityEvent(
+                    event_type="job.completed",
+                    component="worker",
+                    message="Job completed",
+                    job_id=job_id_str,
+                    correlation_id=job_id_str,
+                    payload={"job_type": job_type},
+                )
+            )
 
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
             async with self._session_factory() as session:
                 job_repo = JobRepository(session)
+                event_repo = JobEventRepository(session)
                 await job_repo.mark_failed(job_id, error_msg)
+                await event_repo.record_transition(
+                    job_id=job_id,
+                    from_status=JobStatus.RUNNING,
+                    to_status=JobStatus.FAILED,
+                    message=str(exc),
+                    metadata={"error_type": type(exc).__name__},
+                )
                 await session.commit()
+            observability_bus.metrics.inc("jobs.failed")
             await event_bus.publish(
                 JobProgress(
                     job_id=job_id,
@@ -158,11 +231,41 @@ class JobWorker:
                     message=str(exc),
                 )
             )
+            event_type = "job.failed"
+            if "out of memory" in str(exc).lower():
+                observability_bus.metrics.inc("gpu.oom_errors")
+                event_type = "gpu.oom"
+            if job_type in {JobType.TEXT_TO_IMAGE, JobType.IMAGE_TO_IMAGE, JobType.VIDEO_GENERATION}:
+                await observability_bus.publish(
+                    ObservabilityEvent(
+                        event_type="artifact.save.failed",
+                        component="worker",
+                        level="error",
+                        message=f"Artifact generation failed: {exc}",
+                        job_id=job_id_str,
+                        correlation_id=job_id_str,
+                    )
+                )
+            await observability_bus.publish(
+                ObservabilityEvent(
+                    event_type=event_type,
+                    component="worker",
+                    level="error",
+                    message=f"Job failed: {exc}",
+                    job_id=job_id_str,
+                    correlation_id=job_id_str,
+                    payload={"job_type": job_type},
+                )
+            )
             logger.exception("Job %s failed", job_id)
 
         finally:
             if needs_gpu:
                 self._resource_coordinator.release(job_id_str)
+            observability_bus.metrics.observe(
+                "job.total_time_seconds",
+                time.perf_counter() - start_monotonic,
+            )
 
     async def _dispatch(self, job_id: UUID, job_type: str, params: dict) -> None:
         """
@@ -189,11 +292,35 @@ class JobWorker:
                 message=progress.message,
             )
             asyncio.get_event_loop().create_task(event_bus.publish(real_progress))
+            observability_bus.publish_sync(
+                ObservabilityEvent(
+                    event_type="job.progress",
+                    component="worker",
+                    message=progress.message or "Job progress",
+                    job_id=str(job_id),
+                    correlation_id=str(job_id),
+                    payload={
+                        "status": progress.status,
+                        "progress_percent": progress.progress_percent,
+                        "current_step": progress.current_step,
+                        "total_steps": progress.total_steps,
+                    },
+                )
+            )
 
         # Get output directory for artifacts
         output_dir = settings.artifacts_path / str(job_id)
 
         if job_type == JobType.TEXT_TO_IMAGE:
+            await observability_bus.publish(
+                ObservabilityEvent(
+                    event_type="artifact.save.started",
+                    component="worker",
+                    message="Text-to-image artifact creation started",
+                    job_id=str(job_id),
+                    correlation_id=str(job_id),
+                )
+            )
             adapter = self._adapter_registry.get_provider(JobType.TEXT_TO_IMAGE, backend)
             gen_params = GenerationParams(
                 prompt=params["prompt"],
@@ -205,11 +332,30 @@ class JobWorker:
                 seed=params.get("seed"),
                 num_images=params.get("num_images", 1),
             )
-            await adapter.generate(
+            with observability_bus.timed("artifact.save_duration_seconds"):
+                await adapter.generate(
                 gen_params, params["model_id"], output_dir, on_progress=on_progress
+                )
+            await observability_bus.publish(
+                ObservabilityEvent(
+                event_type="artifact.save.completed",
+                component="worker",
+                message="Text-to-image artifacts generated",
+                job_id=str(job_id),
+                correlation_id=str(job_id),
+                )
             )
 
         elif job_type == JobType.IMAGE_TO_IMAGE:
+            await observability_bus.publish(
+                ObservabilityEvent(
+                event_type="artifact.save.started",
+                component="worker",
+                message="Image-to-image artifact creation started",
+                job_id=str(job_id),
+                correlation_id=str(job_id),
+                )
+            )
             adapter = self._adapter_registry.get_provider(JobType.IMAGE_TO_IMAGE, backend)
             gen_params = GenerationParams(
                 prompt=params["prompt"],
@@ -221,13 +367,23 @@ class JobWorker:
                 seed=params.get("seed"),
                 num_images=params.get("num_images", 1),
             )
-            await adapter.generate(
-                gen_params,
-                params["model_id"],
-                Path(params["source_image_path"]),
-                output_dir,
-                strength=params.get("strength", 0.75),
-                on_progress=on_progress,
+            with observability_bus.timed("artifact.save_duration_seconds"):
+                await adapter.generate(
+                    gen_params,
+                    params["model_id"],
+                    Path(params["source_image_path"]),
+                    output_dir,
+                    strength=params.get("strength", 0.75),
+                    on_progress=on_progress,
+                )
+            await observability_bus.publish(
+                ObservabilityEvent(
+                    event_type="artifact.save.completed",
+                    component="worker",
+                    message="Image-to-image artifacts generated",
+                    job_id=str(job_id),
+                    correlation_id=str(job_id),
+                )
             )
 
         elif job_type == JobType.IMAGE_CAPTIONING:
@@ -239,6 +395,15 @@ class JobWorker:
             )
 
         elif job_type == JobType.VIDEO_GENERATION:
+            await observability_bus.publish(
+                ObservabilityEvent(
+                    event_type="artifact.save.started",
+                    component="worker",
+                    message="Video artifact creation started",
+                    job_id=str(job_id),
+                    correlation_id=str(job_id),
+                )
+            )
             adapter = self._adapter_registry.get_provider(JobType.VIDEO_GENERATION, backend)
             gen_params = GenerationParams(
                 prompt=params.get("prompt", ""),
@@ -252,12 +417,22 @@ class JobWorker:
             source_path = (
                 Path(params["source_image_path"]) if params.get("source_image_path") else None
             )
-            await adapter.generate(
-                gen_params,
-                params["model_id"],
-                output_dir,
-                source_image_path=source_path,
-                on_progress=on_progress,
+            with observability_bus.timed("artifact.save_duration_seconds"):
+                await adapter.generate(
+                    gen_params,
+                    params["model_id"],
+                    output_dir,
+                    source_image_path=source_path,
+                    on_progress=on_progress,
+                )
+            await observability_bus.publish(
+                ObservabilityEvent(
+                    event_type="artifact.save.completed",
+                    component="worker",
+                    message="Video artifacts generated",
+                    job_id=str(job_id),
+                    correlation_id=str(job_id),
+                )
             )
 
         elif job_type == JobType.LLM_INFERENCE:
