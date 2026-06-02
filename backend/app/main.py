@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +35,7 @@ from app.api.websocket.hub import ws_hub
 from app.domain.enums import InferenceBackend, JobType
 from app.infrastructure.config.settings import get_settings
 from app.orchestrator.event_bus import event_bus
+from app.orchestrator.observability_bus import observability_bus
 from app.orchestrator.worker import JobWorker
 
 
@@ -169,6 +171,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # --- Connect event bus to WebSocket hub ---
     event_bus.subscribe(ws_hub.broadcast)
+    observability_bus.subscribe(ws_hub.broadcast_observability)
 
     # --- Start job worker ---
     from app.infrastructure.database.session import get_session_factory
@@ -186,6 +189,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.adapter_registry = adapter_registry
     app.state.model_manager = model_manager
     app.state.worker = worker
+    app.state.started_at = datetime.now(timezone.utc)
 
     yield
 
@@ -193,6 +197,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await worker.stop()
     await pipeline_cache.evict_all()
     event_bus.unsubscribe(ws_hub.broadcast)
+    observability_bus.unsubscribe(ws_hub.broadcast_observability)
     logger.info("Application shutdown complete")
 
 
@@ -239,6 +244,16 @@ def create_app() -> FastAPI:
         await ws_hub.connect(websocket)
         try:
             # Keep connection alive — client sends pings, we just listen
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            ws_hub.disconnect(websocket)
+
+    @app.websocket("/ws/observability")
+    async def websocket_observability(websocket: WebSocket) -> None:
+        """WebSocket endpoint for observability event stream."""
+        await ws_hub.connect(websocket)
+        try:
             while True:
                 await websocket.receive_text()
         except WebSocketDisconnect:

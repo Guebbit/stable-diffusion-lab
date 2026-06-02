@@ -31,7 +31,12 @@ from app.api.schemas.models import (
     ModelRegistryResponse,
     ModelRegisterRequest,
 )
-from app.api.schemas.system import SystemStatusResponse
+from app.api.schemas.system import (
+    MetricPointResponse,
+    MetricsSnapshotResponse,
+    SystemEventResponse,
+    SystemStatusResponse,
+)
 
 __all__ = [
     "ArtifactListQuery",
@@ -50,6 +55,9 @@ __all__ = [
     "ModelRegistryResponse",
     "ModelRegisterRequest",
     "PaginatedResponse",
+    "MetricPointResponse",
+    "MetricsSnapshotResponse",
+    "SystemEventResponse",
     "SystemStatusResponse",
     "TextToImageRequest",
     "VideoCaptioningRequest",

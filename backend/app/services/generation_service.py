@@ -14,9 +14,11 @@ import logging
 from uuid import UUID
 
 from app.domain.enums import JobStatus, JobType
+from app.domain.observability import ObservabilityEvent
 from app.domain.value_objects import GenerationParams
 from app.infrastructure.database.models import JobRecord
 from app.infrastructure.database.repositories import JobRepository
+from app.orchestrator.observability_bus import observability_bus
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,17 @@ class GenerationService:
             },
         )
         job = await self._job_repo.create(job)
+        observability_bus.metrics.inc("jobs.submitted")
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="job.enqueued",
+                component="generation_service",
+                message="Text-to-image job queued",
+                job_id=str(job.id),
+                correlation_id=str(job.id),
+                payload={"job_type": JobType.TEXT_TO_IMAGE, "model_id": model_id},
+            )
+        )
         logger.info("Created text-to-image job: %s", job.id)
         return job.id
 
@@ -85,6 +98,17 @@ class GenerationService:
             },
         )
         job = await self._job_repo.create(job)
+        observability_bus.metrics.inc("jobs.submitted")
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="job.enqueued",
+                component="generation_service",
+                message="Image-to-image job queued",
+                job_id=str(job.id),
+                correlation_id=str(job.id),
+                payload={"job_type": JobType.IMAGE_TO_IMAGE, "model_id": model_id},
+            )
+        )
         logger.info("Created image-to-image job: %s", job.id)
         return job.id
 

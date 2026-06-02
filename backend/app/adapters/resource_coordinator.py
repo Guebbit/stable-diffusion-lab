@@ -18,6 +18,9 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from app.domain.observability import ObservabilityEvent
+from app.orchestrator.observability_bus import observability_bus
+
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,7 @@ class ResourceCoordinator:
         self._estimated_vram_used_mb: int = 0
         self._total_jobs_processed: int = 0
         self._last_activity: datetime | None = None
+        self._acquired_at: datetime | None = None
 
     async def acquire(self, job_id: str, estimated_vram_mb: int = 0) -> None:
         """
@@ -83,10 +87,32 @@ class ResourceCoordinator:
             estimated_vram_mb: Expected VRAM usage (for tracking, not gating yet).
         """
         logger.debug("Job %s waiting for GPU lock (est. %d MB)", job_id, estimated_vram_mb)
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="resource.lock.waiting",
+                component="resource_coordinator",
+                message=f"Job {job_id} waiting for GPU lock",
+                job_id=job_id,
+                correlation_id=job_id,
+                payload={"estimated_vram_mb": estimated_vram_mb},
+            )
+        )
         await self._semaphore.acquire()
         self._current_holder = job_id
         self._estimated_vram_used_mb = estimated_vram_mb
         self._last_activity = datetime.now(timezone.utc)
+        self._acquired_at = self._last_activity
+        observability_bus.metrics.set_gauge("gpu.lock_held", 1.0)
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="resource.lock.acquired",
+                component="resource_coordinator",
+                message=f"Job {job_id} acquired GPU lock",
+                job_id=job_id,
+                correlation_id=job_id,
+                payload={"estimated_vram_mb": estimated_vram_mb},
+            )
+        )
         logger.info("Job %s acquired GPU lock (est. %d MB VRAM)", job_id, estimated_vram_mb)
 
     def release(self, job_id: str) -> None:
@@ -96,6 +122,26 @@ class ResourceCoordinator:
         self._estimated_vram_used_mb = 0
         self._total_jobs_processed += 1
         self._last_activity = datetime.now(timezone.utc)
+        # Guard against unexpected release-without-acquire edge cases.
+        if self._acquired_at is None:
+            logger.warning("Release called without a recorded acquire for job %s", job_id)
+        held_seconds = (
+            (self._last_activity - self._acquired_at).total_seconds() if self._acquired_at else 0.0
+        )
+        if held_seconds > 0:
+            observability_bus.metrics.observe("resource.lock_held_seconds", held_seconds)
+        observability_bus.metrics.set_gauge("gpu.lock_held", 0.0)
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="resource.lock.released",
+                component="resource_coordinator",
+                message=f"Job {job_id} released GPU lock",
+                job_id=job_id,
+                correlation_id=job_id,
+                payload={"held_seconds": held_seconds},
+            )
+        )
+        self._acquired_at = None
         logger.info("Job %s released GPU lock", job_id)
 
     @property

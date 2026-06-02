@@ -16,6 +16,8 @@ import logging
 from typing import Any
 
 from app.adapters.direct.pipeline_cache import PipelineCache
+from app.domain.observability import ObservabilityEvent
+from app.orchestrator.observability_bus import observability_bus
 
 
 logger = logging.getLogger(__name__)
@@ -51,12 +53,31 @@ class DirectModelManager:
             logger.debug("Model already loaded: %s", model_id)
             return
 
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="model.load.requested",
+                component="model_manager",
+                message=f"Model load requested: {model_id}",
+                correlation_id=model_id,
+                payload={"model_id": model_id, "device": device},
+            )
+        )
+
         # Build a generic loader — we don't know the model type here,
         # so we use DiffusionPipeline.from_pretrained which auto-detects
         async def _loader() -> tuple[Any, int]:
             return await asyncio.to_thread(self._load_sync, model_id, device)
 
         await self._cache.get_or_load(model_id, _loader, category="generic")
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="model.load.completed",
+                component="model_manager",
+                message=f"Model loaded: {model_id}",
+                correlation_id=model_id,
+                payload={"model_id": model_id},
+            )
+        )
 
     async def unload_model(self, model_id: str) -> None:
         """
@@ -64,6 +85,15 @@ class DirectModelManager:
 
         Frees VRAM immediately. The model can be re-loaded later.
         """
+        observability_bus.publish_sync(
+            ObservabilityEvent(
+                event_type="model.unload.requested",
+                component="model_manager",
+                message=f"Model unload requested: {model_id}",
+                correlation_id=model_id,
+                payload={"model_id": model_id},
+            )
+        )
         await self._cache.evict(model_id)
         logger.info("Model unloaded: %s", model_id)
 
