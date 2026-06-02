@@ -29,7 +29,7 @@ from app.adapters.direct import (
     PipelineCache,
 )
 from app.adapters.resource_coordinator import ResourceCoordinator
-from app.api.routers import artifacts, generation, jobs, models, system
+from app.api.routers import artifacts, generation, jobs, legacy, models, system
 from app.api.websocket.hub import ws_hub
 from app.domain.enums import InferenceBackend, JobType
 from app.infrastructure.config.settings import get_settings
@@ -171,11 +171,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(ws_hub.broadcast)
 
     # --- Start job worker ---
-    from app.infrastructure.database.repositories import JobRepository
+    from app.infrastructure.database.session import get_session_factory
 
-    job_repository = JobRepository()
     worker = JobWorker(
-        job_repository=job_repository,
+        session_factory=get_session_factory(),
         resource_coordinator=resource_coordinator,
         adapter_registry=adapter_registry,
     )
@@ -229,6 +228,9 @@ def create_app() -> FastAPI:
     app.include_router(models.router, prefix=api_prefix)
     app.include_router(artifacts.router, prefix=api_prefix)
     app.include_router(system.router, prefix=api_prefix)
+
+    # --- Legacy compatibility routes (match frontend /api/{path} calls) ---
+    app.include_router(legacy.router, prefix="/api")
 
     # --- WebSocket endpoint ---
     @app.websocket("/ws/progress")
