@@ -149,7 +149,7 @@ async def download_model(
     return JobResponse(job_id=job_id, status="pending", message="Download queued")
 
 
-@router.delete("/{model_id}", status_code=204)
+@router.delete("/{model_id}", status_code=204, response_model=None)
 async def delete_model(
     model_id: str,
     service: ModelService = Depends(_get_model_service),

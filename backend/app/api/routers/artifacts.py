@@ -79,7 +79,7 @@ async def update_artifact(
     return _to_response(artifact)
 
 
-@router.delete("/{artifact_id}", status_code=204)
+@router.delete("/{artifact_id}", status_code=204, response_model=None)
 async def delete_artifact(
     artifact_id: UUID,
     service: ArtifactService = Depends(_get_artifact_service),

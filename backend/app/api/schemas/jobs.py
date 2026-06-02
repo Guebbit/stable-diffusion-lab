@@ -11,11 +11,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class JobListQuery(BaseModel):
     """Query parameters for listing jobs."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     status: str | None = Field(
         None, description="Filter: pending, running, completed, failed, cancelled"

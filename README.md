@@ -65,7 +65,7 @@ cd stable-diffusion-lab
 
 # (Optional) provide API keys for gated models
 cp .env-example .env
-# Edit .env with your HF_TOKEN and CIVITAI_TOKEN
+# Edit .env with your HUGGINGFACE_TOKEN and CIVITAI_TOKEN
 
 docker compose up --build
 ```
@@ -138,7 +138,7 @@ Full interactive docs at **http://localhost:8000/docs** (Swagger UI).
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection string |
 | `STORAGE_ROOT` | `/app/storage` | Root directory for models, artifacts, temp files |
-| `HF_TOKEN` | *(empty)* | HuggingFace token for gated models |
+| `HUGGINGFACE_TOKEN` | *(empty)* | HuggingFace token for gated models |
 | `CIVITAI_TOKEN` | *(empty)* | CivitAI API token for downloads |
 | `INFERENCE_DEVICE` | `auto` | Force device: `cuda`, `cpu`, `mps`, or `auto` |
 | `INFERENCE_BACKEND` | `direct_python` | Default backend: `direct_python`, `bentoml`, `comfyui` |

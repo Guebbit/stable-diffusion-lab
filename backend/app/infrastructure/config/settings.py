@@ -15,6 +15,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,7 +45,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # --- Database (PostgreSQL) ---
-    database_url: str = "******localhost:5432/ailab"
+    database_url: str = "postgresql+asyncpg://ailab:ailab_local@localhost:5432/ailab"
 
     # --- Filesystem paths ---
     # Base directory for all local storage (models, artifacts, temp files)
@@ -59,7 +60,7 @@ class Settings(BaseSettings):
     logs_dir: str = "logs"
 
     # --- External API tokens (optional, for model downloads) ---
-    hf_token: str = ""
+    hf_token: str = Field("", alias="HUGGINGFACE_TOKEN")
     civitai_token: str = ""
 
     # --- Inference ---

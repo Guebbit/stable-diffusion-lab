@@ -35,5 +35,5 @@ ENV STORAGE_ROOT=/app/storage
 
 EXPOSE 8000
 
-# Entry point uses the new app package structure
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# Run alembic migrations then start the application
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000"]

@@ -12,11 +12,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TextToImageRequest(BaseModel):
     """Request body for text-to-image generation."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     prompt: str = Field(..., min_length=1, description="The text prompt to generate from")
     negative_prompt: str = Field("", description="What to avoid in the generated image")
@@ -32,6 +34,8 @@ class TextToImageRequest(BaseModel):
 class ImageToImageRequest(BaseModel):
     """Request body for image-to-image generation."""
 
+    model_config = ConfigDict(protected_namespaces=())
+
     prompt: str = Field(..., min_length=1, description="The text prompt guiding transformation")
     negative_prompt: str = Field("", description="What to avoid in the generated image")
     model_id: str = Field(..., description="ID of the model to use")
@@ -44,6 +48,8 @@ class ImageToImageRequest(BaseModel):
 
 class VideoGenerationRequest(BaseModel):
     """Request body for video generation."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     prompt: str = Field(..., min_length=1, description="Text prompt for video content")
     negative_prompt: str = Field("", description="What to avoid in the generated video")
@@ -59,12 +65,16 @@ class VideoGenerationRequest(BaseModel):
 class VideoCaptioningRequest(BaseModel):
     """Request body for image/video captioning (vision tasks)."""
 
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str = Field(..., description="ID of the vision model to use")
     prompt: str = Field("", description="Optional prompt to guide captioning")
 
 
 class LLMChatRequest(BaseModel):
     """Request body for local LLM inference."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     model_id: str = Field(..., description="ID of the LLM model to use")
     messages: list[dict[str, str]] = Field(

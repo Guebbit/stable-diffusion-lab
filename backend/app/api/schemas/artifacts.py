@@ -11,11 +11,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ArtifactListQuery(BaseModel):
     """Query parameters for listing artifacts."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     model_name: str | None = Field(None, description="Filter by model name")
     media_type: str | None = Field(None, description="Filter by media type (image/png, video/mp4)")
@@ -26,6 +28,8 @@ class ArtifactListQuery(BaseModel):
 
 class ArtifactResponse(BaseModel):
     """Full artifact information as returned by the API."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     id: UUID
     job_id: UUID
@@ -51,6 +55,8 @@ class ArtifactResponse(BaseModel):
 
 class ArtifactUpdateRequest(BaseModel):
     """Partial update for artifact gallery metadata."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     is_favorite: bool | None = Field(None, description="Mark/unmark as favorite")
     rating: int | None = Field(None, ge=0, le=5, description="Rating from 0-5 stars")

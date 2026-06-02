@@ -10,11 +10,13 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ModelRegisterRequest(BaseModel):
     """Request to register a new model in the catalog."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     model_id: str = Field(
         ..., min_length=1, description="Unique model identifier (e.g., HF repo ID)"
@@ -35,12 +37,16 @@ class ModelRegisterRequest(BaseModel):
 class ModelDownloadRequest(BaseModel):
     """Request to start downloading a registered model."""
 
+    model_config = ConfigDict(protected_namespaces=())
+
     force: bool = Field(False, description="Re-download even if already present")
     variant: str = Field("", description="Specific variant to download (e.g., fp16)")
 
 
 class ModelRegistryResponse(BaseModel):
     """Full model information as returned by the API."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     id: UUID
     model_id: str
