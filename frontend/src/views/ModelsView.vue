@@ -18,7 +18,7 @@ onMounted(() => {
 // ─── Filters ──────────────────────────────────────────────────────────────
 
 const activeSource = ref<'all' | 'huggingface' | 'civitai'>('all')
-const activeFamily = ref<'all' | 'sd15' | 'sdxl'>('all')
+const activeFamily = ref<'all' | 'sd15' | 'sdxl' | 'flux' | 'custom'>('all')
 const activeDownloaded = ref<'all' | 'downloaded' | 'not-downloaded'>('all')
 
 const filteredModels = computed(() =>
@@ -85,22 +85,28 @@ function handleRemove(modelId: string) {
 
 // ─── UI helpers ───────────────────────────────────────────────────────────
 
-function familyColor(family?: string) {
-  if (family === 'sdxl') return 'purple'
-  if (family === 'sd15') return 'blue'
-  return 'grey'
+function familyColor(family: string): string {
+  const colors: Record<string, string> = {
+    sd15: 'blue',
+    sdxl: 'purple',
+    flux: 'orange',
+    custom: 'grey',
+  }
+  return colors[family] || 'grey'
 }
 
-function familyLabel(family?: string) {
-  if (family === 'sdxl') return 'SDXL'
-  if (family === 'sd15') return 'SD 1.x'
-  return 'Unknown'
+function familyLabel(family: string): string {
+  const labels: Record<string, string> = {
+    sd15: 'SD 1.x',
+    sdxl: 'SDXL',
+    flux: 'Flux',
+    custom: 'Custom',
+  }
+  return labels[family] || family
 }
 
-// ─── Download Progress ───────────────────────────────────────────────────
-
-function downloadPercentageFor(model: typeof modelsStore.registry[0]): number {
-  return model.download_progress || 0
+function downloadPercentageFor(model: Record<string, unknown>): number {
+  return (model.download_progress as number) || 0
 }
 
 const progressColor = 'blue'
@@ -150,20 +156,21 @@ const progressColor = 'blue'
         </v-btn-toggle>
       </v-col>
 
-      <!-- Family filter -->
-      <v-col cols="12" sm="auto">
-        <v-btn-toggle
-          v-model="activeFamily"
-          mandatory
-          variant="outlined"
-          density="compact"
-          divided
-        >
-          <v-btn value="all">All families</v-btn>
-          <v-btn value="sd15">SD 1.x</v-btn>
-          <v-btn value="sdxl">SDXL</v-btn>
-        </v-btn-toggle>
-      </v-col>
+       <!-- Family filter -->
+       <v-col cols="12" sm="auto">
+         <v-btn-toggle
+           v-model="activeFamily"
+           mandatory
+           variant="outlined"
+           density="compact"
+           divided
+         >
+           <v-btn value="all">All families</v-btn>
+           <v-btn value="sd15">SD 1.x</v-btn>
+           <v-btn value="sdxl">SDXL</v-btn>
+           <v-btn value="flux">Flux</v-btn>
+         </v-btn-toggle>
+       </v-col>
 
       <!-- Download status filter -->
       <v-col cols="12" sm="auto">
@@ -416,8 +423,10 @@ const progressColor = 'blue'
               <v-select
                 v-model="addForm.family"
                 :items="[
-                  { title: 'SD 1.x / 2.x', value: 'sd15' as ModelFamily },
-                  { title: 'SDXL', value: 'sdxl' as ModelFamily },
+                  { title: 'SD 1.x / 2.x — Classic Stable Diffusion', value: 'sd15' as ModelFamily },
+                  { title: 'SDXL — Stable Diffusion XL (high-res)', value: 'sdxl' as ModelFamily },
+                  { title: 'Flux — Next-gen architecture (500M+ params)', value: 'flux' as ModelFamily },
+                  { title: 'Custom — Unknown or modified architecture', value: 'custom' as ModelFamily },
                 ]"
                 label="Architecture"
                 variant="outlined"
