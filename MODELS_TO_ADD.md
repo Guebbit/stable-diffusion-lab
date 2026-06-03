@@ -1,3 +1,10 @@
+Right now, after the container is created, the backend is empty. It has no models and they have to be manually inserted.
+I'd like a way to have these models already inserted in the database (NOT PREDOWNLOADED), maybe through a file that export a constant with the array of objects that describe the models.
+These objects should have "download" boolean flag. If true: download after the container creation
+
+
+
+Here a list of the models I'd like to add  (they are from another prompt, need to be converted in objects)
 
 🎨 IMAGE GENERATION MODELS (4090 SAFE)
 1. FLUX.1-dev
