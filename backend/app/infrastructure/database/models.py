@@ -66,6 +66,20 @@ class ModelRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         DateTime(timezone=True), default=None
     )
 
+    # --- Requirements & compatibility ---
+    download_size_bytes: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    recommended_vram_min_gb: Mapped[int | None] = mapped_column(Integer, default=None)
+    recommended_vram_max_gb: Mapped[int | None] = mapped_column(Integer, default=None)
+
+    # --- Metadata ---
+    license: Mapped[str] = mapped_column(String(100), default="")
+    base_model: Mapped[str] = mapped_column(String(255), default="")
+    precision: Mapped[str] = mapped_column(String(50), default="")
+    requirements: Mapped[dict] = mapped_column(JSONB, default=dict)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    local_path: Mapped[str | None] = mapped_column(String(1024), default=None)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+
     # --- Relationships ---
     files: Mapped[list["ModelFileRecord"]] = relationship(
         back_populates="model", lazy="selectin", cascade="all, delete-orphan"

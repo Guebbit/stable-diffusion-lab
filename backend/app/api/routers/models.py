@@ -31,6 +31,38 @@ def _get_model_service(session: AsyncSession = Depends(get_async_session)) -> Mo
     )
 
 
+def _model_to_response(m) -> ModelRegistryResponse:
+    """Convert a database model to a response object."""
+    return ModelRegistryResponse(
+        id=m.id,
+        model_id=m.model_id,
+        name=m.name,
+        source=m.source,
+        family=m.family,
+        variant=m.variant,
+        description=m.description,
+        tags=m.tags if isinstance(m.tags, list) else [],
+        source_url=m.source_url,
+        capabilities=m.capabilities if isinstance(m.capabilities, list) else [],
+        status=m.status,
+        total_size_bytes=m.total_size_bytes,
+        disk_size_bytes=m.disk_size_bytes,
+        download_size_bytes=m.download_size_bytes,
+        download_progress=m.download_progress,
+        recommended_vram_min_gb=m.recommended_vram_min_gb,
+        recommended_vram_max_gb=m.recommended_vram_max_gb,
+        license=m.license,
+        base_model=m.base_model,
+        precision=m.precision,
+        requirements=m.requirements if isinstance(m.requirements, dict) else {},
+        notes=m.notes,
+        is_verified=m.is_verified,
+        last_verified_at=m.last_verified_at,
+        created_at=m.created_at,
+        updated_at=m.updated_at,
+    )
+
+
 @router.get("/", response_model=list[ModelRegistryResponse])
 async def list_models(
     source: str | None = None,
@@ -41,29 +73,7 @@ async def list_models(
     """List all registered models, optionally filtered by source."""
     models = await service.list_models(source=source)
     models = models[offset : offset + limit]
-    return [
-        ModelRegistryResponse(
-            id=m.id,
-            model_id=m.model_id,
-            name=m.name,
-            source=m.source,
-            family=m.family,
-            variant=m.variant,
-            description=m.description,
-            tags=m.tags if isinstance(m.tags, list) else [],
-            source_url=m.source_url,
-            capabilities=m.capabilities if isinstance(m.capabilities, list) else [],
-            status=m.status,
-            total_size_bytes=m.total_size_bytes,
-            disk_size_bytes=m.disk_size_bytes,
-            download_progress=m.download_progress,
-            is_verified=m.is_verified,
-            last_verified_at=m.last_verified_at,
-            created_at=m.created_at,
-            updated_at=m.updated_at,
-        )
-        for m in models
-    ]
+    return [_model_to_response(m) for m in models]
 
 
 @router.get("/{model_id}", response_model=ModelRegistryResponse)
@@ -75,26 +85,7 @@ async def get_model(
     model = await service.get_model(model_id)
     if model is None:
         raise HTTPException(status_code=404, detail="Model not found")
-    return ModelRegistryResponse(
-        id=model.id,
-        model_id=model.model_id,
-        name=model.name,
-        source=model.source,
-        family=model.family,
-        variant=model.variant,
-        description=model.description,
-        tags=model.tags if isinstance(model.tags, list) else [],
-        source_url=model.source_url,
-        capabilities=model.capabilities if isinstance(model.capabilities, list) else [],
-        status=model.status,
-        total_size_bytes=model.total_size_bytes,
-        disk_size_bytes=model.disk_size_bytes,
-        download_progress=model.download_progress,
-        is_verified=model.is_verified,
-        last_verified_at=model.last_verified_at,
-        created_at=model.created_at,
-        updated_at=model.updated_at,
-    )
+    return _model_to_response(model)
 
 
 @router.post("/", response_model=ModelRegistryResponse, status_code=201)
@@ -114,26 +105,7 @@ async def register_model(
         source_url=request.source_url,
         capabilities=request.capabilities,
     )
-    return ModelRegistryResponse(
-        id=model.id,
-        model_id=model.model_id,
-        name=model.name,
-        source=model.source,
-        family=model.family,
-        variant=model.variant,
-        description=model.description,
-        tags=model.tags if isinstance(model.tags, list) else [],
-        source_url=model.source_url,
-        capabilities=model.capabilities if isinstance(model.capabilities, list) else [],
-        status=model.status,
-        total_size_bytes=model.total_size_bytes,
-        disk_size_bytes=model.disk_size_bytes,
-        download_progress=model.download_progress,
-        is_verified=model.is_verified,
-        last_verified_at=model.last_verified_at,
-        created_at=model.created_at,
-        updated_at=model.updated_at,
-    )
+    return _model_to_response(model)
 
 
 @router.post("/{model_id}/download", response_model=JobResponse, status_code=202)

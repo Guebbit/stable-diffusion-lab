@@ -28,6 +28,7 @@ class ModelRegisterRequest(BaseModel):
     description: str = Field("", description="Brief description of the model")
     tags: list[str] = Field(default_factory=list, description="Searchable tags")
     source_url: str = Field("", description="URL where the model can be downloaded from")
+    preferred_name: str = Field("", description="Display name override for frontend")
     capabilities: list[str] = Field(
         default_factory=list,
         description="What the model can do: text_to_image, image_to_image, etc.",
@@ -51,6 +52,7 @@ class ModelRegistryResponse(BaseModel):
     id: UUID
     model_id: str
     name: str
+    preferred_name: str | None = None
     source: str
     family: str
     variant: str = ""
@@ -61,7 +63,15 @@ class ModelRegistryResponse(BaseModel):
     status: str
     total_size_bytes: int = 0
     disk_size_bytes: int = 0
+    download_size_bytes: int | None = None
     download_progress: int = 0
+    recommended_vram_min_gb: int | None = None
+    recommended_vram_max_gb: int | None = None
+    license: str = ""
+    base_model: str = ""
+    precision: str = ""
+    requirements: dict[str, object] = Field(default_factory=dict)
+    notes: str = ""
     is_verified: bool = False
     last_verified_at: datetime | None = None
     created_at: datetime

@@ -215,7 +215,7 @@ const progressColor = 'blue'
       >
         <v-card height="100%" variant="outlined">
           <v-card-title class="text-body-1 font-weight-bold pt-4 pb-1 d-flex align-center">
-            {{ model.name }}
+            {{ model.preferred_name || model.name }}
             <v-spacer />
             <!-- Download status badge -->
             <v-chip
@@ -270,14 +270,29 @@ const progressColor = 'blue'
               {{ model.id }}
             </code>
 
+            <!-- VRAM requirements -->
+            <div v-if="model.recommended_vram_min_gb || model.recommended_vram_max_gb" class="d-flex align-center flex-wrap gap-2 mb-3">
+              <v-chip
+                v-if="model.recommended_vram_min_gb"
+                size="x-small"
+                variant="tonal"
+                prepend-icon="mdi-memory"
+              >
+                Min VRAM: {{ model.recommended_vram_min_gb }} GB
+              </v-chip>
+              <v-chip
+                v-if="model.recommended_vram_max_gb"
+                size="x-small"
+                variant="tonal"
+                prepend-icon="mdi-memory"
+              >
+                Max VRAM: {{ model.recommended_vram_max_gb }} GB
+              </v-chip>
+            </div>
+
             <!-- Description -->
             <p class="text-body-2 text-medium-emphasis mb-2">
               {{ model.description || 'No description available.' }}
-            </p>
-
-            <!-- Long description -->
-            <p v-if="model.description" class="text-body-2 mb-3">
-              {{ model.description }}
             </p>
 
             <!-- Size + source link row -->

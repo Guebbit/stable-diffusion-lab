@@ -134,6 +134,7 @@ export interface ModelRegistryEntry {
   id: string
   model_id: string
   name: string
+  preferred_name: string | null
   source: string
   family: string
   variant: string
@@ -141,11 +142,23 @@ export interface ModelRegistryEntry {
   tags: string[]
   source_url: string
   capabilities: string[]
+  allowed_capabilities: string[]
+  config: Record<string, unknown>
   status: string
   total_size_bytes: number
   disk_size_bytes: number
   download_progress: number
   is_verified: boolean
+  local_path: string | null
+  file_count: number
+  download_size_bytes: number | null
+  recommended_vram_min_gb: number | null
+  recommended_vram_max_gb: number | null
+  license: string
+  base_model: string
+  precision: string
+  requirements: Record<string, unknown>
+  notes: string
   created_at: string
   updated_at: string | null
 }
@@ -163,6 +176,15 @@ export interface ModelRegistryAddRequest {
   tags: string[]
   source_url: string
   capabilities: string[]
+  local_path?: string
+  download_size_bytes?: number | null
+  recommended_vram_min_gb?: number | null
+  recommended_vram_max_gb?: number | null
+  license?: string
+  base_model?: string
+  precision?: string
+  requirements?: Record<string, unknown>
+  notes?: string
 }
 
 /**

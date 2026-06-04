@@ -65,6 +65,13 @@ class ArtifactStatus(BaseModel):
     disk_free_mb: float = 0.0
 
 
+class StatusResponse(BaseModel):
+    """System status with model statistics."""
+
+    total_models: int = 0
+    models_by_family: dict[str, int] = Field(default_factory=dict)
+
+
 class HealthResponse(BaseModel):
     """Health warnings and blockers."""
 
