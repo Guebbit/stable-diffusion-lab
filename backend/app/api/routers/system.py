@@ -14,7 +14,7 @@ from app.api.schemas.system import HealthResponse, StatusResponse
 from app.infrastructure.database.session import get_async_session
 from app.infrastructure.database.repositories.model_repository import ModelRepository
 
-router = APIRouter(prefix="/api/system", tags=["system"])
+router = APIRouter(prefix="/system", tags=["system"])
 
 
 @router.get("/health", response_model=HealthResponse)

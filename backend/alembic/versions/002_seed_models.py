@@ -7,10 +7,12 @@ Create Date: 2026-06-03
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
 import sqlalchemy as sa
+from sqlalchemy import text
 from alembic import op
 
 # revision identifiers
@@ -27,6 +29,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000001"),
         "model_id": "stabilityai/stable-diffusion-xl-base-1.0",
         "name": "SDXL 1.0",
+        "preferred_name": "SDXL 1.0",
         "source": "huggingface",
         "family": "stable_diffusion_xl",
         "variant": "1.0",
@@ -55,6 +58,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000002"),
         "model_id": "stabilityai/stable-diffusion-2-1",
         "name": "SD 2.1",
+        "preferred_name": "SD 2.1",
         "source": "huggingface",
         "family": "stable_diffusion_2",
         "variant": "2.1",
@@ -83,6 +87,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000003"),
         "model_id": "runwayml/stable-diffusion-v1-5",
         "name": "SD 1.5",
+        "preferred_name": "SD 1.5",
         "source": "huggingface",
         "family": "stable_diffusion_1",
         "variant": "1.5",
@@ -111,6 +116,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000004"),
         "model_id": "timothybrooks/controlnet-canny-sd-xl-v10",
         "name": "ControlNet Canny XL",
+        "preferred_name": "ControlNet Canny XL",
         "source": "huggingface",
         "family": "controlnet",
         "variant": "canny-xl",
@@ -139,6 +145,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000005"),
         "model_id": "lllyasviel/control_v11p_sd15_depth",
         "name": "ControlNet Depth SD1.5",
+        "preferred_name": "ControlNet Depth SD1.5",
         "source": "huggingface",
         "family": "controlnet",
         "variant": "depth-sd15",
@@ -167,6 +174,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000006"),
         "model_id": "lllyasviel/sd-controlnet-lineart",
         "name": "ControlNet Lineart SD1.5",
+        "preferred_name": "ControlNet Lineart SD1.5",
         "source": "huggingface",
         "family": "controlnet",
         "variant": "lineart-sd15",
@@ -195,6 +203,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000007"),
         "model_id": "lambdalabs/sd-image-vary",
         "name": "Stable Image Vary",
+        "preferred_name": "Stable Image Vary",
         "source": "huggingface",
         "family": "stable_diffusion_xl",
         "variant": "image_vary",
@@ -223,6 +232,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000008"),
         "model_id": "lambdalabs/sd-image-compose",
         "name": "Stable Image Compose",
+        "preferred_name": "Stable Image Compose",
         "source": "huggingface",
         "family": "stable_diffusion_xl",
         "variant": "image_compose",
@@ -251,6 +261,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000009"),
         "model_id": "multimodalart/super-novelai-4.0-xl",
         "name": "Super NovelAI 4.0 XL",
+        "preferred_name": "Super NovelAI 4.0 XL",
         "source": "huggingface",
         "family": "custom",
         "variant": "novelai-xl",
@@ -279,6 +290,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000010"),
         "model_id": "alibaba-pai/Pai-2B",
         "name": "Pai-2B (Alibaba)",
+        "preferred_name": "Pai-2B",
         "source": "huggingface",
         "family": "llm",
         "variant": "pai-2b",
@@ -307,6 +319,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000011"),
         "model_id": "meta-llama/Llama-3.2-3B-Instruct",
         "name": "Llama 3.2 3B Instruct",
+        "preferred_name": "Llama 3.2 3B",
         "source": "huggingface",
         "family": "llm",
         "variant": "llama-3.2-3b",
@@ -335,6 +348,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000012"),
         "model_id": "openai/whisper-large-v3",
         "name": "Whisper Large v3",
+        "preferred_name": "Whisper Large v3",
         "source": "huggingface",
         "family": "llm",
         "variant": "whisper-large",
@@ -363,6 +377,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000013"),
         "model_id": "openai/whisper-large",
         "name": "Whisper Large",
+        "preferred_name": "Whisper Large",
         "source": "huggingface",
         "family": "llm",
         "variant": "whisper-large",
@@ -390,7 +405,8 @@ MODELS_TO_SEED = [
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000014"),
         "model_id": "facebook/detr-resnet-50",
-        "name": "DETR ResNet-50 (Object Detection)",
+        "name": "DETR ResNet-50",
+        "preferred_name": "DETR ResNet-50",
         "source": "huggingface",
         "family": "vision",
         "variant": "detr-resnet50",
@@ -418,7 +434,8 @@ MODELS_TO_SEED = [
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000015"),
         "model_id": "facebook/detr-resnet-50-panoptic",
-        "name": "DETR ResNet-50 (Panoptic Segmentation)",
+        "name": "DETR ResNet-50 Panoptic",
+        "preferred_name": "DETR ResNet-50 Panoptic",
         "source": "huggingface",
         "family": "vision",
         "variant": "detr-resnet50-panoptic",
@@ -445,8 +462,9 @@ MODELS_TO_SEED = [
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000016"),
-        "model_id": "facebook/detr-resnet-50-panoptic",
-        "name": "DETR ResNet-50 (Semantic Segmentation)",
+        "model_id": "facebook/detr-resnet-50-semantic",
+        "name": "DETR ResNet-50 Semantic",
+        "preferred_name": "DETR ResNet-50 Semantic",
         "source": "huggingface",
         "family": "vision",
         "variant": "detr-resnet50-semantic",
@@ -475,6 +493,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000017"),
         "model_id": "stabilityai/stable-video-diffusion-img2vid-xt",
         "name": "SVD-XT 1.0",
+        "preferred_name": "SVD-XT 1.0",
         "source": "huggingface",
         "family": "svd_xt",
         "variant": "1.0",
@@ -503,6 +522,7 @@ MODELS_TO_SEED = [
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000018"),
         "model_id": "huggingshu/realvisxl-v5",
         "name": "RealVisXL V5",
+        "preferred_name": "RealVisXL V5",
         "source": "huggingface",
         "family": "custom",
         "variant": "realvisxl-v5",
@@ -528,6 +548,7 @@ MODELS_TO_SEED = [
         "notes": "Photorealistic SDXL fine-tune optimized for polished realistic outputs.",
     },
 ]
+
 
 def upgrade() -> None:
     """Insert seed model records using INSERT ... ON CONFLICT DO NOTHING."""
@@ -566,10 +587,10 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime),
         sa.Column("updated_at", sa.DateTime),
     )
-    
+
     # Get current timestamp
     now = datetime.now(timezone.utc)
-    
+
     # Prepare model records
     model_records = []
     for model_data in MODELS_TO_SEED:
@@ -577,14 +598,23 @@ def upgrade() -> None:
         record["created_at"] = now
         record["updated_at"] = now
         model_records.append(record)
-    
-    # Insert all models with ON CONFLICT DO NOTHING
+
+    # Insert all models, skipping duplicates
     if model_records:
-        insert_stmt = sa.sql.insert(models_table).on_conflict_do_nothing(
-            index_elements=["model_id"]
-        )
         for record in model_records:
-            conn.execute(insert_stmt.values(**record))
+            # Serialize JSONB fields as JSON strings for raw SQL compatibility
+            record["tags"] = json.dumps(record["tags"])
+            record["capabilities"] = json.dumps(record["capabilities"])
+            record["requirements"] = json.dumps(record["requirements"])
+            conn.execute(
+                text(
+                    "INSERT INTO models (id, model_id, name, preferred_name, source, family, variant, description, tags, source_url, version, capabilities, total_size_bytes, disk_size_bytes, download_size_bytes, file_path, status, download_progress, checksum, is_verified, recommended_vram_min_gb, recommended_vram_max_gb, license, base_model, precision, requirements, notes, created_at, updated_at) "
+                    "VALUES (:id, :model_id, :name, :preferred_name, :source, :family, :variant, :description, CAST(:tags AS jsonb), :source_url, :version, CAST(:capabilities AS jsonb), :total_size_bytes, :disk_size_bytes, :download_size_bytes, :file_path, :status, :download_progress, :checksum, :is_verified, :recommended_vram_min_gb, :recommended_vram_max_gb, :license, :base_model, :precision, CAST(:requirements AS jsonb), :notes, :created_at, :updated_at) "
+                    "ON CONFLICT (model_id) DO NOTHING"
+                ),
+                record,
+            )
+
 
 def downgrade() -> None:
     """Remove all seed model records."""

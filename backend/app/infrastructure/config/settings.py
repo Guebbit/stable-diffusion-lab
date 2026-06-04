@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     # --- Server ---
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = Field(8000, alias="BACKEND_PORT")
 
     # --- Database (PostgreSQL) ---
     database_url: str = "postgresql+asyncpg://ailab:ailab_local@localhost:5432/ailab"
@@ -60,8 +60,8 @@ class Settings(BaseSettings):
     logs_dir: str = "logs"
 
     # --- External API tokens (optional, for model downloads) ---
-    hf_token: str = Field("", alias="HUGGINGFACE_TOKEN")
-    civitai_token: str = ""
+    huggingface_token: str = Field("", alias="HUGGINGFACE_TOKEN")
+    civitai_token: str = Field("", alias="CIVITAI_TOKEN")
 
     # --- Inference ---
     # Default device for inference ("cuda", "cpu", or "auto")

@@ -76,7 +76,7 @@ async def list_models(
     return [_model_to_response(m) for m in models]
 
 
-@router.get("/{model_id}", response_model=ModelRegistryResponse)
+@router.get("/{model_id:path}", response_model=ModelRegistryResponse)
 async def get_model(
     model_id: str,
     service: ModelService = Depends(_get_model_service),
@@ -108,7 +108,7 @@ async def register_model(
     return _model_to_response(model)
 
 
-@router.post("/{model_id}/download", response_model=JobResponse, status_code=202)
+@router.post("/{model_id:path}/download", response_model=JobResponse, status_code=202)
 async def download_model(
     model_id: str,
     service: ModelService = Depends(_get_model_service),
@@ -121,7 +121,7 @@ async def download_model(
     return JobResponse(job_id=job_id, status="pending", message="Download queued")
 
 
-@router.delete("/{model_id}", status_code=204, response_model=None)
+@router.delete("/{model_id:path}", status_code=204, response_model=None)
 async def delete_model(
     model_id: str,
     service: ModelService = Depends(_get_model_service),
