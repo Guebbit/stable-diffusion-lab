@@ -252,6 +252,10 @@ class JobWorker:
         backend_str = params.get("backend")
         backend = InferenceBackend(backend_str) if backend_str else None
 
+        # Capture the event loop BEFORE adapters spawn threads so the
+        # progress callback can safely schedule coroutines from worker threads.
+        _loop = asyncio.get_running_loop()
+
         # Build progress callback that publishes typed events to the event bus
         def on_progress(progress: "JobProgress") -> None:
             """Convert adapter progress callback into a typed observability event."""
@@ -277,7 +281,7 @@ class JobWorker:
                     )
                 )
 
-            asyncio.get_running_loop().create_task(_publish_progress())
+            asyncio.run_coroutine_threadsafe(_publish_progress(), _loop)
 
         # Get output directory for artifacts
         output_dir = settings.artifacts_path / str(job_id)
@@ -416,17 +420,21 @@ class JobWorker:
 
             # Capture the event loop before entering the thread
             _download_loop = asyncio.get_event_loop()
-            # Instance-level progress tracker to avoid race conditions with class variables
-            _download_progress_state = {"previous": None}
+
+            # Shared aggregate progress tracker across ALL file downloads
+            _shared_progress = {
+                "lock": threading.Lock(),
+                "total_bytes": 0,
+                "downloaded_bytes": 0,
+                "previous_percent": -1,
+            }
 
             class _HfTqdmProgress(tqdm):
                  """
                  A tqdm subclass compatible with huggingface_hub's tqdm_class parameter.
 
-                 huggingface_hub expects tqdm_class to be a class (not an instance) that:
-                 - Has a classmethod `get_lock()` returning a threading Lock
-                 - Accepts `desc`, `total`, `unit`, etc. in __init__
-                 - Reports progress via update() calls during download
+                 Tracks aggregate progress across all files by accumulating bytes
+                 in a shared dict, so percentage is total downloaded / total size.
                  """
 
                  _lock = threading.Lock()
@@ -437,33 +445,53 @@ class JobWorker:
                      return cls._lock
 
                  def __init__(self, *args, **kwargs) -> None:
-                     # Extract total for progress calculation
-                     self._total = kwargs.get("total", 0)
-                     self._n = 0
+                     file_total = kwargs.get("total", 0)
+                     file_desc = kwargs.get("desc", "")
                      self._model_id = model_id
                      self._job_id_str = str(job_id)
+
+                     # Register this file's size in the shared total
+                     with _shared_progress["lock"]:
+                         _shared_progress["total_bytes"] += file_total
+
                      super().__init__(*args, **kwargs)
 
                  def update(self, n: int = 1) -> None:
-                     """Override update to track cumulative progress and report to DB."""
-                     self._n += n
+                     """
+                     Accumulate bytes in shared state, compute aggregate %,
+                     update DB + log to console every ~5%.
+                     """
+                     self._downloaded_n = n
                      super().update(n)
 
-                     # Calculate progress percentage
-                     if self._total > 0:
-                         progress = round((self._n / self._total) * 100, 1)
+                     with _shared_progress["lock"]:
+                         _shared_progress["downloaded_bytes"] += n
+                         total = _shared_progress["total_bytes"]
+                         downloaded = _shared_progress["downloaded_bytes"]
+                         prev = _shared_progress["previous_percent"]
+
+                     if total > 0:
+                         progress = round((downloaded / total) * 100, 1)
                      else:
                          progress = 0.0
 
-                     # Only update DB every 5% to avoid excessive writes
-                     if (
-                         _download_progress_state["previous"] is None
-                         or abs(progress - _download_progress_state["previous"]) >= 5.0
-                     ):
-                         _download_progress_state["previous"] = progress
+                     # Clamp to 100
+                     if progress > 100.0:
+                         progress = 100.0
 
-                         # Schedule async coroutines from the download thread using
-                         # run_coroutine_threadsafe (correct way to bridge sync → async)
+                     # Log to console every ~5% so docker logs show progress
+                     if prev < 0 or abs(progress - prev) >= 5.0:
+                         with _shared_progress["lock"]:
+                             _shared_progress["previous_percent"] = progress
+
+                         logger.info(
+                             "Download progress: %.1f%%  (%.1f MB / %.1f MB)",
+                             progress,
+                             downloaded / (1024 * 1024),
+                             total / (1024 * 1024),
+                         )
+
+                         # Schedule DB update from the download thread
                          async def _update_progress() -> None:
                              async with worker._session_factory() as session:
                                  model_repo = ModelRepository(session)

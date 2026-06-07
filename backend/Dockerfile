@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 
+# Install test dependencies
+RUN pip install --no-cache-dir pytest pytest-asyncio pytest-cov httpx
+
 COPY . .
 
 # Create storage directories

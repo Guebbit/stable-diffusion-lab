@@ -16,7 +16,7 @@ Tables:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy import ForeignKey, Index, UniqueConstraint
@@ -215,6 +215,7 @@ class JobEventRecord(Base, UUIDPrimaryKeyMixin):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default="now()",
+        default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 

@@ -41,12 +41,17 @@ class GenerationService:
 
     async def _resolve_model_identifier(self, model_id: str) -> str:
         """
-        Resolve a user-facing model_id to the actual model identifier
+        Resolve a user-facing model identifier to the actual model identifier
         that the adapter should load.
 
-        When model_repository is available, look up the catalog record
-        and return the hf_repo_id (e.g. "runwayml/stable-diffusion-v1-5")
-        so the adapter can download the correct weights.
+        Supports two input formats:
+        1. Internal DB UUID (e.g. "a0000000-0000-0000-0000-000000000003") — looked up
+           by primary key via get_by_id().
+        2. External HuggingFace repo slug (e.g. "runwayml/stable-diffusion-v1-5") —
+           looked up by model_id column via get_by_model_id().
+
+        Returns the model_id column value (HuggingFace repo slug) so the adapter
+        can download or load the correct weights.
 
         Falls back to the raw model_id when the repository is unavailable
         or the model is not found (backward compatibility).
@@ -54,10 +59,23 @@ class GenerationService:
         if self._model_repo is None:
             return model_id
 
+        # Try 1: Treat input as an internal DB primary key UUID
+        try:
+            from uuid import UUID as _UUID
+
+            uuid_val = _UUID(model_id)
+            model = await self._model_repo.get_by_id(uuid_val)
+            if model is not None:
+                return model.model_id
+        except (ValueError, AttributeError):
+            pass
+
+        # Try 2: Treat input as an external model_id (HuggingFace repo slug)
         model = await self._model_repo.get_by_model_id(model_id)
         if model is not None and model.model_id:
             return model.model_id
 
+        # Fallback: return as-is (backward compatibility)
         return model_id
 
     async def submit_text_to_image(

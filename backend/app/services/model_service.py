@@ -42,6 +42,7 @@ class ModelService:
         self._job_repo = job_repository
         self._storage = storage_manager
 
+
     async def register_model(
         self,
         model_id: str,
@@ -53,7 +54,6 @@ class ModelService:
         tags: list[str] | None = None,
         source_url: str = "",
         capabilities: list[str] | None = None,
-        preferred_name: str | None = None,
     ) -> ModelRecord:
         """Register a new model in the catalog (metadata only, no download)."""
         existing = await self._model_repo.get_by_model_id(model_id)
@@ -72,7 +72,6 @@ class ModelService:
             source_url=source_url,
             capabilities=capabilities or [],
             status=ModelStatus.NOT_DOWNLOADED,
-            preferred_name=preferred_name,
         )
         record = await self._model_repo.create(record)
         logger.info("Registered model: %s (%s)", name, model_id)

@@ -34,6 +34,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ailab:ailab_local@db:5432/ailab
+      STORAGE_ROOT: /app/storage
+      INFERENCE_DEVICE: cpu
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head && pytest tests/ -v --tb=short --cov=app --cov-report=term-missing"
+
   frontend:
     image: node:20-slim
     working_dir: /app
