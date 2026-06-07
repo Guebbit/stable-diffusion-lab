@@ -6,7 +6,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useModelsStore } from '../stores/models'
-import type { ModelFamily, ModelRegistryAddRequest, ModelSource } from '../types'
+import type { ModelFamily, ModelRegistryAddRequest, ModelRegistryEntry, ModelSource } from '../types'
 
 const modelsStore = useModelsStore()
 
@@ -105,8 +105,30 @@ function familyLabel(family: string): string {
   return labels[family] || family
 }
 
-function downloadPercentageFor(model: Record<string, unknown>): number {
-  return (model.download_progress as number) || 0
+function downloadPercentageFor(model: ModelRegistryEntry): number {
+  return model.download_progress || 0
+}
+
+function statusChipColor(model: ModelRegistryEntry): string {
+  if (model.status === 'downloaded') return 'success'
+  if (model.status === 'downloading' || model.status === 'download_paused') return 'warning'
+  if (model.status === 'error') return 'error'
+  return 'grey'
+}
+
+function statusChipIcon(model: ModelRegistryEntry): string {
+  if (model.status === 'downloaded') return 'mdi-check-circle'
+  if (model.status === 'downloading' || model.status === 'download_paused') return 'mdi-cloud-download'
+  if (model.status === 'error') return 'mdi-alert-circle'
+  return 'mdi-cloud-off'
+}
+
+function statusChipLabel(model: ModelRegistryEntry): string {
+  if (model.status === 'downloaded') return 'Ready'
+  if (model.status === 'downloading') return 'Downloading...'
+  if (model.status === 'download_paused') return 'Paused'
+  if (model.status === 'error') return 'Error'
+  return 'Not downloaded'
 }
 
 const progressColor = 'blue'
@@ -217,14 +239,14 @@ const progressColor = 'blue'
           <v-card-title class="text-body-1 font-weight-bold pt-4 pb-1 d-flex align-center">
             {{ model.preferred_name || model.name }}
             <v-spacer />
-            <!-- Download status badge -->
-            <v-chip
-              :color="model.status === 'downloaded' ? 'success' : 'grey'"
-              size="x-small"
-              :prepend-icon="model.status === 'downloaded' ? 'mdi-check-circle' : 'mdi-cloud-download'"
-            >
-              {{ model.status === 'downloaded' ? 'Ready' : 'Not downloaded' }}
-            </v-chip>
+             <!-- Download status badge -->
+             <v-chip
+               :color="statusChipColor(model)"
+               size="x-small"
+               :prepend-icon="statusChipIcon(model)"
+             >
+               {{ statusChipLabel(model) }}
+             </v-chip>
           </v-card-title>
 
           <v-card-subtitle class="pb-2">

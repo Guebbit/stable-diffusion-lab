@@ -133,7 +133,8 @@ class JobWorker:
             return
 
         # Determine if this job needs GPU before entering try block
-        needs_gpu = job_type in {
+        job_type_enum = JobType(job_type)
+        needs_gpu = job_type_enum in {
             JobType.TEXT_TO_IMAGE,
             JobType.IMAGE_TO_IMAGE,
             JobType.IMAGE_CAPTIONING,
@@ -276,7 +277,7 @@ class JobWorker:
                     )
                 )
 
-            asyncio.get_event_loop().create_task(_publish_progress())
+            asyncio.get_running_loop().create_task(_publish_progress())
 
         # Get output directory for artifacts
         output_dir = settings.artifacts_path / str(job_id)
@@ -382,7 +383,8 @@ class JobWorker:
         Download model weights from the configured source.
 
         Uses huggingface_hub for HuggingFace models. Publishes progress
-        events so the frontend can show download percentage.
+        events so the frontend can show download percentage. Updates
+        model.download_progress in the DB during download.
         """
         model_id = params["model_id"]
         source = params.get("source", "huggingface")
@@ -402,11 +404,98 @@ class JobWorker:
             settings = get_settings()
             local_dir = settings.models_path / "huggingface" / model_id.replace("/", "--")
 
+            # --- Progress callback that updates DB from the download thread ---
+            import threading
+            from tqdm import tqdm
+
+            from app.domain.enums import ModelStatus
+            from app.infrastructure.database.repositories import ModelRepository
+
+            # Capture worker reference for closure
+            worker = self
+
+            # Capture the event loop before entering the thread
+            _download_loop = asyncio.get_event_loop()
+            # Instance-level progress tracker to avoid race conditions with class variables
+            _download_progress_state = {"previous": None}
+
+            class _HfTqdmProgress(tqdm):
+                 """
+                 A tqdm subclass compatible with huggingface_hub's tqdm_class parameter.
+
+                 huggingface_hub expects tqdm_class to be a class (not an instance) that:
+                 - Has a classmethod `get_lock()` returning a threading Lock
+                 - Accepts `desc`, `total`, `unit`, etc. in __init__
+                 - Reports progress via update() calls during download
+                 """
+
+                 _lock = threading.Lock()
+
+                 @classmethod
+                 def get_lock(cls) -> threading.Lock:
+                     """Return a thread lock, as required by huggingface_hub."""
+                     return cls._lock
+
+                 def __init__(self, *args, **kwargs) -> None:
+                     # Extract total for progress calculation
+                     self._total = kwargs.get("total", 0)
+                     self._n = 0
+                     self._model_id = model_id
+                     self._job_id_str = str(job_id)
+                     super().__init__(*args, **kwargs)
+
+                 def update(self, n: int = 1) -> None:
+                     """Override update to track cumulative progress and report to DB."""
+                     self._n += n
+                     super().update(n)
+
+                     # Calculate progress percentage
+                     if self._total > 0:
+                         progress = round((self._n / self._total) * 100, 1)
+                     else:
+                         progress = 0.0
+
+                     # Only update DB every 5% to avoid excessive writes
+                     if (
+                         _download_progress_state["previous"] is None
+                         or abs(progress - _download_progress_state["previous"]) >= 5.0
+                     ):
+                         _download_progress_state["previous"] = progress
+
+                         # Schedule async coroutines from the download thread using
+                         # run_coroutine_threadsafe (correct way to bridge sync → async)
+                         async def _update_progress() -> None:
+                             async with worker._session_factory() as session:
+                                 model_repo = ModelRepository(session)
+                                 await model_repo.update_status(
+                                     self._model_id, ModelStatus.DOWNLOADING, download_progress=progress
+                                 )
+                                 await session.commit()
+
+                         asyncio.run_coroutine_threadsafe(_update_progress(), _download_loop)
+
+                         # Also publish a progress event
+                         async def _publish_progress() -> None:
+                             await event_bus.publish_event(
+                                 JobEvent(
+                                     event_type="job.progress",
+                                     job_id=self._job_id_str,
+                                     message=f"Downloading {self._model_id}: {progress}%",
+                                     payload={
+                                         "status": "downloading",
+                                         "progress_percent": progress,
+                                     },
+                                 )
+                             )
+
+                         asyncio.run_coroutine_threadsafe(_publish_progress(), _download_loop)
+
             await asyncio.to_thread(
                 snapshot_download,
                 repo_id=model_id,
                 local_dir=str(local_dir),
                 local_dir_use_symlinks=False,
+                tqdm_class=_HfTqdmProgress,
             )
         else:
             raise NotImplementedError(f"Download source '{source}' not yet supported")
@@ -418,7 +507,7 @@ class JobWorker:
             model_repo = ModelRepository(session)
             from app.domain.enums import ModelStatus
 
-            await model_repo.update_status(model_id, ModelStatus.DOWNLOADED)
+            await model_repo.update_status(model_id, ModelStatus.DOWNLOADED, download_progress=100.0)
             await session.commit()
 
         await event_bus.publish_event(

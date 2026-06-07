@@ -23,6 +23,7 @@ transformers==4.40.0
 accelerate==0.30.0
 safetensors>=0.4.1,<1.0
 Pillow==10.3.0
+numpy<2
 
 # HTTP clients (model downloads)
 httpx==0.27.0

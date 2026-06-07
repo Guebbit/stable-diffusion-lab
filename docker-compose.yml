@@ -40,6 +40,10 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
+    environment:
+      - IS_DOCKER=true
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - FRONTEND_PORT=${FRONTEND_PORT:-5173}
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     command: sh -c "npm install && npm run dev -- --host"

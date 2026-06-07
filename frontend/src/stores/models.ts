@@ -118,18 +118,31 @@ export const useModelsStore = defineStore('models', () => {
         .then((models) => {
           registry.value = models
           const model = models.find(m => m.model_id === modelId)
-          if (model?.status === 'downloaded') {
+          
+          if (!model) {
+            // Model not found in registry, continue polling
+            return
+          }
+          
+          if (model.status === 'downloaded' || model.status === 'loaded' || model.status === 'loaded') {
             clearInterval(interval)
             isDownloading.value.delete(modelId)
             useNotificationStore().push('success', `Model "${model.name}" downloaded successfully!`)
-          } else if (model && (model.status === 'error' || model.status === 'deleted')) {
+          } else if (model.status === 'downloading' || model.status === 'download_paused') {
+            // Model is actively downloading - show progress
+            const progress = model.download_progress ?? 0
+            useNotificationStore().push(
+              'info',
+              `Downloading "${model.name}": ${progress.toFixed(1)}%`,
+            )
+          } else if (model.status === 'error') {
             clearInterval(interval)
             isDownloading.value.delete(modelId)
-            useNotificationStore().push('error', `Model "${modelId}" download failed: ${model.status}`)
+            useNotificationStore().push('error', `Model "${model.name}" download failed`)
           } else if (attempts >= MAX_POLL_ATTEMPTS) {
             clearInterval(interval)
             isDownloading.value.delete(modelId)
-            useNotificationStore().push('warning', `Download polling timed out for "${modelId}"`)
+            useNotificationStore().push('warning', `Download polling timed out for "${model.name}"`)
           }
         })
         .catch(() => {

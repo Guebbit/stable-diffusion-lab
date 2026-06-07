@@ -14,6 +14,7 @@ from app.api.schemas import (
     ModelRegisterRequest,
     ModelRegistryResponse,
 )
+from app.domain.errors import AILabError
 from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.infrastructure.database.session import get_async_session
 from app.infrastructure.storage.storage_manager import StorageManager
@@ -37,6 +38,7 @@ def _model_to_response(m) -> ModelRegistryResponse:
         id=m.id,
         model_id=m.model_id,
         name=m.name,
+        preferred_name=getattr(m, "preferred_name", None),
         source=m.source,
         family=m.family,
         variant=m.variant,
@@ -58,6 +60,8 @@ def _model_to_response(m) -> ModelRegistryResponse:
         notes=m.notes,
         is_verified=m.is_verified,
         last_verified_at=m.last_verified_at,
+        local_path=getattr(m, "local_path", None),
+        file_count=getattr(m, "file_count", 0),
         created_at=m.created_at,
         updated_at=m.updated_at,
     )
@@ -104,6 +108,7 @@ async def register_model(
         tags=request.tags,
         source_url=request.source_url,
         capabilities=request.capabilities,
+        preferred_name=request.preferred_name,
     )
     return _model_to_response(model)
 
@@ -116,6 +121,9 @@ async def download_model(
     """Trigger download of a registered model."""
     try:
         job_id = await service.request_download(model_id)
+    except AILabError as exc:
+        status_code = 404 if exc.error_code in ("MODEL_NOT_FOUND", "MODEL_NOT_READY") else 400
+        raise HTTPException(status_code=status_code, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return JobResponse(job_id=job_id, status="pending", message="Download queued")
@@ -129,5 +137,8 @@ async def delete_model(
     """Delete a model from catalog and disk."""
     try:
         await service.delete_model(model_id)
+    except AILabError as exc:
+        status_code = 404 if exc.error_code == "MODEL_NOT_FOUND" else 400
+        raise HTTPException(status_code=status_code, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

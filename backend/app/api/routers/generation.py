@@ -18,7 +18,7 @@ from app.api.schemas import (
     TextToImageRequest,
 )
 from app.domain.value_objects import GenerationParams
-from app.infrastructure.database.repositories import JobRepository
+from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.infrastructure.database.session import get_async_session
 from app.services.generation_service import GenerationService
 
@@ -29,7 +29,10 @@ def _get_generation_service(
     session: AsyncSession = Depends(get_async_session),
 ) -> GenerationService:
     """Dependency injection for GenerationService."""
-    return GenerationService(job_repository=JobRepository(session))
+    return GenerationService(
+        job_repository=JobRepository(session),
+        model_repository=ModelRepository(session),
+    )
 
 
 @router.post("/text-to-image", response_model=JobResponse, status_code=202)
