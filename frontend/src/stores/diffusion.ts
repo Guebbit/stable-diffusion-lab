@@ -22,35 +22,35 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   /** User-friendly error message displayed by the UI. */
   const error = ref<string | null>(null)
 
-  // ─── WebSocket Observability Stream ──
+  // ─── SSE Observability Stream ──
 
-  /** Real-time observability events via WebSocket (maps job_id → latest event). */
+  /** Real-time observability events via SSE (maps job_id → latest event). */
   const jobProgress = ref<Map<string, ObservabilityEvent>>(new Map())
-  /** Whether the WebSocket is connected. */
-  const wsConnected = ref(false)
+  /** Whether the SSE stream is connected. */
+  const sseConnected = ref(false)
   /** Observability stream composable instance (lazy-initialized). */
-  let _ws: ReturnType<typeof useObservabilityStream> | null = null
+  let _stream: ReturnType<typeof useObservabilityStream> | null = null
 
   /**
-   * Start the WebSocket connection for real-time job/system events.
+   * Start the SSE connection for real-time job/system events.
    * Safe to call multiple times — only connects once.
    */
   function connectObservability() {
-    if (!_ws) {
-      _ws = useObservabilityStream('job')
+    if (!_stream) {
+      _stream = useObservabilityStream('job')
       // Keep store refs in sync with composable's reactive state
-      watch(() => _ws!.isConnected.value, (val) => { wsConnected.value = val })
-      watch(() => _ws!.events.value, (val) => { jobProgress.value = val }, { deep: true })
+      watch(() => _stream!.isConnected.value, (val) => { sseConnected.value = val })
+      watch(() => _stream!.events.value, (val) => { jobProgress.value = val }, { deep: true })
     }
-    _ws.connect()
+    _stream.connect()
   }
 
   /**
    * Disconnect observability stream.
    */
   function disconnectObservability() {
-    _ws?.disconnect()
-    wsConnected.value = false
+    _stream?.disconnect()
+    sseConnected.value = false
   }
 
   /** Fetch system status and silently reset if the request fails. */
@@ -72,8 +72,9 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   }
 
   /**
-   * Submit a text-to-image job and poll until completion.
-   * The new API is async: submit → get job_id → poll status.
+   * Submit a text-to-image job and wait for completion.
+   * Listens for SSE events (job.completed / job.failed / job.cancelled) to know
+   * when the job reached a terminal state, then fetches the final status via API.
    */
   function generate(request: GenerationRequest): Promise<void> {
     const notif = useNotificationStore()
@@ -84,13 +85,11 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     return diffusionApi.submitTextToImage(request)
       .then((submission: JobSubmissionResponse) => {
         notif.push('info', `Job ${submission.job_id} queued`)
-        // Poll until completion
-        return _pollJobCompletion(submission.job_id)
+        return _waitForJobCompletion(submission.job_id)
       })
       .then((job: JobStatusResponse) => {
         if (job.status === 'completed') {
           notif.push('success', `Generation complete — job ${job.id}`)
-          // Refresh artifacts gallery
           return refreshGallery()
         } else {
           const msg = job.error || `Job ended with status: ${job.status}`
@@ -130,32 +129,44 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   }
 
   /**
-   * Poll a job until it reaches a terminal state (completed/failed/cancelled).
-   * Returns the final job status response.
+   * Wait for a job to reach a terminal state via SSE events.
+   *
+   * The SSE stream emits `job.progress`, `job.completed`, `job.failed`,
+   * and `job.cancelled` events with progress percentage included.
+   * We watch the `jobProgress` map for a terminal event, then fetch
+   * the final status from the API to resolve the promise.
    */
-  function _pollJobCompletion(jobId: string): Promise<JobStatusResponse> {
-    const POLL_INTERVAL = 1000
-    const MAX_ATTEMPTS = 600
+  function _waitForJobCompletion(jobId: string): Promise<JobStatusResponse> {
+    const terminalTypes = new Set([
+      'job.completed',
+      'job.failed',
+      'job.cancelled',
+    ])
 
     return new Promise((resolve, reject) => {
-      let attempts = 0
-      const interval = setInterval(() => {
-        attempts++
+      let settled = false
+
+      // Watch the jobProgress map for terminal events
+      const unwatch = watch(() => jobProgress.value.get(jobId), (event) => {
+        if (settled) return
+        if (event && terminalTypes.has(event.event_type)) {
+          settled = true
+          unwatch()
+          diffusionApi.getJobStatus(jobId)
+            .then(resolve)
+            .catch(reject)
+        }
+      })
+
+      // Check immediately in case the event already arrived
+      const event = jobProgress.value.get(jobId)
+      if (event && terminalTypes.has(event.event_type)) {
+        settled = true
+        unwatch()
         diffusionApi.getJobStatus(jobId)
-          .then((job) => {
-            if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-              clearInterval(interval)
-              resolve(job)
-            } else if (attempts >= MAX_ATTEMPTS) {
-              clearInterval(interval)
-              reject(new Error(`Job polling timed out after ${MAX_ATTEMPTS} attempts`))
-            }
-          })
-          .catch((err) => {
-            clearInterval(interval)
-            reject(err)
-          })
-      }, POLL_INTERVAL)
+          .then(resolve)
+          .catch(reject)
+      }
     })
   }
 
@@ -165,7 +176,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     isGenerating,
     error,
     jobProgress,
-    wsConnected,
+    sseConnected,
     fetchStatus,
     generate,
     refreshGallery,

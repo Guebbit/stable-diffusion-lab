@@ -9,6 +9,7 @@
 #   lint            Run ruff linter
 #   format          Run ruff formatter
 #   type-check      Run mypy type checker
+#   export-openapi  Export OpenAPI schema (json + yaml) to project root
 
 SHELL := /usr/bin/bash
 PYTHON := python3
@@ -22,7 +23,7 @@ POSTGRES_PASSWORD := ailab_test
 POSTGRES_DB := ailab_test
 DATABASE_URL := postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}
 
-.PHONY: test test-integration test-postgres test-all lint format type-check stop-postgres
+.PHONY: test test-integration test-postgres test-all lint format type-check stop-postgres export-openapi clean
 
 ## Default target
 all: test-all
@@ -97,10 +98,11 @@ format:
 	@echo "▶ Running ruff formatter..."
 	ruff format app/ tests/
 
-## Run mypy type checker
-type-check:
-	@echo "▶ Running mypy type checker..."
-	mypy app/
+## Export OpenAPI schema (json + yaml) to project root
+export-openapi:
+	@echo "▶ Exporting OpenAPI schema..."
+	$(PYTHON) scripts/export_openapi.py
+	@echo "✓ openapi.json and openapi.yaml written to project root"
 
 ## Clean test artifacts
 clean: stop-postgres

@@ -7,14 +7,11 @@ and the client polls or subscribes via WebSocket for completion.
 
 from __future__ import annotations
 
-from uuid import UUID
-
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import (
     JobResponse,
-    JobStatusResponse,
     TextToImageRequest,
 )
 from app.domain.value_objects import GenerationParams
@@ -66,28 +63,3 @@ async def submit_text_to_image(
     if correlation_id:
         response.headers["X-Correlation-ID"] = correlation_id
     return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
-
-
-@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(
-    job_id: UUID,
-    service: GenerationService = Depends(_get_generation_service),
-) -> JobStatusResponse:
-    """Get the current status of a generation job."""
-    job = await service.get_job_status(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return JobStatusResponse(
-        id=job.id,
-        job_type=job.job_type,
-        status=job.status,
-        progress_percent=job.progress_percent,
-        current_step=job.current_step,
-        total_steps=job.total_steps,
-        message=job.message,
-        created_at=job.created_at,
-        started_at=job.started_at,
-        completed_at=job.completed_at,
-        error=job.error,
-        result=job.result,
-    )

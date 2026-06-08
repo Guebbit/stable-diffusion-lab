@@ -13,8 +13,8 @@ import { useNotificationStore } from './notifications'
 import type { ModelRegistryEntry, ModelRegistryAddRequest } from '../types'
 
 // Polling config for download status checks
-const POLL_INTERVAL_MS = 2_000   // Check every 2 seconds
-const MAX_POLL_ATTEMPTS = 300    // Give up after ~10 minutes
+const POLL_INTERVAL_MS = 5_000   // Check every 5 seconds
+const MAX_POLL_ATTEMPTS = 120    // Give up after ~10 minutes
 
 export const useModelsStore = defineStore('models', () => {
   // All registered models (full catalog with download status)

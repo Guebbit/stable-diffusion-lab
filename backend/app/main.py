@@ -6,7 +6,7 @@ This is the composition root where all layers are wired together:
 - Routers are registered
 - Middleware is added
 - Lifecycle hooks (startup/shutdown) manage worker and cache lifecycle
-- The WebSocket hub is connected to the event bus
+- The SSE hub is connected to the event bus for real-time event streaming
 """
 
 from __future__ import annotations
@@ -15,8 +15,9 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from app.adapters.adapter_registry import AdapterRegistry
 from app.adapters.direct import (
@@ -30,7 +31,7 @@ from app.adapters.direct import (
 )
 from app.adapters.resource_coordinator import ResourceCoordinator
 from app.api.routers import artifacts, generation, jobs, models, system
-from app.api.websocket.hub import ws_hub
+from app.api.sse.hub import sse_hub
 from app.domain.enums import InferenceBackend, JobType
 from app.infrastructure.config.settings import get_settings
 from app.orchestrator.event_bus import event_bus
@@ -147,7 +148,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     Application lifecycle manager.
 
-    Startup: build adapters, wire event bus → WebSocket hub, start job worker.
+    Startup: build adapters, wire event bus → SSE hub, start job worker.
     Shutdown: stop job worker, evict pipeline cache, clean up resources.
     """
     settings = get_settings()
@@ -169,8 +170,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Build model manager ---
     model_manager = DirectModelManager(pipeline_cache)
 
-    # --- Connect event bus to WebSocket hub ---
-    event_bus.subscribe_typed(ws_hub.broadcast_typed)
+    # --- Connect event bus to SSE hub ---
+    event_bus.subscribe_typed(sse_hub.broadcast_typed)
 
     # --- Build metrics + observability ---
     from app.infrastructure.database.session import get_session_factory
@@ -208,7 +209,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Shutdown ---
     await worker.stop()
     await pipeline_cache.evict_all()
-    event_bus.unsubscribe_typed(ws_hub.broadcast_typed)
+    event_bus.unsubscribe_typed(sse_hub.broadcast_typed)
     event_bus.unsubscribe_typed(metrics_registry.record_event)
     logger.info("Application shutdown complete")
 
@@ -246,17 +247,12 @@ def create_app() -> FastAPI:
     app.include_router(artifacts.router, prefix=api_prefix)
     app.include_router(system.router, prefix=api_prefix)
 
-    # --- WebSocket endpoint ---
-    @app.websocket("/ws/observability")
-    async def websocket_observability(websocket: WebSocket) -> None:
-        """WebSocket endpoint for typed observability event streaming."""
-        subscribe = websocket.query_params.get("subscribe", "")
-        filters = {item.strip() for item in subscribe.split(",") if item.strip()}
-        await ws_hub.connect_typed(websocket, subscribe=filters)
-        try:
-            while True:
-                await websocket.receive_text()
-        except WebSocketDisconnect:
-            ws_hub.disconnect_typed(websocket)
+    # --- SSE endpoint for observability event streaming ---
+    @app.get("/sse/observability")
+    async def sse_observability(request: Request) -> StreamingResponse:
+        """SSE endpoint for typed observability event streaming."""
+        subscribe = request.query_params.get("subscribe", "")
+        filters = {item.strip() for item in subscribe.split(",") if item.strip()} if subscribe else None
+        return await sse_hub.create_stream(request, subscribe=filters)
 
     return app

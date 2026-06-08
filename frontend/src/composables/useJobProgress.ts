@@ -2,8 +2,8 @@ import { ref, onUnmounted } from 'vue'
 import type { ObservabilityEvent } from '../types'
 
 /**
- * Composable that connects to /ws/observability for real-time typed events.
- * Replaces the legacy /ws/progress endpoint with richer event streaming.
+ * Composable that connects to /sse/observability for real-time typed events.
+ * Uses the Server-Sent Events API (EventSource) — unidirectional, simpler than WS.
  *
  * Usage:
  *   const { events, isConnected, connect, disconnect } = useObservabilityStream()
@@ -13,55 +13,47 @@ import type { ObservabilityEvent } from '../types'
 export function useObservabilityStream(defaultSubscribe?: string) {
   // Reactive state: latest event per job for progress tracking
   const events = ref<Map<string, ObservabilityEvent>>(new Map())
-  // All recent events buffer (for activity log)
-  const recentEvents = ref<ObservabilityEvent[]>([])
   // Connection status flag
   const isConnected = ref(false)
-  // Internal WebSocket reference
-  let ws: WebSocket | null = null
+  // Internal EventSource reference
+  let source: EventSource | null = null
   // Reconnect timer handle
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
-   * Build the WebSocket URL for the observability stream.
-   * Converts http(s) to ws(s) and appends optional subscription filters.
+   * Build the SSE URL for the observability stream.
+   * Resolves relative to the current origin so it works behind proxies.
    */
-  function buildWsUrl(subscribe?: string): string {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const base = `${protocol}//${window.location.host}/ws/observability`
+  function buildSseUrl(subscribe?: string): string {
+    const base = `${window.location.origin}/sse/observability`
     const filter = subscribe || defaultSubscribe
     return filter ? `${base}?subscribe=${encodeURIComponent(filter)}` : base
   }
 
   /**
-   * Open the WebSocket and start listening for typed events.
+   * Open the EventSource and start listening for typed events.
    */
   function connect(subscribe?: string) {
-    if (ws && ws.readyState === WebSocket.OPEN) return
+    if (source && source.readyState === EventSource.OPEN) return
 
-    ws = new WebSocket(buildWsUrl(subscribe))
+    source = new EventSource(buildSseUrl(subscribe))
 
-    ws.onopen = () => {
+    source.onopen = () => {
       isConnected.value = true
     }
 
-    ws.onmessage = (event: MessageEvent) => {
+    source.onmessage = (event: MessageEvent) => {
       const data = JSON.parse(event.data) as ObservabilityEvent
       // Track latest event per job_id for progress display
       if (data.job_id) {
         events.value = new Map(events.value).set(data.job_id, data)
       }
-      // Keep a rolling buffer of recent events (max 200)
-      recentEvents.value = [data, ...recentEvents.value].slice(0, 200)
     }
 
-    ws.onclose = () => {
+    source.onerror = () => {
       isConnected.value = false
+      source?.close()
       scheduleReconnect(subscribe)
-    }
-
-    ws.onerror = () => {
-      ws?.close()
     }
   }
 
@@ -73,21 +65,20 @@ export function useObservabilityStream(defaultSubscribe?: string) {
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       connect(subscribe)
-    }, 3000)
+    }, 5000)
   }
 
   /**
-   * Cleanly close the WebSocket and stop reconnect attempts.
+   * Cleanly close the EventSource and stop reconnect attempts.
    */
   function disconnect() {
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
-    if (ws) {
-      ws.onclose = null
-      ws.close()
-      ws = null
+    if (source) {
+      source.close()
+      source = null
     }
     isConnected.value = false
   }
@@ -108,7 +99,6 @@ export function useObservabilityStream(defaultSubscribe?: string) {
 
   return {
     events,
-    recentEvents,
     isConnected,
     connect,
     disconnect,
