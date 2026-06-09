@@ -355,35 +355,6 @@ class TestSubmitImageToImage:
         assert event_arg.payload["job_type"] == JobType.IMAGE_TO_IMAGE
 
 
-# ── Tests: get_job_status ───────────────────────────────────────────────
-
-class TestGetJobStatus:
-    """Tests for GenerationService.get_job_status()."""
-
-    @pytest.mark.asyncio
-    async def test_returns_job_when_exists(
-        self, service: GenerationService, job_repo: _JobRepoStub, params: GenerationParams
-    ) -> None:
-        job_id = await service.submit_text_to_image(params, model_id="runwayml/stable-diffusion-v1-5")
-        found = await service.get_job_status(job_id)
-        assert found is not None
-        assert str(found.id) == str(job_id)
-
-    @pytest.mark.asyncio
-    async def test_returns_none_for_missing_job(self, service: GenerationService) -> None:
-        missing_id = uuid4()
-        found = await service.get_job_status(missing_id)
-        assert found is None
-
-    @pytest.mark.asyncio
-    async def test_job_status_reflects_initial_pending(
-        self, service: GenerationService, job_repo: _JobRepoStub, params: GenerationParams
-    ) -> None:
-        job_id = await service.submit_text_to_image(params, model_id="runwayml/stable-diffusion-v1-5")
-        found = await service.get_job_status(job_id)
-        assert found.status == JobStatus.PENDING
-
-
 # ── Tests: _resolve_model_identifier ────────────────────────────────────
 
 class TestResolveModelIdentifier:

@@ -174,6 +174,3 @@ class GenerationService:
         )
         return job.id
 
-    async def get_job_status(self, job_id: UUID) -> JobRecord | None:
-        """Get current status of a generation job."""
-        return await self._job_repo.get_by_id(job_id)

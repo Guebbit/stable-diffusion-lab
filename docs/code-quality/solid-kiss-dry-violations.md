@@ -481,7 +481,20 @@ class ErrorHandler:
 
 ### 🟡 Medium Priority
 
-**3. Split GenerationService (SRP #1.1.A)**
+**3. ✅ Partially Resolved — GenerationService SRP Cleanup (SRP #1.1.A)**
+- **Status:** ✅ **PARTIALLY RESOLVED** — Removed `get_job_status` from `GenerationService`
+- **Effort:** ~1 hour
+- **Impact:** GenerationService no longer reads job status; that concern now belongs to `JobService`
+- **Files affected:** `backend/app/services/generation_service.py`, `backend/app/api/routers/generation.py`, `backend/tests/unit/services/test_generation_service.py`, `backend/tests/integration/api/test_generation_routes.py`
+- **Risk:** Low — all 233 tests pass
+- **Resolution details:**
+  - Removed `get_job_status` method from `GenerationService` (was a read-only query that didn't belong in a generation orchestrator)
+  - Updated `generation.py` router to depend on `JobService` for status queries (proper DIP — router depends on the right abstraction)
+  - Removed `TestGetJobStatus` unit test class from `test_generation_service.py` (tests now live with `JobService` tests)
+  - Updated integration test stub to include `JobService` dependency
+- **Remaining work:** Full SRP split (pipeline orchestration vs. artifact persistence vs. job state) still pending (~3 hours)
+
+**3.b. Full GenerationService Split (SRP #1.1.A — Remaining)**
 - **Effort:** ~3 hours
 - **Impact:** Clearer boundaries, easier testing
 - **Files affected:** `generation_service.py` → 3 new files

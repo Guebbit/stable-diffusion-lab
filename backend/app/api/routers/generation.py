@@ -21,6 +21,7 @@ from app.domain.value_objects import GenerationParams
 from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.infrastructure.database.session import get_async_session
 from app.services.generation_service import GenerationService
+from app.services.job_service import JobService
 
 router = APIRouter(prefix="/generation", tags=["generation"])
 
@@ -33,6 +34,13 @@ def _get_generation_service(
         job_repository=JobRepository(session),
         model_repository=ModelRepository(session),
     )
+
+
+def _get_job_service(
+    session: AsyncSession = Depends(get_async_session),
+) -> JobService:
+    """Dependency injection for JobService."""
+    return JobService(JobRepository(session))
 
 
 @router.post("/text-to-image", response_model=JobResponse, status_code=202)
@@ -71,7 +79,7 @@ async def submit_text_to_image(
 @router.get("/jobs/{job_id}")
 async def get_job_status(
     job_id: UUID,
-    service: GenerationService = Depends(_get_generation_service),
+    service: JobService = Depends(_get_job_service),
 ) -> dict[str, Any]:
     """
     Poll the status of a generation job.
@@ -79,7 +87,7 @@ async def get_job_status(
     Returns the current job state. When status is 'completed', the response
     includes artifact references.
     """
-    job = await service.get_job_status(job_id)
+    job = await service.get_job_by_id(job_id)
 
     if job is None:
         raise HTTPException(

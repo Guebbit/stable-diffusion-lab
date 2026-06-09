@@ -38,12 +38,6 @@ class _GenerationServiceStub:
 
     def __init__(self) -> None:
         self.submit_calls: list[dict[str, object]] = []
-        self.status_calls: list[str] = []
-        self._jobs: dict[str, SimpleNamespace] = {}
-
-    def set_job(self, job_id, record: SimpleNamespace) -> None:
-        # Store keyed by string representation so UUID lookups work
-        self._jobs[str(job_id)] = record
 
     async def submit_text_to_image(
         self,
@@ -61,13 +55,20 @@ class _GenerationServiceStub:
         )
         return job_id
 
-    async def get_job_status(self, job_id) -> SimpleNamespace | None:
+
+class _JobServiceStub:
+    """Stub job service for status queries."""
+
+    def __init__(self) -> None:
+        self.status_calls: list[str] = []
+        self._jobs: dict[str, SimpleNamespace] = {}
+
+    def set_job(self, job_id, record: SimpleNamespace) -> None:
+        self._jobs[str(job_id)] = record
+
+    async def get_job_by_id(self, job_id) -> SimpleNamespace | None:
         self.status_calls.append(str(job_id))
-        result = self._jobs.get(str(job_id))
-        # Return None for UUIDs that weren't explicitly set
-        if result is None:
-            return None
-        return result
+        return self._jobs.get(str(job_id))
 
 
 @pytest.mark.asyncio
@@ -173,10 +174,10 @@ async def test_submit_text_to_image_validates_model_id_required(client) -> None:
 @pytest.mark.asyncio
 async def test_get_job_status_returns_job(client, app) -> None:
     """Polling a known job returns its status."""
-    service = _GenerationServiceStub()
+    job_service = _JobServiceStub()
     job = _job_record()
-    service.set_job(str(job.id), job)
-    app.dependency_overrides[generation._get_generation_service] = lambda: service
+    job_service.set_job(str(job.id), job)
+    app.dependency_overrides[generation._get_job_service] = lambda: job_service
 
     response = await client.get(f"/api/v1/generation/jobs/{job.id}")
 
@@ -185,14 +186,14 @@ async def test_get_job_status_returns_job(client, app) -> None:
     assert body["id"] == str(job.id)
     assert body["status"] == "pending"
     assert body["job_type"] == "text_to_image"
-    assert str(job.id) in service.status_calls
+    assert str(job.id) in job_service.status_calls
 
 
 @pytest.mark.asyncio
 async def test_get_job_status_returns_404_when_missing(client, app) -> None:
     """Polling an unknown job id returns 404."""
-    service = _GenerationServiceStub()
-    app.dependency_overrides[generation._get_generation_service] = lambda: service
+    job_service = _JobServiceStub()
+    app.dependency_overrides[generation._get_job_service] = lambda: job_service
 
     response = await client.get(f"/api/v1/generation/jobs/{uuid4()}")
 
@@ -201,8 +202,11 @@ async def test_get_job_status_returns_404_when_missing(client, app) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_job_status_rejects_invalid_uuid(client) -> None:
+async def test_get_job_status_rejects_invalid_uuid(client, app) -> None:
     """Invalid UUID in path returns 422."""
+    job_service = _JobServiceStub()
+    app.dependency_overrides[generation._get_job_service] = lambda: job_service
+
     response = await client.get("/api/v1/generation/jobs/not-a-uuid")
     assert response.status_code == 422
 
