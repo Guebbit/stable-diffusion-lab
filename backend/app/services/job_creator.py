@@ -1,8 +1,11 @@
 """
-Job Creator — creates job records from generation parameters.
+Job Creator — creates and persists job records.
 
-Single responsibility: validate params, resolve the model identifier,
+Single responsibility: validate inputs, build job parameters,
 persist a JobRecord to the database, and publish a job.enqueued event.
+
+Covers both inference jobs (txt2img, img2img) and model lifecycle jobs
+(download, load) to keep job creation in one place.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from app.domain.enums import JobStatus, JobType
 from app.domain.events import JobEvent
 from app.domain.value_objects import GenerationParams
 from app.infrastructure.database.models import JobRecord
-from app.infrastructure.database.repositories import JobRepository
+from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.orchestrator.event_bus import event_bus
 
 from .model_resolver import ModelResolver
@@ -23,15 +26,17 @@ logger = logging.getLogger(__name__)
 
 
 class JobCreator:
-    """Create and persist job records for generation requests."""
+    """Create and persist job records for all job types."""
 
     def __init__(
         self,
         job_repository: JobRepository,
         model_resolver: ModelResolver,
+        model_repository: ModelRepository | None = None,
     ) -> None:
         self._job_repo = job_repository
         self._model_resolver = model_resolver
+        self._model_repo = model_repository
 
     async def create_text_to_image_job(
         self,
@@ -108,6 +113,40 @@ class JobCreator:
             params.update(gen_params.extra)
 
         return params
+
+    async def create_model_download_job(
+        self,
+        model_id: str,
+        source: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Create a PENDING model download job.
+
+        Validates the model exists in the catalog, then queues a download job.
+        This keeps ModelService focused on catalog CRUD only.
+        """
+        if self._model_repo is None:
+            raise RuntimeError("ModelRepository not configured for download jobs")
+
+        model = await self._model_repo.get_by_model_id(model_id)
+        if model is None:
+            raise ValueError(f"Model {model_id} not found in registry")
+
+        job = JobRecord(
+            job_type=JobType.MODEL_DOWNLOAD,
+            status=JobStatus.PENDING,
+            model_id=model.id,
+            params={"model_id": model_id, "source": source},
+        )
+
+        if correlation_id is not None:
+            job.params["correlation_id"] = correlation_id
+
+        created_job = await self._job_repo.create(job)
+        await self._publish_enqueued_event(
+            created_job.id, JobType.MODEL_DOWNLOAD, correlation_id
+        )
+        return created_job.id
 
     @staticmethod
     async def _publish_enqueued_event(

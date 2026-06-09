@@ -1,7 +1,8 @@
 """
 Models router — endpoints for the model registry and lifecycle.
 
-Handles model catalog CRUD, download triggering, and status queries.
+Handles model catalog CRUD and download triggering.
+Job orchestration is delegated to JobCreator.
 """
 
 from __future__ import annotations
@@ -18,17 +19,27 @@ from app.api.schemas import (
 from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.infrastructure.database.session import get_async_session
 from app.infrastructure.storage.storage_manager import StorageManager
+from app.services.job_creator import JobCreator
+from app.services.model_resolver import ModelResolver
 from app.services.model_service import ModelService
 
 router = APIRouter(prefix="/models", tags=["models"])
 
 
 def _get_model_service(session: AsyncSession = Depends(get_async_session)) -> ModelService:
-    """Dependency injection for ModelService."""
+    """Dependency injection for ModelService (catalog CRUD only)."""
     return ModelService(
         model_repository=ModelRepository(session),
-        job_repository=JobRepository(session),
         storage_manager=StorageManager(),
+    )
+
+
+def _get_job_creator(session: AsyncSession = Depends(get_async_session)) -> JobCreator:
+    """Dependency injection for JobCreator (model download jobs)."""
+    return JobCreator(
+        job_repository=JobRepository(session),
+        model_resolver=ModelResolver(ModelRepository(session)),
+        model_repository=ModelRepository(session),
     )
 
 
@@ -116,11 +127,20 @@ async def register_model(
 @router.post("/{model_id:path}/download", response_model=JobResponse, status_code=202)
 async def download_model(
     model_id: str,
-    service: ModelService = Depends(_get_model_service),
+    model_service: ModelService = Depends(_get_model_service),
+    job_creator: JobCreator = Depends(_get_job_creator),
 ) -> JobResponse:
     """Trigger download of a registered model."""
     try:
-        job_id = await service.request_download(model_id)
+        # Look up model to get its source
+        model = await model_service.get_model(model_id)
+        if model is None:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        job_id = await job_creator.create_model_download_job(
+            model_id=model_id,
+            source=model.source,
+        )
     except Exception as exc:
         raise from_exception(exc)
     return JobResponse(job_id=job_id, status="pending", message="Download queued")
