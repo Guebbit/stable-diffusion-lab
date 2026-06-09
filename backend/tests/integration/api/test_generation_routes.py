@@ -23,15 +23,13 @@ def _job_record() -> SimpleNamespace:
         id=uuid4(),
         job_type="text_to_image",
         status="pending",
-        progress_percent=0,
-        current_step=0,
-        total_steps=50,
-        message="",
+        progress=0,
+        error_message="",
+        correlation_id=None,
+        model_id=None,
+        params={},
         created_at=datetime.now(timezone.utc),
-        started_at=None,
-        completed_at=None,
-        error="",
-        result={},
+        updated_at=None,
     )
 
 
@@ -65,7 +63,11 @@ class _GenerationServiceStub:
 
     async def get_job_status(self, job_id) -> SimpleNamespace | None:
         self.status_calls.append(str(job_id))
-        return self._jobs.get(str(job_id))
+        result = self._jobs.get(str(job_id))
+        # Return None for UUIDs that weren't explicitly set
+        if result is None:
+            return None
+        return result
 
 
 @pytest.mark.asyncio

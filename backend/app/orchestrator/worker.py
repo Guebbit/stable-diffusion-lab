@@ -525,6 +525,98 @@ class JobWorker:
                 local_dir_use_symlinks=False,
                 tqdm_class=_HfTqdmProgress,
             )
+        elif source == "civitai":
+            logger.info("Downloading Civitai model: %s", model_id)
+
+            from app.domain.enums import ModelStatus
+            from app.infrastructure.database.repositories import ModelRepository
+            from app.services.sources.civitai import CivitaiSourceProvider
+
+            settings = get_settings()
+            local_dir = settings.models_path / "civitai" / model_id.replace("/", "--")
+            civitai_provider = CivitaiSourceProvider(api_key=settings.civitai_token)
+
+            _civitai_loop = asyncio.get_event_loop()
+
+            async def _civitai_progress(snapshot: dict) -> None:
+                """Handle Civitai download progress updates."""
+                percent = snapshot.get("percent", 0)
+                if percent > 100.0:
+                    percent = 100.0
+
+                logger.info("Civitai download progress: %.1f%%", percent)
+
+                async with self._session_factory() as session:
+                    model_repo = ModelRepository(session)
+                    await model_repo.update_status(
+                        model_id, ModelStatus.DOWNLOADING, download_progress=percent
+                    )
+                    await session.commit()
+
+                await event_bus.publish_event(
+                    JobEvent(
+                        event_type="job.progress",
+                        job_id=str(job_id),
+                        message=f"Downloading {model_id}: {percent}%",
+                        payload={
+                            "status": "downloading",
+                            "progress_percent": percent,
+                        },
+                    )
+                )
+
+            # Resolve model info
+            model_info = await civitai_provider.resolve_model_info(model_id)
+            files = model_info.get("files", [])
+
+            for file_info in files:
+                rel_path = file_info.get("relative_path", "model.safetensors")
+                dest_file = local_dir / rel_path
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+                await civitai_provider.download_file(
+                    model_id=model_id,
+                    file_path=rel_path,
+                    destination=dest_file,
+                    on_progress=_civitai_progress,
+                )
+
+        elif source == "local":
+            logger.info("Importing local model: %s", model_id)
+
+            from app.domain.enums import ModelStatus
+            from app.infrastructure.database.repositories import ModelRepository
+            from app.services.sources.local import LocalSourceProvider
+
+            settings = get_settings()
+            local_dir = settings.models_path / "local" / model_id.replace("/", "--")
+            local_provider = LocalSourceProvider()
+
+            # Resolve model info
+            model_info = await local_provider.resolve_model_info(model_id)
+
+            # Import/copy files
+            result = await local_provider.import_model(
+                source_path=Path(model_id),
+                destination=local_dir,
+                copy=True,
+            )
+
+            # Publish import progress
+            await event_bus.publish_event(
+                JobEvent(
+                    event_type="job.progress",
+                    job_id=str(job_id),
+                    message=f"Imported {len(result.get('files_imported', []))} files from local source",
+                    payload={
+                        "status": "running",
+                        "progress_percent": 100,
+                        "files_imported": result.get("files_imported", []),
+                        "total_bytes": result.get("total_bytes", 0),
+                    },
+                )
+            )
+
         else:
             raise NotImplementedError(f"Download source '{source}' not yet supported")
 

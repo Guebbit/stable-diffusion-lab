@@ -1,154 +1,170 @@
 """Tests for the SSE event hub (api/sse/hub.py)."""
 
+import asyncio
+import json
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import AsyncGenerator
+from unittest.mock import AsyncMock, MagicMock
 
-from app.sse import SSEHub, SSEClient, EventRingBuffer
-from app.events import JobEvent, SystemEvent, TypedEvent
+from app.api.sse.hub import SSEHub
+from app.domain.events import JobEvent
 
 
-# --- SSEClient ---
+class TestSSEHubInitialization:
+    def test_initial_state(self):
+        """SSEHub should start with no connections."""
+        hub = SSEHub()
+        assert hub.connection_count == 0
+        assert hub._global_streams == []
+        assert hub._streams == {}
 
-class TestSSEClient:
-    @pytest.fixture
-    def mock_write(self):
-        """Create a mock async iterator for write."""
-        mock_iter = AsyncMock()
-        mock_iter.send = AsyncMock()
-        mock_iter.asend = AsyncMock(side_effect=StopAsyncIteration)
-        mock_iter.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-        return mock_iter
+    def test_connection_count_includes_filtered_and_global(self):
+        """connection_count should sum all stream queues."""
+        hub = SSEHub()
+        hub._global_streams.append(asyncio.Queue())
+        hub._global_streams.append(asyncio.Queue())
+        hub._streams["job"] = [asyncio.Queue()]
+        assert hub.connection_count == 3
 
-    @pytest.fixture
-    def mock_headers(self):
-        return {"Connection": "keep-alive"}
 
-    @pytest.fixture
-    def mock_receive(self):
-        """Create a mock receive callable."""
-        return AsyncMock()
+class TestSSEHubBroadcast:
+    @pytest.mark.asyncio
+    async def test_broadcast_typed_event_to_global_streams(self):
+        """broadcast_typed should send event to all global streams."""
+        hub = SSEHub()
+        queue1 = asyncio.Queue()
+        queue2 = asyncio.Queue()
+        hub._global_streams.append(queue1)
+        hub._global_streams.append(queue2)
 
-    @pytest.fixture
-    def mock_send(self):
-        """Create a mock send callable."""
-        send = AsyncMock()
-        send.return_value = None
-        return send
+        event = JobEvent(
+            event_type="job.started",
+            job_id="test-123",
+            message="Job started",
+        )
+        await hub.broadcast_typed(event)
+
+        # Both queues should receive the event
+        data1 = queue1.get_nowait()
+        data2 = queue2.get_nowait()
+        assert data1.startswith("data: ")
+        assert data2.startswith("data: ")
+
+        payload1 = json.loads(data1[6:])
+        payload2 = json.loads(data2[6:])
+        assert payload1["job_id"] == "test-123"
+        assert payload2["message"] == "Job started"
+        assert payload1["type"] == "job.started"
 
     @pytest.mark.asyncio
-    async def test_sse_client_initialization(self, mock_headers, mock_receive, mock_send):
-        """SSEClient should initialize with correct parameters."""
-        client = SSEClient(
-            client_id="test-client",
-            headers=mock_headers,
-            receive=mock_receive,
-            send=mock_send,
+    async def test_broadcast_typed_event_to_filtered_streams(self):
+        """broadcast_typed should send event to streams subscribed to the category."""
+        hub = SSEHub()
+        job_queue = asyncio.Queue()
+        model_queue = asyncio.Queue()
+        hub._streams["job"] = [job_queue]
+        hub._streams["model"] = [model_queue]
+
+        event = JobEvent(
+            event_type="job.completed",
+            job_id="test-456",
+            message="Job completed",
         )
-        assert client.client_id == "test-client"
-        assert client.subscribed_event_types == set()
-        assert client.buffer_size == 50
-        assert client.connected is False
+        await hub.broadcast_typed(event)
+
+        # Only the job queue should receive the event (category is "job")
+        data = job_queue.get_nowait()
+        assert job_queue.qsize() == 0
+        assert model_queue.qsize() == 0  # model queue should be empty
+
+        payload = json.loads(data[6:])
+        assert payload["type"] == "job.completed"
+
+
+
+class TestSSEHubCreateStream:
+    @pytest.mark.asyncio
+    async def test_create_stream_returns_streaming_response(self):
+        """create_stream should return a StreamingResponse."""
+        from fastapi.responses import StreamingResponse
+
+        hub = SSEHub()
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=False)
+
+        response = await hub.create_stream(mock_request)
+        assert isinstance(response, StreamingResponse)
+        assert response.media_type == "text/event-stream"
 
     @pytest.mark.asyncio
-    async def test_subscribe_event_types(self, mock_headers, mock_receive, mock_send):
-        """subscribe_event_types should add types to the subscription list."""
-        client = SSEClient(
-            client_id="test-client",
-            headers=mock_headers,
-            receive=mock_receive,
-            send=mock_send,
-        )
-        await client.subscribe_event_types(["job.event", "model.event"])
-        assert "job.event" in client.subscribed_event_types
-        assert "model.event" in client.subscribed_event_types
-        assert client.connected is True
+    async def test_create_stream_includes_correct_headers(self):
+        """create_stream should set SSE-appropriate headers."""
+        hub = SSEHub()
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=False)
+
+        response = await hub.create_stream(mock_request)
+        assert response.headers["Cache-Control"] == "no-cache"
+        assert response.headers["Connection"] == "keep-alive"
+        assert response.headers["X-Accel-Buffering"] == "no"
 
     @pytest.mark.asyncio
-    async def test_unsubscribe_event_types(self, mock_headers, mock_receive, mock_send):
-        """unsubscribe_event_types should remove types from the subscription."""
-        client = SSEClient(
-            client_id="test-client",
-            headers=mock_headers,
-            receive=mock_receive,
-            send=mock_send,
+    async def test_create_stream_global_increments_count(self):
+        """Creating a global stream should increase connection_count."""
+        hub = SSEHub()
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=False)
+
+        assert hub.connection_count == 0
+        await hub.create_stream(mock_request)
+        assert hub.connection_count == 1
+
+    @pytest.mark.asyncio
+    async def test_create_stream_filtered_subscribes_to_category(self):
+        """Creating a filtered stream should register under the category."""
+        hub = SSEHub()
+        mock_request = MagicMock()
+        mock_request.is_disconnected = AsyncMock(return_value=False)
+
+        await hub.create_stream(mock_request, subscribe={"job", "model"})
+        assert "job" in hub._streams
+        assert "model" in hub._streams
+        assert len(hub._streams["job"]) == 1
+        assert len(hub._streams["model"]) == 1
+
+
+class TestEventPayload:
+    @pytest.mark.asyncio
+    async def test_broadcast_includes_type_field(self):
+        """Broadcasted event should include the event_type as 'type' in payload."""
+        hub = SSEHub()
+        queue = asyncio.Queue()
+        hub._global_streams.append(queue)
+
+        event = JobEvent(
+            event_type="job.failed",
+            job_id="err-1",
+            message="GPU OOM",
+            level="error",
         )
-        await client.subscribe_event_types(["job.event", "model.event"])
-        await client.unsubscribe_event_types(["job.event"])
-        assert "job.event" not in client.subscribed_event_types
-        assert "model.event" in client.subscribed_event_types
+        await hub.broadcast_typed(event)
 
+        data = queue.get_nowait()
+        payload = json.loads(data[6:])
+        assert payload["type"] == "job.failed"
+        assert payload["level"] == "error"
+        assert payload["job_id"] == "err-1"
 
-# --- SSEHub ---
+    @pytest.mark.asyncio
+    async def test_broadcast_includes_timestamp(self):
+        """Broadcasted event should include an ISO timestamp."""
+        hub = SSEHub()
+        queue = asyncio.Queue()
+        hub._global_streams.append(queue)
 
-class TestSSEHub:
-    @pytest.fixture
-    def sse_hub(self):
-        """Create a SSEHub instance."""
-        return SSEHub(max_clients=100, max_buffer_size=10)
+        event = JobEvent(event_type="job.started", job_id="t-1", message="started")
+        await hub.broadcast_typed(event)
 
-    def test_sse_hub_initialization(self):
-        """SSEHub should initialize with empty subscribers and buffer."""
-        hub = SSEHub(max_clients=50, max_buffer_size=20)
-        assert hub.max_clients == 50
-        assert hub.max_buffer_size == 20
-        # hub should have an internal event buffer
-        assert hasattr(hub, '_event_buffer')
-        assert hasattr(hub, '_subscribers')
-
-    def test_publish_event(self, sse_hub):
-        """publish_event should add the event to the buffer."""
-        event = JobEvent(message="Test event")
-        hub = SSEHub(max_clients=10, max_buffer_size=10)
-        hub.publish(event)
-        events = hub.get_recent_events()
-        assert len(events) == 1
-        assert events[0].message == "Test event"
-
-    def test_publish_system_event(self, sse_hub):
-        """publish_system should create and publish a SystemEvent."""
-        hub = SSEHub(max_clients=10, max_buffer_size=10)
-        hub.publish_system("System started")
-        events = hub.get_recent_events()
-        assert len(events) == 1
-        assert isinstance(events[0], SystemEvent)
-        assert events[0].message == "System started"
-
-    def test_get_recent_events(self, sse_hub):
-        """get_recent_events should return the configured number of events."""
-        hub = SSEHub(max_clients=10, max_buffer_size=10)
-        for i in range(5):
-            hub.publish(JobEvent(message=f"Event {i}"))
-        events = hub.get_recent_events(3)
-        assert len(events) == 3
-
-    def test_get_recent_events_empty(self, sse_hub):
-        """get_recent_events should return empty list for no events."""
-        hub = SSEHub(max_clients=10, max_buffer_size=10)
-        events = hub.get_recent_events()
-        assert events == []
-
-    def test_limit_zero_returns_empty(self, sse_hub):
-        """get_recent_events with limit=0 should return empty list."""
-        hub = SSEHub(max_clients=10, max_buffer_size=10)
-        hub.publish(JobEvent(message="Test"))
-        events = hub.get_recent_events(0)
-        assert events == []
-
-    def test_get_job_events(self, sse_hub):
-        """get_job_events should filter by job_id."""
-        hub = SSEHub(max_clients=10, max_buffer_size=100)
-        hub.publish(JobEvent(job_id="job-1", message="job1-event"))
-        hub.publish(JobEvent(job_id="job-2", message="job2-event"))
-        hub.publish(JobEvent(job_id="job-1", message="job1-event-2"))
-        events = hub.get_job_events("job-1")
-        assert len(events) == 2
-        assert all(e.job_id == "job-1" for e in events)
-        assert events[0].message == "job1-event"
-
-    def test_get_job_events_empty(self, sse_hub):
-        """get_job_events should return empty list for unknown job_id."""
-        hub = SSEHub(max_clients=10, max_buffer_size=100)
-        hub.publish(JobEvent(job_id="job-1", message="Test"))
-        events = hub.get_job_events("job-999")
-        assert events == []
+        data = queue.get_nowait()
+        payload = json.loads(data[6:])
+        assert "timestamp" in payload

@@ -109,7 +109,9 @@ class TestEventRingBuffer:
         buffer.append(e2)
         events = buffer.get_recent(10)
         assert len(events) == 2
-        assert events[-1].message == "second"  # Most recent last in list
+        # get_recent returns newest first, so index 0 is the most recent
+        assert events[0].message == "second"
+        assert events[1].message == "first"
 
     def test_get_recent_limited(self):
         """get_recent should respect the limit."""
@@ -126,8 +128,10 @@ class TestEventRingBuffer:
             buffer.append(TypedEvent(message=f"event-{i}"))
         events = buffer.get_recent(100)
         assert len(events) == 3
-        # First two events dropped
-        assert events[0].message == "event-2"
+        # First two events dropped; get_recent returns newest first
+        assert events[0].message == "event-4"
+        assert events[1].message == "event-3"
+        assert events[2].message == "event-2"
 
     def test_get_by_job(self):
         """get_by_job should return events matching the job_id."""

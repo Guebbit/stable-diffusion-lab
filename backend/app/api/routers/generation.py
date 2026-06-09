@@ -7,7 +7,10 @@ and the client polls or subscribes via WebSocket for completion.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, Response
+from typing import Any
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import (
@@ -63,3 +66,36 @@ async def submit_text_to_image(
     if correlation_id:
         response.headers["X-Correlation-ID"] = correlation_id
     return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_status(
+    job_id: UUID,
+    service: GenerationService = Depends(_get_generation_service),
+) -> dict[str, Any]:
+    """
+    Poll the status of a generation job.
+
+    Returns the current job state. When status is 'completed', the response
+    includes artifact references.
+    """
+    job = await service.get_job_status(job_id)
+
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Job {job_id} not found",
+        )
+
+    return {
+        "id": str(job.id),
+        "status": job.status.value if hasattr(job.status, "value") else job.status,
+        "job_type": job.job_type.value if hasattr(job.job_type, "value") else job.job_type,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+        "progress": job.progress,
+        "error_message": job.error_message,
+        "correlation_id": job.correlation_id,
+        "model_id": str(job.model_id) if job.model_id else None,
+        "params": job.params,
+    }
