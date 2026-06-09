@@ -1,0 +1,127 @@
+"""
+Job Creator — creates job records from generation parameters.
+
+Single responsibility: validate params, resolve the model identifier,
+persist a JobRecord to the database, and publish a job.enqueued event.
+"""
+
+from __future__ import annotations
+
+import logging
+from uuid import UUID
+
+from app.domain.enums import JobStatus, JobType
+from app.domain.events import JobEvent
+from app.domain.value_objects import GenerationParams
+from app.infrastructure.database.models import JobRecord
+from app.infrastructure.database.repositories import JobRepository
+from app.orchestrator.event_bus import event_bus
+
+from .model_resolver import ModelResolver
+
+logger = logging.getLogger(__name__)
+
+
+class JobCreator:
+    """Create and persist job records for generation requests."""
+
+    def __init__(
+        self,
+        job_repository: JobRepository,
+        model_resolver: ModelResolver,
+    ) -> None:
+        self._job_repo = job_repository
+        self._model_resolver = model_resolver
+
+    async def create_text_to_image_job(
+        self,
+        params: GenerationParams,
+        model_id: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Create a PENDING text-to-image job."""
+        resolved_model = await self._model_resolver.resolve(model_id)
+
+        job_params = self._build_params(params, resolved_model, correlation_id)
+        job_params["original_model_id"] = model_id
+
+        job = JobRecord(
+            job_type=JobType.TEXT_TO_IMAGE,
+            status=JobStatus.PENDING,
+            params=job_params,
+        )
+        created_job = await self._job_repo.create(job)
+        await self._publish_enqueued_event(created_job.id, JobType.TEXT_TO_IMAGE, correlation_id)
+        return created_job.id
+
+    async def create_image_to_image_job(
+        self,
+        params: GenerationParams,
+        model_id: str,
+        source_image_path: str,
+        correlation_id: str | None = None,
+        strength: float = 0.75,
+    ) -> UUID:
+        """Create a PENDING image-to-image job."""
+        resolved_model = await self._model_resolver.resolve(model_id)
+
+        job_params = self._build_params(params, resolved_model, correlation_id)
+        job_params["original_model_id"] = model_id
+        job_params["source_image_path"] = source_image_path
+        job_params["strength"] = strength
+
+        job = JobRecord(
+            job_type=JobType.IMAGE_TO_IMAGE,
+            status=JobStatus.PENDING,
+            params=job_params,
+        )
+        created_job = await self._job_repo.create(job)
+        await self._publish_enqueued_event(created_job.id, JobType.IMAGE_TO_IMAGE, correlation_id)
+        return created_job.id
+
+    # ── Private helpers ────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_params(
+        gen_params: GenerationParams,
+        resolved_model_id: str,
+        correlation_id: str | None,
+    ) -> dict:
+        """Serialize GenerationParams + metadata into a flat params dict."""
+        params: dict = {
+            "model_id": resolved_model_id,
+            "prompt": gen_params.prompt,
+            "negative_prompt": gen_params.negative_prompt or "",
+            "width": gen_params.width,
+            "height": gen_params.height,
+            "num_inference_steps": gen_params.num_inference_steps,
+            "guidance_scale": gen_params.guidance_scale,
+            "seed": gen_params.seed,
+            "num_images": gen_params.num_images,
+        }
+
+        if correlation_id is not None:
+            params["correlation_id"] = correlation_id
+
+        # Forward any extra/unknown parameters
+        if gen_params.extra:
+            params.update(gen_params.extra)
+
+        return params
+
+    @staticmethod
+    async def _publish_enqueued_event(
+        job_id: UUID,
+        job_type: JobType,
+        correlation_id: str | None,
+    ) -> None:
+        """Publish a job.enqueued event so SSE clients can react."""
+        await event_bus.publish_event(
+            JobEvent(
+                event_type="job.enqueued",
+                correlation_id=correlation_id,
+                job_id=str(job_id),
+                message=f"Job {job_type.value} enqueued",
+                payload={"job_type": job_type},
+            )
+        )
