@@ -528,15 +528,22 @@ class ErrorHandler:
 
 ### 🟢 Low Priority (Nice to Have)
 
-**6. Simplify Adapter Registry (KISS #2.1)**
-- Replace dynamic resolution with direct injection
-- Trade-off: less flexible but much clearer
+**6. ✅ RESOLVED — Simplify Adapter Registry (KISS #2.1)**
+- **Status:** ✅ **RESOLVED** — Direct injection already in place
+- **Evaluation:** `_build_adapter_registry()` in `main.py` uses direct imports (`from app.adapters.direct import ...`) and explicit instantiation. No `importlib` dynamic resolution. Adapter registration is explicit, type-safe, and easy to debug.
 
-**7. Simplify Response Schema (KISS #2.3)**
-- Use unified response type instead of Union
+**7. ✅ RESOLVED — Simplify Response Schema (KISS #2.3)**
+- **Status:** ✅ **RESOLVED** — Clean `JobResponse` schema in use
+- **Evaluation:** `backend/app/api/schemas/generation.py` uses a simple `JobResponse` (job_id, status, message) without any `Union` types. Request schemas (`TextToImageRequest`, `ImageToImageRequest`) are flat Pydantic models with Field validators.
 
-**8. Review Layering (KISS #2.2)**
-- Evaluate if all layers are justified for this project scale
+**8. ✅ RESOLVED — Review Layering (KISS #2.2)**
+- **Status:** ✅ **RESOLVED** — Layers evaluated and justified
+- **Evaluation:** The API → Service → Repository → Database layering provides genuine value:
+  - Services orchestrate cross-cutting concerns (e.g., `ModelService.request_download` coordinates model repo + job repo + status update)
+  - Repositories encapsulate SQLAlchemy query patterns
+  - Routers handle HTTP concerns (validation, serialization, error mapping)
+  - This 4-layer stack is justified by the project scale and complexity of job lifecycle management
+- **No code changes needed** — the existing layering is appropriate
 
 ---
 
