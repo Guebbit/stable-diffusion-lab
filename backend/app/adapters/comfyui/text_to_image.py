@@ -8,13 +8,13 @@ submits to ComfyUI, waits for completion via WebSocket, downloads output images.
 from __future__ import annotations
 
 import logging
-import uuid
 from pathlib import Path
 
+from app.adapters.base import build_step_callback, save_artifacts_from_bytes
 from app.adapters.comfyui.client import ComfyUIClient
 from app.adapters.comfyui.workflow_builder import WorkflowBuilder
 from app.domain.protocols import ProgressCallback
-from app.domain.value_objects import ArtifactReference, GenerationParams, JobProgress
+from app.domain.value_objects import ArtifactReference, GenerationParams
 
 
 logger = logging.getLogger(__name__)
@@ -50,52 +50,16 @@ class ComfyUITextToImageAdapter:
         prompt_id = await self._client.queue_workflow(workflow)
 
         # Wait for completion with progress forwarding
-        def progress_handler(current: int, total: int) -> None:
-            if on_progress:
-                on_progress(
-                    JobProgress(
-                        job_id=uuid.UUID(int=0),
-                        status="running",
-                        progress_percent=int((current / max(total, 1)) * 100),
-                        current_step=current,
-                        total_steps=total,
-                    )
-                )
+        step_callback = build_step_callback(on_progress, params.num_inference_steps)
+        output_data = await self._client.wait_for_completion(prompt_id, on_progress=step_callback)
 
-        output_data = await self._client.wait_for_completion(
-            prompt_id, on_progress=progress_handler
-        )
-
-        # Download and save output images
-        output_dir.mkdir(parents=True, exist_ok=True)
-        artifacts: list[ArtifactReference] = []
-
-        # ComfyUI output format: {node_id: {"images": [{"filename": ..., "subfolder": ...}]}}
+        # Download image bytes from ComfyUI
+        image_bytes_list: list[bytes] = []
         for node_output in output_data.values():
             images = node_output.get("images", []) if isinstance(node_output, dict) else []
             for image_info in images:
                 filename = image_info.get("filename", "")
                 subfolder = image_info.get("subfolder", "")
+                image_bytes_list.append(await self._client.download_output(filename, subfolder))
 
-                # Download image bytes from ComfyUI
-                image_bytes = await self._client.download_output(filename, subfolder)
-
-                # Save locally
-                artifact_id = uuid.uuid4()
-                local_filename = f"{artifact_id}.png"
-                file_path = output_dir / local_filename
-                file_path.write_bytes(image_bytes)
-
-                artifacts.append(
-                    ArtifactReference(
-                        artifact_id=artifact_id,
-                        job_id=uuid.UUID(int=0),
-                        file_path=str(file_path),
-                        media_type="image/png",
-                        width=params.width,
-                        height=params.height,
-                        size_bytes=len(image_bytes),
-                    )
-                )
-
-        return artifacts
+        return save_artifacts_from_bytes(image_bytes_list, output_dir, params)

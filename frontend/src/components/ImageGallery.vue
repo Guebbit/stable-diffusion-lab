@@ -5,11 +5,16 @@
  * Shows: loading spinner during generation, empty state, or image cards.
  * Each card shows the image, its prompt, dimensions, seed, metrics, and a download button.
  */
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useDiffusionStore } from '../stores/diffusion'
 import type { ArtifactEntry } from '../types'
 
 const store = useDiffusionStore()
+
+// Load gallery from backend on mount so images survive page navigation
+onMounted(() => {
+  store.refreshGallery()
+})
 
 // Currently displayed image in the metrics detail dialog
 const detailImage = ref<ArtifactEntry | null>(null)

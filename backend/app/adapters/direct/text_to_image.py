@@ -11,13 +11,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
+from app.adapters.base import build_diffusers_step_callback, save_artifacts_from_pil_images
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
-from app.domain.value_objects import ArtifactReference, GenerationParams, JobProgress
+from app.domain.value_objects import ArtifactReference, GenerationParams
 
 
 logger = logging.getLogger(__name__)
@@ -107,18 +107,8 @@ class DirectTextToImageAdapter:
         seed = params.seed if params.seed is not None else int(time.time() * 1000) % (2**32)
         generator = torch.Generator(device=pipeline.device).manual_seed(seed)
 
-        # Step progress callback — forwards to orchestrator via on_progress
-        def step_callback(pipe: Any, step: int, timestep: Any, kwargs: Any) -> Any:
-            if on_progress:
-                progress = JobProgress(
-                    job_id=uuid.UUID(int=0),  # Replaced by orchestrator
-                    status="running",
-                    progress_percent=int((step / params.num_inference_steps) * 100),
-                    current_step=step,
-                    total_steps=params.num_inference_steps,
-                )
-                on_progress(progress)
-            return kwargs
+        # Step progress callback — built by shared utility
+        step_callback = build_diffusers_step_callback(on_progress, params.num_inference_steps)
 
         # Run the diffusion pipeline
         result = pipeline(
@@ -133,26 +123,4 @@ class DirectTextToImageAdapter:
             callback_on_step_end=step_callback,
         )
 
-        # Save outputs and build artifact references
-        output_dir.mkdir(parents=True, exist_ok=True)
-        artifacts: list[ArtifactReference] = []
-
-        for image in result.images:
-            artifact_id = uuid.uuid4()
-            filename = f"{artifact_id}.png"
-            file_path = output_dir / filename
-            image.save(file_path)
-
-            artifacts.append(
-                ArtifactReference(
-                    artifact_id=artifact_id,
-                    job_id=uuid.UUID(int=0),  # Set by orchestrator
-                    file_path=str(file_path),
-                    media_type="image/png",
-                    width=params.width,
-                    height=params.height,
-                    size_bytes=file_path.stat().st_size,
-                )
-            )
-
-        return artifacts
+        return save_artifacts_from_pil_images(result.images, output_dir, params)
