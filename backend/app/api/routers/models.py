@@ -9,12 +9,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.error_handler import from_exception
 from app.api.schemas import (
     JobResponse,
     ModelRegisterRequest,
     ModelRegistryResponse,
 )
-from app.domain.errors import AILabError
 from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.infrastructure.database.session import get_async_session
 from app.infrastructure.storage.storage_manager import StorageManager
@@ -121,11 +121,8 @@ async def download_model(
     """Trigger download of a registered model."""
     try:
         job_id = await service.request_download(model_id)
-    except AILabError as exc:
-        status_code = 404 if exc.error_code in ("MODEL_NOT_FOUND", "MODEL_NOT_READY") else 400
-        raise HTTPException(status_code=status_code, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise from_exception(exc)
     return JobResponse(job_id=job_id, status="pending", message="Download queued")
 
 
@@ -137,8 +134,5 @@ async def delete_model(
     """Delete a model from catalog and disk."""
     try:
         await service.delete_model(model_id)
-    except AILabError as exc:
-        status_code = 404 if exc.error_code == "MODEL_NOT_FOUND" else 400
-        raise HTTPException(status_code=status_code, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise from_exception(exc)

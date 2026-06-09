@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.error_handler import from_exception
 from app.api.schemas.common import PaginatedResponse
 from app.api.schemas.jobs import (
     JobCancelResponse,
@@ -19,7 +20,6 @@ from app.api.schemas.jobs import (
     JobEventResponse,
 )
 from app.api.schemas.system import JobTimelineResponse, TypedEventResponse
-from app.domain.errors import JobNotFoundError, InvalidStateTransitionError, RetryLimitExceededError
 from app.infrastructure.database.repositories import JobEventRepository, JobRepository
 from app.infrastructure.database.session import get_async_session
 from app.services.job_service import JobService
@@ -35,6 +35,29 @@ def _get_job_service(session: AsyncSession = Depends(get_async_session)) -> JobS
     )
 
 
+def _job_to_response(j) -> JobDetailResponse:
+    """Convert a job domain/model object to JobDetailResponse."""
+    return JobDetailResponse(
+        id=j.id,
+        job_type=j.job_type,
+        status=j.status,
+        progress_percent=j.progress_percent,
+        current_step=j.current_step,
+        total_steps=j.total_steps,
+        message=j.message,
+        priority=j.priority,
+        attempt=j.attempt,
+        max_attempts=j.max_attempts,
+        params=j.params,
+        result=j.result,
+        error=j.error,
+        created_at=j.created_at,
+        started_at=j.started_at,
+        completed_at=j.completed_at,
+        timeout_at=j.timeout_at,
+    )
+
+
 @router.get("/", response_model=PaginatedResponse[JobDetailResponse])
 async def list_jobs(
     status: str | None = Query(None, description="Filter by status"),
@@ -47,28 +70,7 @@ async def list_jobs(
     jobs, total = await service.list_jobs(
         status=status, job_type=job_type, limit=limit, offset=offset
     )
-    items = [
-        JobDetailResponse(
-            id=j.id,
-            job_type=j.job_type,
-            status=j.status,
-            progress_percent=j.progress_percent,
-            current_step=j.current_step,
-            total_steps=j.total_steps,
-            message=j.message,
-            priority=j.priority,
-            attempt=j.attempt,
-            max_attempts=j.max_attempts,
-            params=j.params,
-            result=j.result,
-            error=j.error,
-            created_at=j.created_at,
-            started_at=j.started_at,
-            completed_at=j.completed_at,
-            timeout_at=j.timeout_at,
-        )
-        for j in jobs
-    ]
+    items = [_job_to_response(j) for j in jobs]
     return PaginatedResponse(
         items=items, total=total, limit=limit, offset=offset, has_more=(offset + limit < total)
     )
@@ -82,27 +84,9 @@ async def get_job(
     """Get detailed status of a specific job."""
     try:
         job = await service.get_job(job_id)
-    except JobNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    return JobDetailResponse(
-        id=job.id,
-        job_type=job.job_type,
-        status=job.status,
-        progress_percent=job.progress_percent,
-        current_step=job.current_step,
-        total_steps=job.total_steps,
-        message=job.message,
-        priority=job.priority,
-        attempt=job.attempt,
-        max_attempts=job.max_attempts,
-        params=job.params,
-        result=job.result,
-        error=job.error,
-        created_at=job.created_at,
-        started_at=job.started_at,
-        completed_at=job.completed_at,
-        timeout_at=job.timeout_at,
-    )
+    except Exception as exc:
+        raise from_exception(exc)
+    return _job_to_response(job)
 
 
 @router.post("/{job_id}/cancel", response_model=JobCancelResponse)
@@ -113,10 +97,8 @@ async def cancel_job(
     """Request cancellation of a pending or running job."""
     try:
         status = await service.request_cancellation(job_id)
-    except JobNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except InvalidStateTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise from_exception(exc)
     return JobCancelResponse(job_id=job_id, status=status, message="Cancellation requested")
 
 
@@ -128,29 +110,9 @@ async def retry_job(
     """Retry a failed job (resets to pending with incremented attempt)."""
     try:
         job = await service.retry_job(job_id)
-    except JobNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except (InvalidStateTransitionError, RetryLimitExceededError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    return JobDetailResponse(
-        id=job.id,
-        job_type=job.job_type,
-        status=job.status,
-        progress_percent=job.progress_percent,
-        current_step=job.current_step,
-        total_steps=job.total_steps,
-        message=job.message,
-        priority=job.priority,
-        attempt=job.attempt,
-        max_attempts=job.max_attempts,
-        params=job.params,
-        result=job.result,
-        error=job.error,
-        created_at=job.created_at,
-        started_at=job.started_at,
-        completed_at=job.completed_at,
-        timeout_at=job.timeout_at,
-    )
+    except Exception as exc:
+        raise from_exception(exc)
+    return _job_to_response(job)
 
 
 @router.get("/{job_id}/events", response_model=list[JobEventResponse])
@@ -161,8 +123,8 @@ async def get_job_events(
     """Get the audit trail (state transitions) for a job."""
     try:
         events = await service.get_job_events(job_id)
-    except JobNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise from_exception(exc)
     return [
         JobEventResponse(
             id=e.id,

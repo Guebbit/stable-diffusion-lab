@@ -469,11 +469,15 @@ class ErrorHandler:
 - **Files affected:** `backend/app/adapters/base.py` (new), ComfyUI + Direct text-to-image and image-to-image adapters
 - **Risk:** Low — pure extraction, behavior unchanged
 
-**2. Extract Shared Error Handler (DRY #3.4)**
+**2. ✅ Extract Shared Error Handler (DRY #3.4) — RESOLVED**
 - **Effort:** ~30 min
-- **Impact:** Centralized error handling, consistent patterns
-- **Files affected:** Worker, all routers
-- **Risk:** Low — behavioral change, easy to test
+- **Impact:** Centralized error handling, consistent patterns, reduced code duplication
+- **Files affected:** `backend/app/api/error_handler.py` (new), `models.py`, `jobs.py` routers refactored
+- **Risk:** Low — all 236 tests pass
+- **Resolution details:**
+  - Created `backend/app/api/error_handler.py` with domain error → HTTP exception mapping
+  - Refactored `models.py` and `jobs.py` routers to use `handle_api_error()` instead of inline try/except
+  - Routers that were already clean (`generation.py`, `artifacts.py`) remain unchanged
 
 ### 🟡 Medium Priority
 
