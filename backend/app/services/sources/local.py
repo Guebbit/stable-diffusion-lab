@@ -8,10 +8,11 @@ No download needed — validates and registers existing files.
 from __future__ import annotations
 
 import logging
-import hashlib
 import shutil
 from pathlib import Path
 from typing import Any
+
+from app.services.sources.utils import compute_file_sha256
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,6 @@ class LocalSourceProvider:
             # Directory mode: scan for model files
             for file_path in source.rglob("*"):
                 if file_path.is_file() and file_path.suffix.lower() in MODEL_EXTENSIONS:
-                    rel_path = str(file_path.relative_to(source))
                     file_info = _scan_file(file_path, relative_to=source)
                     files_info.append(file_info)
                     total_size_bytes += file_info["size_bytes"]
@@ -76,7 +76,6 @@ class LocalSourceProvider:
             if not files_info:
                 for file_path in source.rglob("*"):
                     if file_path.is_file():
-                        rel_path = str(file_path.relative_to(source))
                         file_info = _scan_file(file_path, relative_to=source)
                         files_info.append(file_info)
                         total_size_bytes += file_info["size_bytes"]
@@ -178,12 +177,12 @@ class LocalSourceProvider:
             existing_size = destination.stat().st_size
             source_size = source.stat().st_size
             if existing_size == source_size:
-                sha256 = _compute_file_sha256(destination)
+                sha256 = compute_file_sha256(destination)
                 return {"sha256": sha256, "size_bytes": existing_size}
 
         shutil.copy2(str(source), str(destination))
         final_size = destination.stat().st_size
-        sha256 = _compute_file_sha256(destination)
+        sha256 = compute_file_sha256(destination)
 
         if on_progress is not None:
             on_progress({
@@ -211,7 +210,7 @@ def _scan_file(
         "size_bytes": size,
     }
     try:
-        info["sha256"] = _compute_file_sha256(file_path)
+        info["sha256"] = compute_file_sha256(file_path)
     except OSError as e:
         logger.warning("Could not compute SHA256 for %s: %s", file_path, e)
     return info
@@ -239,16 +238,3 @@ def _import_file(
         "destination": str(destination),
         "size_bytes": destination.stat().st_size,
     }
-
-
-def _compute_file_sha256(file_path: Path, chunk_size: int = 8 * 1024 * 1024) -> str | None:
-    """Compute SHA256 hash of a file."""
-    try:
-        sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(chunk_size), b""):
-                sha256_hash.update(chunk)
-        return sha256_hash.hexdigest()
-    except OSError as e:
-        logger.warning("Could not compute SHA256 for %s: %s", file_path, e)
-        return None

@@ -8,11 +8,12 @@ Hugging Face Hub. Supports multi-file models with resume capability.
 from __future__ import annotations
 
 import logging
-import hashlib
 from pathlib import Path
 from typing import Any
 
 from huggingface_hub import HfApi, hf_hub_download, HfFolder
+
+from app.services.sources.utils import compute_file_sha256
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ class HuggingFaceSourceProvider:
             existing_size = destination.stat().st_size
             if resume_from_byte == 0 and existing_size > 0:
                 # File already downloaded, compute hash and return
-                sha256 = _compute_file_sha256(destination)
+                sha256 = compute_file_sha256(destination)
                 logger.info(
                     "File already exists at %s (%d bytes), skipping download",
                     destination,
@@ -175,7 +176,7 @@ class HuggingFaceSourceProvider:
 
             # Compute size and hash
             final_size = tmp_destination.stat().st_size
-            sha256 = _compute_file_sha256(tmp_destination)
+            sha256 = compute_file_sha256(tmp_destination)
 
             # Report 100% progress
             if on_progress is not None:
@@ -212,25 +213,3 @@ class HuggingFaceSourceProvider:
     def supports_resume(self) -> bool:
         """HuggingFace Hub supports byte-range resume."""
         return True
-
-
-def _compute_file_sha256(file_path: Path, chunk_size: int = 8 * 1024 * 1024) -> str | None:
-    """
-    Compute SHA256 hash of a file.
-
-    Args:
-        file_path: Path to the file to hash.
-        chunk_size: Read chunk size in bytes (default 8MB).
-
-    Returns:
-        Hex-encoded SHA256 digest, or None if file cannot be read.
-    """
-    try:
-        sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(chunk_size), b""):
-                sha256_hash.update(chunk)
-        return sha256_hash.hexdigest()
-    except OSError as e:
-        logger.warning("Could not compute SHA256 for %s: %s", file_path, e)
-        return None

@@ -17,9 +17,26 @@ import logging
 from typing import Any
 
 from app.domain.enums import InferenceBackend, JobType
+from app.domain.protocols import (
+    ImageToImageProvider,
+    LLMProvider,
+    TextToImageProvider,
+    VideoProvider,
+    VisionProvider,
+)
 
 
 logger = logging.getLogger(__name__)
+
+# Mapping from JobType to the expected Protocol class.
+# Used for runtime validation at registration time to catch wiring errors early.
+_PROTOCOL_MAP: dict[JobType, type[Any]] = {
+    JobType.TEXT_TO_IMAGE: TextToImageProvider,
+    JobType.IMAGE_TO_IMAGE: ImageToImageProvider,
+    JobType.IMAGE_CAPTIONING: VisionProvider,
+    JobType.VIDEO_GENERATION: VideoProvider,
+    JobType.LLM_INFERENCE: LLMProvider,
+}
 
 
 class AdapterRegistry:
@@ -52,6 +69,8 @@ class AdapterRegistry:
         job_type: JobType,
         backend: InferenceBackend,
         adapter: Any,
+        *,
+        validate_protocol: bool = True,
     ) -> None:
         """
         Register an adapter for a specific (job_type, backend) pair.
@@ -60,7 +79,22 @@ class AdapterRegistry:
             job_type: The kind of work this adapter handles.
             backend: Which inference engine this adapter uses.
             adapter: The concrete adapter instance (must satisfy the relevant Protocol).
+            validate_protocol: If True, verify the adapter implements the expected
+                Protocol at registration time. Enable this to catch wiring errors
+                early instead of failing silently at runtime.
+
+        Raises:
+            TypeError: If validate_protocol is True and the adapter does not
+                satisfy the expected Protocol for the given job_type.
         """
+        if validate_protocol:
+            expected_protocol = _PROTOCOL_MAP.get(job_type)
+            if expected_protocol is not None and not isinstance(adapter, expected_protocol):
+                raise TypeError(
+                    f"Adapter for {job_type} must implement {expected_protocol.__name__}. "
+                    f"Got {type(adapter).__name__} which is missing required methods."
+                )
+
         if job_type not in self._registry:
             self._registry[job_type] = {}
         self._registry[job_type][backend] = adapter

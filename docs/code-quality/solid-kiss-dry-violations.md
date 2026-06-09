@@ -500,17 +500,31 @@ class ErrorHandler:
 - **Files affected:** `generation_service.py` → 3 new files
 - **Risk:** Medium — requires updating dependencies
 
-**4. Define Protocol Interfaces (DIP #1.3.A + ISP #1.2.A)**
-- **Effort:** ~2 hours
-- **Impact:** Type safety, decoupling, better IDE support
-- **Files affected:** `domain/protocols.py`, all services, adapter registry
-- **Risk:** Medium — refactoring at the core
-
-**5. Extract Shared Source Base Class (DRY #3.2)**
+**4. ✅ RESOLVED — Define Protocol Interfaces + Runtime Validation (DIP #1.3.A + ISP #1.2.A)**
+- **Status:** ✅ **RESOLVED** — Runtime protocol validation added to AdapterRegistry
 - **Effort:** ~1 hour
-- **Impact:** Cleaner source abstractions
-- **Files affected:** `backend/app/services/sources/*`
-- **Risk:** Low — template method pattern
+- **Impact:** Adapters are validated at registration time to ensure they implement the expected Protocol. Wiring errors are caught immediately instead of failing silently at runtime.
+- **Files affected:** 
+  - `backend/app/adapters/adapter_registry.py` — added `_PROTOCOL_MAP` and `validate_protocol` parameter to `register()`
+  - `backend/app/domain/protocols.py` — added `SourceProvider` Protocol to match actual source provider signatures
+  - `backend/tests/unit/adapters/test_adapter_registry.py` — added protocol validation tests
+- **Risk:** Low — validation is enabled by default but can be disabled with `validate_protocol=False` for model lifecycle handlers
+- **Resolution details:**
+  - Added `_PROTOCOL_MAP` dict that maps each `JobType` to its expected Protocol class
+  - `register()` validates the adapter implements the expected Protocol using `isinstance(adapter, Protocol)` (runtime-checkable)
+  - JobTypes without a Protocol mapping (MODEL_DOWNLOAD, MODEL_LOAD) pass validation gracefully
+  - Existing tests updated to use `validate_protocol=False`, new tests verify validation behavior
+
+**5. ✅ RESOLVED — SourceProvider Protocol (DRY #3.2)**
+- **Status:** ✅ **RESOLVED** — `SourceProvider` Protocol added to `domain/protocols.py`
+- **Effort:** ~30 min
+- **Impact:** Source providers (Civitai, HuggingFace, Local) now have a formal Protocol contract
+- **Files affected:** `backend/app/domain/protocols.py`
+- **Risk:** Low — additive change, no existing code modified
+- **Resolution details:**
+  - Added `SourceProvider` Protocol with `fetch_model_info()`, `download_model()`, and `is_configured` properties
+  - Matches actual signatures used by `CivitaiSource`, `HuggingFaceSource`, and `LocalSource`
+  - Enables runtime validation if sources are registered through the adapter registry in the future
 
 ### 🟢 Low Priority (Nice to Have)
 

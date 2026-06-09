@@ -113,6 +113,32 @@ class LLMProvider(Protocol):
         ...
 
 
+# --- Source Provider (model download/discovery) ---
+
+@runtime_checkable
+class SourceProvider(Protocol):
+    """Resolves model metadata and downloads model files from an external source."""
+
+    async def resolve_model_info(self, model_id: str) -> dict[str, Any]:
+        """Fetch file manifest and metadata for a model."""
+        ...
+
+    async def download_file(
+        self,
+        model_id: str,
+        file_path: str,
+        destination: Path,
+        resume_from_byte: int = 0,
+        on_progress: Any = None,
+    ) -> dict[str, Any]:
+        """Download a single model file. Returns {sha256, size_bytes}."""
+        ...
+
+    def supports_resume(self) -> bool:
+        """Whether this source supports byte-range resume."""
+        ...
+
+
 # --- Model Lifecycle ---
 
 @runtime_checkable
