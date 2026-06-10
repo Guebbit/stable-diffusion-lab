@@ -281,3 +281,111 @@ class TestModelResolverWiring:
 
         resolver = service._model_resolver
         assert isinstance(resolver, ModelResolver)
+
+
+# ── Tests: submit_image_captioning ──────────────────────────────────────────
+
+class TestSubmitImageCaptioning:
+    """Tests for GenerationService.submit_image_captioning()."""
+
+    @pytest.fixture
+    def mock_job_creator(self, mocker: MockerFixture) -> AsyncMock:
+        """Create a mock JobCreator with patched property access."""
+        mock = AsyncMock()
+        mock.create_image_captioning_job = AsyncMock(return_value=uuid4())
+        mocker.patch.object(GenerationService, "_job_creator", property(lambda self: mock))
+        return mock
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_job_creator(self, mock_job_creator: AsyncMock) -> None:
+        """submit_image_captioning delegates to JobCreator.create_image_captioning_job."""
+        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+
+        await service.submit_image_captioning(
+            model_id="org/vision-model",
+            image_path="/tmp/upload.png",
+        )
+
+        mock_job_creator.create_image_captioning_job.assert_awaited_once_with(
+            "org/vision-model", "/tmp/upload.png", None
+        )
+
+    @pytest.mark.asyncio
+    async def test_returns_job_id_from_creator(self, mock_job_creator: AsyncMock) -> None:
+        """submit_image_captioning returns the job_id from JobCreator."""
+        expected_id = uuid4()
+        mock_job_creator.create_image_captioning_job = AsyncMock(return_value=expected_id)
+
+        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        result = await service.submit_image_captioning(
+            model_id="org/vision-model",
+            image_path="/tmp/upload.png",
+        )
+        assert result == expected_id
+
+    @pytest.mark.asyncio
+    async def test_passes_model_id_correctly(self, mock_job_creator: AsyncMock) -> None:
+        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+
+        await service.submit_image_captioning(
+            model_id="specific/vision-model",
+            image_path="/tmp/img.png",
+        )
+
+        call_args = mock_job_creator.create_image_captioning_job.call_args[0]
+        assert call_args[0] == "specific/vision-model"
+
+    @pytest.mark.asyncio
+    async def test_passes_image_path_correctly(self, mock_job_creator: AsyncMock) -> None:
+        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+
+        await service.submit_image_captioning(
+            model_id="org/model",
+            image_path="/tmp/specific_path.jpg",
+        )
+
+        call_args = mock_job_creator.create_image_captioning_job.call_args[0]
+        assert call_args[1] == "/tmp/specific_path.jpg"
+
+    @pytest.mark.asyncio
+    async def test_passes_correlation_id(self, mock_job_creator: AsyncMock) -> None:
+        """Correlation ID is forwarded to JobCreator."""
+        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+
+        await service.submit_image_captioning(
+            model_id="org/vision-model",
+            image_path="/tmp/img.png",
+            correlation_id="caption-corr-abc",
+        )
+
+        call_args = mock_job_creator.create_image_captioning_job.call_args[0]
+        assert call_args[2] == "caption-corr-abc"
+
+    @pytest.mark.asyncio
+    async def test_correlation_id_defaults_to_none(self, mock_job_creator: AsyncMock) -> None:
+        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+
+        await service.submit_image_captioning(
+            model_id="org/model",
+            image_path="/tmp/img.png",
+        )
+
+        call_args = mock_job_creator.create_image_captioning_job.call_args[0]
+        assert call_args[2] is None
+
+    @pytest.mark.asyncio
+    async def test_multiple_calls_produce_independent_jobs(
+        self, mock_job_creator: AsyncMock
+    ) -> None:
+        """Two independent captioning submissions return different job IDs."""
+        id1, id2 = uuid4(), uuid4()
+        mock_job_creator.create_image_captioning_job = AsyncMock(side_effect=[id1, id2])
+
+        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+
+        result1 = await service.submit_image_captioning("model/a", "/tmp/1.png")
+        result2 = await service.submit_image_captioning("model/b", "/tmp/2.png")
+
+        assert result1 == id1
+        assert result2 == id2
+        assert mock_job_creator.create_image_captioning_job.await_count == 2
