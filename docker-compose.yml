@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: node:20-slim
+    image: node:22-slim
     working_dir: /app
     volumes:
       - ./frontend:/app

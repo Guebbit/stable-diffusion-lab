@@ -9,13 +9,10 @@ not found, it passes through unchanged so adapters can attempt direct loading.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.infrastructure.database.repositories import ModelRepository
 
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +20,8 @@ logger = logging.getLogger(__name__)
 class ModelResolver:
     """Resolve user-facing model identifiers to canonical model IDs."""
 
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
-        self._repo = ModelRepository(session)
+    def __init__(self, model_repository: ModelRepository) -> None:
+        self._repo = model_repository
 
     async def resolve(self, identifier: str | UUID) -> str:
         """
