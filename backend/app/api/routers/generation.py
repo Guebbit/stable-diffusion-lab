@@ -18,6 +18,7 @@ from app.api.schemas import (
     JobResponse,
     TextToImageRequest,
 )
+from app.domain.errors import JobNotFoundError
 from app.domain.value_objects import GenerationParams
 from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.infrastructure.database.session import get_async_session
@@ -42,7 +43,8 @@ def _get_job_service(
     session: AsyncSession = Depends(get_async_session),
 ) -> JobService:
     """Dependency injection for JobService."""
-    return JobService(JobRepository(session))
+    from app.infrastructure.database.repositories import JobEventRepository
+    return JobService(JobRepository(session), JobEventRepository(session))
 
 
 @router.post("/text-to-image", response_model=JobResponse, status_code=202)
@@ -124,9 +126,9 @@ async def get_job_status(
     Returns the current job state. When status is 'completed', the response
     includes artifact references.
     """
-    job = await service.get_job_by_id(job_id)
-
-    if job is None:
+    try:
+        job = await service.get_job(job_id)
+    except JobNotFoundError:
         raise HTTPException(
             status_code=404,
             detail=f"Job {job_id} not found",

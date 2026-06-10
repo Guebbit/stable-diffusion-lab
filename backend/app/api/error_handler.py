@@ -46,6 +46,9 @@ def from_exception(exc: Exception) -> HTTPException:
     Returns:
         An ``HTTPException`` ready to be raised from a FastAPI endpoint.
     """
+    if isinstance(exc, HTTPException):
+        return exc
+
     if isinstance(exc, AILabError):
         status = _STATUS_MAP.get(exc.error_code, _DEFAULT_STATUS)
         logger.warning("Domain error %s: %s", exc.error_code, exc)

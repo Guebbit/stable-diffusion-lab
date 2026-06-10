@@ -91,10 +91,12 @@ class _ModelRepoStub:
         if model_id in self._records:
             object.__setattr__(self._records[model_id], "status", status)
 
-    async def list_all(self, source: str | None = None) -> list[SimpleNamespace]:
+    async def list_all(self, source: str | None = None, capabilities: list[str] | None = None) -> list[SimpleNamespace]:
         records = list(self._records.values())
         if source is not None:
             records = [r for r in records if r.source == source]
+        if capabilities is not None:
+            records = [r for r in records if any(c in (r.capabilities or []) for c in capabilities)]
         return records
 
 

@@ -12,6 +12,7 @@ from app.api.schemas.artifacts import (
 )
 from app.api.schemas.common import ErrorResponse, PaginatedResponse
 from app.api.schemas.generation import (
+    DescribeRequest,
     ImageToImageRequest,
     JobResponse,
     TextToImageRequest,

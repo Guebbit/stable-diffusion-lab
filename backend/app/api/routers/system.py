@@ -17,6 +17,13 @@ from app.infrastructure.database.repositories.model_repository import ModelRepos
 router = APIRouter(prefix="/system", tags=["system"])
 
 
+def _get_model_repo(
+    session: AsyncSession = Depends(get_async_session),
+) -> ModelRepository:
+    """Dependency injection for ModelRepository."""
+    return ModelRepository(session)
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     return HealthResponse(status="healthy")
@@ -24,9 +31,8 @@ async def health_check():
 
 @router.get("/status", response_model=StatusResponse)
 async def system_status(
-    session: AsyncSession = Depends(get_async_session),
+    model_repo: ModelRepository = Depends(_get_model_repo),
 ):
-    model_repo = ModelRepository(session)
 
     models = await model_repo.list_all()
     total_models = len(models)
