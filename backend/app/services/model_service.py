@@ -72,9 +72,13 @@ class ModelService:
         logger.info("Registered model: %s (%s)", name, model_id)
         return record
 
-    async def list_models(self, source: str | None = None) -> list[ModelRecord]:
-        """List all models in the catalog, optionally filtered by source."""
-        return await self._model_repo.list_all(source=source)
+    async def list_models(
+        self,
+        source: str | None = None,
+        capabilities: list[str] | None = None,
+    ) -> list[ModelRecord]:
+        """List all models in the catalog, optionally filtered by source and/or capabilities."""
+        return await self._model_repo.list_all(source=source, capabilities=capabilities)
 
     async def get_model(self, model_id: str) -> ModelRecord | None:
         """Get detailed info about a specific model."""

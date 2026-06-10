@@ -73,6 +73,23 @@ class GenerationService:
         )
         return job_id
 
+    async def submit_image_captioning(
+        self,
+        model_id: str,
+        image_path: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Submit an image captioning (describe) job."""
+        job_id = await self._job_creator.create_image_captioning_job(
+            model_id, image_path, correlation_id
+        )
+        logger.info(
+            "Created image-captioning job: %s (model_id=%s)",
+            job_id,
+            model_id,
+        )
+        return job_id
+
     # ── Lazy property wiring ──────────────────────
 
     @property

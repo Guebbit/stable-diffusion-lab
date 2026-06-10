@@ -81,12 +81,18 @@ def _model_to_response(m) -> ModelRegistryResponse:
 @router.get("/", response_model=list[ModelRegistryResponse])
 async def list_models(
     source: str | None = None,
+    capabilities: str | None = Query(
+        default=None,
+        description="Comma-separated list of capabilities to filter by (OR logic). "
+        "Example: txt2img,img2img",
+    ),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     service: ModelService = Depends(_get_model_service),
 ) -> list[ModelRegistryResponse]:
-    """List all registered models, optionally filtered by source."""
-    models = await service.list_models(source=source)
+    """List all registered models, optionally filtered by source and/or capabilities."""
+    capabilities_list: list[str] | None = [c.strip() for c in capabilities.split(",")] if capabilities else None
+    models = await service.list_models(source=source, capabilities=capabilities_list)
     models = models[offset : offset + limit]
     return [_model_to_response(m) for m in models]
 

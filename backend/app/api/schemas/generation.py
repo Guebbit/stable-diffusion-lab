@@ -33,6 +33,12 @@ class ImageToImageRequest(BaseModel):
     num_images: int = Field(1, ge=1, le=8, description="Number of images to generate")
 
 
+class DescribeRequest(BaseModel):
+    """Request body for image description/captioning."""
+    model_config = ConfigDict(protected_namespaces=())
+    model_id: str = Field(..., description="ID of the vision model to use for captioning")
+
+
 class JobResponse(BaseModel):
     """Response returned when a job is successfully enqueued."""
     job_id: UUID

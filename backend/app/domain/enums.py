@@ -56,7 +56,9 @@ class JobType(StrEnum):
     VIDEO_GENERATION = "video_generation"
     LLM_INFERENCE = "llm_inference"
     MODEL_DOWNLOAD = "model_download"
+    MODEL_DELETE = "model_delete"
     MODEL_LOAD = "model_load"
+    MODEL_REFRESH = "model_refresh"
 
 
 class GenerationTask(StrEnum):

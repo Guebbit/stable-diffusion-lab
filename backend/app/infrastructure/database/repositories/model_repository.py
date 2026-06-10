@@ -31,11 +31,25 @@ class ModelRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_all(self, source: str | None = None) -> list[ModelRecord]:
-        """List all registered models, optionally filtered by source."""
+    async def list_all(
+        self,
+        source: str | None = None,
+        capabilities: list[str] | None = None,
+    ) -> list[ModelRecord]:
+        """List all registered models, optionally filtered by source and/or capabilities.
+
+        When multiple capabilities are provided, models matching ANY of them are returned (OR logic).
+        """
         stmt = select(ModelRecord).order_by(ModelRecord.name)
         if source:
             stmt = stmt.where(ModelRecord.source == source)
+        if capabilities:
+            from sqlalchemy import or_
+
+            capability_conditions = [
+                ModelRecord.capabilities.contains([cap]) for cap in capabilities
+            ]
+            stmt = stmt.where(or_(*capability_conditions))
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

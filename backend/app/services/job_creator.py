@@ -148,6 +148,32 @@ class JobCreator:
         )
         return created_job.id
 
+    async def create_image_captioning_job(
+        self,
+        model_id: str,
+        image_path: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Create a PENDING image captioning (describe) job."""
+        job_params: dict = {
+            "model_id": model_id,
+            "image_path": image_path,
+        }
+
+        if correlation_id is not None:
+            job_params["correlation_id"] = correlation_id
+
+        job = JobRecord(
+            job_type=JobType.IMAGE_CAPTIONING,
+            status=JobStatus.PENDING,
+            params=job_params,
+        )
+        created_job = await self._job_repo.create(job)
+        await self._publish_enqueued_event(
+            created_job.id, JobType.IMAGE_CAPTIONING, correlation_id
+        )
+        return created_job.id
+
     @staticmethod
     async def _publish_enqueued_event(
         job_id: UUID,

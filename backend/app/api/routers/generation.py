@@ -10,16 +10,18 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import (
+    DescribeRequest,
     JobResponse,
     TextToImageRequest,
 )
 from app.domain.value_objects import GenerationParams
 from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.infrastructure.database.session import get_async_session
+from app.services.artifact_service import ArtifactService
 from app.services.generation_service import GenerationService
 from app.services.job_service import JobService
 
@@ -69,6 +71,41 @@ async def submit_text_to_image(
     job_id = await service.submit_text_to_image(
         params,
         request.model_id,
+        correlation_id=correlation_id,
+    )
+    if correlation_id:
+        response.headers["X-Correlation-ID"] = correlation_id
+    return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
+
+
+@router.post("/describe", response_model=JobResponse, status_code=202)
+async def submit_describe(
+    model_id: str = Form(...),
+    image: UploadFile = File(...),
+    response: Response = Response(),
+    service: GenerationService = Depends(_get_generation_service),
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
+) -> JobResponse:
+    """
+    Submit an image description (captioning) job.
+
+    Accepts an image via multipart/form-data and returns a job_id.
+    The vision model will analyze the image and produce a text description.
+    """
+    # Save uploaded image to a temporary path for the job processor
+    import tempfile
+    import os
+
+    # Create a temp file with the same extension for proper handling
+    suffix = os.path.splitext(image.filename)[1] if image.filename else ".png"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir="/tmp") as tmp:
+        content = await image.read()
+        tmp.write(content)
+        image_path = tmp.name
+
+    job_id = await service.submit_image_captioning(
+        model_id,
+        image_path,
         correlation_id=correlation_id,
     )
     if correlation_id:

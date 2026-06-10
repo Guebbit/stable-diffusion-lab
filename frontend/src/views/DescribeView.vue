@@ -1,27 +1,33 @@
 <script setup lang="ts">
 /**
  * Vision: Describe — upload an image and get a text description from an AI model.
- * Broad and experimental: users can pick different vision models.
+ * Dynamically loads captioning models from the backend model store.
  */
-import { ref, computed, onBeforeUnmount } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useNotificationStore } from '../stores/notifications'
+import { useModelsStore } from '../stores/models'
+import api from '../api/diffusion'
 
 const notif = useNotificationStore()
+const modelsStore = useModelsStore()
 
-// Available vision models for captioning
-const visionModels = [
-  { id: 'Salesforce/blip-image-captioning-large', name: 'BLIP Large', description: 'General image captioning' },
-  { id: 'Salesforce/blip2-opt-2.7b', name: 'BLIP-2 (2.7B)', description: 'More detailed descriptions' },
-  { id: 'nlpconnect/vit-gpt2-image-captioning', name: 'ViT-GPT2', description: 'Lightweight captioning' },
-]
-
-const selectedModel = ref(visionModels[0]!.id)
 const imageFile = ref<File | null>(null)
 const imagePreviewUrl = ref<string | null>(null)
 const description = ref<string | null>(null)
 const isProcessing = ref(false)
 
-const canSubmit = computed(() => !!imageFile.value && !isProcessing.value)
+// Load captioning models from backend on mount
+onMounted(async () => {
+  await modelsStore.fetchRegistry()
+  // Auto-select first captioning model if available
+  if (modelsStore.captioningModels.length > 0 && !selectedModel.value) {
+    selectedModel.value = modelsStore.captioningModels[0]!.model_id
+  }
+})
+
+const selectedModel = ref<string>('')
+
+const canSubmit = computed(() => !!imageFile.value && !!selectedModel.value && !isProcessing.value)
 
 /** Handle file selection and generate a local preview URL. */
 function handleImageSelection(value: File | File[] | null) {
@@ -42,16 +48,62 @@ function handleImageSelection(value: File | File[] | null) {
 }
 
 /** Send the image to the backend vision endpoint. */
-function handleDescribe() {
-  if (!imageFile.value) return
+async function handleDescribe() {
+  if (!imageFile.value || !selectedModel.value) return
 
   isProcessing.value = true
   description.value = null
   notif.push('info', 'Analyzing image…')
 
-  // TODO: Vision/captioning v1 endpoint not yet implemented
-  notif.push('warning', 'Image description endpoint not yet available in API v1')
-  isProcessing.value = false
+  try {
+    const formData = new FormData()
+    formData.append('image', imageFile.value)
+    formData.append('model_id', selectedModel.value)
+
+    const response = await api.post('/generation/describe', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+
+    const jobId = response.data.job_id
+    notif.push('success', 'Description job submitted, waiting for result…')
+
+    // Poll for job completion
+    const result = await pollJob(jobId)
+    if (result) {
+      description.value = result
+      notif.push('success', 'Image described successfully!')
+    }
+  } catch (error: unknown) {
+    console.error('Describe failed:', error)
+    const errorMessage = error instanceof Error && 'response' in error
+      ? (error as any).response?.data?.detail || 'Failed to describe image'
+      : 'Failed to describe image'
+    notif.push('error', `Describe failed: ${errorMessage}`)
+  } finally {
+    isProcessing.value = false
+  }
+}
+
+/** Poll a job until it completes or fails. */
+async function pollJob(jobId: string, maxAttempts = 60): Promise<string | null> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const response = await api.get(`/generation/jobs/${jobId}`)
+    const job = response.data
+
+    if (job.status === 'completed') {
+      // Extract caption from job params or result
+      return job.params?.caption || job.result?.caption || JSON.stringify(job)
+    }
+
+    if (job.status === 'failed' || job.status === 'error') {
+      throw new Error(job.error_message || 'Job failed')
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+  }
+  throw new Error('Job timed out')
 }
 
 onBeforeUnmount(() => {
@@ -75,16 +127,20 @@ onBeforeUnmount(() => {
         <v-card-text>
           <v-select
             v-model="selectedModel"
-            :items="visionModels"
+            :items="modelsStore.captioningModels"
             item-title="name"
-            item-value="id"
+            item-value="model_id"
             label="Vision Model"
             variant="outlined"
             prepend-inner-icon="mdi-brain"
             class="mb-4"
+            :disabled="modelsStore.captioningModels.length === 0"
           >
-            <template #item="{ item, props: itemProps }">
-              <v-list-item v-bind="itemProps" :subtitle="item.raw.description" />
+            <template #item="{ raw, props: itemProps }">
+              <v-list-item
+                v-bind="itemProps"
+                :subtitle="`${raw.source} - ${raw.status}`"
+              />
             </template>
           </v-select>
 

@@ -42,7 +42,9 @@ def test_enum_values_match_expected_contract() -> None:
         JobType.VIDEO_GENERATION,
         JobType.LLM_INFERENCE,
         JobType.MODEL_DOWNLOAD,
+        JobType.MODEL_DELETE,
         JobType.MODEL_LOAD,
+        JobType.MODEL_REFRESH,
     }
     assert set(GenerationTask) == {
         GenerationTask.TEXT_TO_IMAGE,

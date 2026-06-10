@@ -35,6 +35,23 @@ export const useModelsStore = defineStore('models', () => {
     registry.value.filter(m => m.status === 'downloaded'),
   )
 
+  // Computed: models filtered by capability (for form dropdowns)
+  const captioningModels = computed(() =>
+    registry.value.filter(
+      m => m.status === 'downloaded' && m.capabilities?.includes('captioning'),
+    ),
+  )
+  const txt2imgModels = computed(() =>
+    registry.value.filter(
+      m => m.status === 'downloaded' && m.capabilities?.includes('txt2img'),
+    ),
+  )
+  const img2imgModels = computed(() =>
+    registry.value.filter(
+      m => m.status === 'downloaded' && m.capabilities?.includes('img2img'),
+    ),
+  )
+
   /** Fetch the full model registry. */
   function fetchRegistry() {
     isLoading.value = true
@@ -158,6 +175,9 @@ export const useModelsStore = defineStore('models', () => {
     isDownloading,
     huggingfaceModels,
     civitaiModels,
+    captioningModels,
+    txt2imgModels,
+    img2imgModels,
     fetchRegistry,
     addModel,
     removeModel,

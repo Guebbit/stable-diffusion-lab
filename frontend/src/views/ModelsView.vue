@@ -20,6 +20,7 @@ onMounted(() => {
 const activeSource = ref<'all' | 'huggingface' | 'civitai'>('all')
 const activeFamily = ref<'all' | 'sd15' | 'sdxl' | 'flux' | 'custom'>('all')
 const activeDownloaded = ref<'all' | 'downloaded' | 'not-downloaded'>('all')
+const activeCapability = ref<'all' | 'captioning' | 'txt2img' | 'img2img'>('all')
 
 const filteredModels = computed(() =>
   modelsStore.registry.filter(m => {
@@ -27,6 +28,7 @@ const filteredModels = computed(() =>
     if (activeFamily.value !== 'all' && m.family !== activeFamily.value) return false
     if (activeDownloaded.value === 'downloaded' && m.status !== 'downloaded') return false
     if (activeDownloaded.value === 'not-downloaded' && m.status === 'downloaded') return false
+    if (activeCapability.value !== 'all' && !(m.capabilities?.includes(activeCapability.value))) return false
     return true
   }),
 )
@@ -95,16 +97,6 @@ function familyColor(family: string): string {
   return colors[family] || 'grey'
 }
 
-function familyLabel(family: string): string {
-  const labels: Record<string, string> = {
-    sd15: 'SD 1.x',
-    sdxl: 'SDXL',
-    flux: 'Flux',
-    custom: 'Custom',
-  }
-  return labels[family] || family
-}
-
 function downloadPercentageFor(model: ModelRegistryEntry): number {
   return model.download_progress || 0
 }
@@ -130,8 +122,6 @@ function statusChipLabel(model: ModelRegistryEntry): string {
   if (model.status === 'error') return 'Error'
   return 'Not downloaded'
 }
-
-const progressColor = 'blue'
 </script>
 
 <template>
@@ -214,6 +204,31 @@ const progressColor = 'blue'
           </v-btn>
         </v-btn-toggle>
       </v-col>
+
+      <!-- Capability filter -->
+      <v-col cols="12" sm="auto">
+        <v-btn-toggle
+          v-model="activeCapability"
+          mandatory
+          variant="outlined"
+          density="compact"
+          divided
+        >
+          <v-btn value="all">All caps</v-btn>
+          <v-btn value="captioning">
+            <v-icon icon="mdi-eye" class="mr-1" size="16" />
+            Captioning
+          </v-btn>
+          <v-btn value="txt2img">
+            <v-icon icon="mdi-text-box" class="mr-1" size="16" />
+            Txt2Img
+          </v-btn>
+          <v-btn value="img2img">
+            <v-icon icon="mdi-image-edit" class="mr-1" size="16" />
+            Img2Img
+          </v-btn>
+        </v-btn-toggle>
+      </v-col>
     </v-row>
 
     <!-- ─── Result count ────────────────────────────────────────────── -->
@@ -257,40 +272,8 @@ const progressColor = 'blue'
               class="mr-1"
               label
             >
-              {{ familyLabel(model.family) }}
-            </v-chip>
-            <!-- Source badge -->
-            <v-chip
-              v-if="modelsStore.isModelDownloading(model.model_id)"
-              :color="progressColor"
-              size="x-small"
-              class="mr-1"
-              label
-            >
-              <v-progress-circular
-                :model-value="downloadPercentageFor(model)"
-                size="14"
-                width="2"
-                :color="progressColor"
-                class="mr-1"
-              />
-              {{ downloadPercentageFor(model) }}%
-            </v-chip>
-            <v-chip
-              :color="model.source === 'huggingface' ? 'teal' : 'orange'"
-              size="x-small"
-              class="mr-1"
-              label
-            >
-              {{ model.source === 'huggingface' ? 'HuggingFace' : 'CivitAI' }}
-            </v-chip>
-          </v-card-subtitle>
-
-          <v-card-text>
-            <!-- Model ID -->
-            <code class="text-caption d-block mb-3 pa-1 rounded bg-surface-variant">
               {{ model.id }}
-            </code>
+            </v-chip>
 
             <!-- VRAM requirements -->
             <div v-if="model.recommended_vram_min_gb || model.recommended_vram_max_gb" class="d-flex align-center flex-wrap gap-2 mb-3">
@@ -352,7 +335,20 @@ const progressColor = 'blue'
                 {{ tag }}
               </v-chip>
             </div>
-          </v-card-text>
+
+            <!-- Capabilities -->
+            <div v-if="model.capabilities?.length" class="mb-1">
+              <v-chip
+                v-for="cap in model.capabilities"
+                :key="cap"
+                size="x-small"
+                :color="cap === 'captioning' ? 'cyan' : cap === 'txt2img' ? 'purple' : 'teal'"
+                class="mr-1 mb-1"
+              >
+                {{ cap }}
+              </v-chip>
+            </div>
+          </v-card-subtitle>
 
           <v-card-actions class="px-4 pb-4">
             <!-- Download button (only if not yet downloaded) -->
