@@ -1,13 +1,14 @@
 """
 Unit tests for ModelService.
 
-Tests model registration, download queuing, listing, retrieval, and deletion.
+Tests model registration, listing, retrieval, and deletion.
 Uses mock repositories and storage manager to isolate service logic.
+
+Note: request_download() was moved from ModelService to JobCreator,
+so those tests belong in test_job_creator.py.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 import logging
 from datetime import UTC, datetime
@@ -18,7 +19,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.domain.enums import JobStatus, JobType, ModelStatus
+from app.domain.enums import ModelStatus
 from app.services.model_service import ModelService
 
 
@@ -97,21 +98,6 @@ class _ModelRepoStub:
         return records
 
 
-class _JobRepoStub:
-    """Stub JobRepository for unit testing."""
-
-    def __init__(self) -> None:
-        self.created_jobs: list[SimpleNamespace] = []
-        self._next_id: int = 0
-
-    async def create(self, job: Any) -> Any:
-        # SQLAlchemy models have id=None initially, so check for None
-        if getattr(job, "id", None) is None:
-            job.id = uuid4()
-        self.created_jobs.append(job)
-        return job
-
-
 class _StorageManagerStub:
     """Stub StorageManager for unit testing."""
 
@@ -130,18 +116,14 @@ class TestRegisterModel:
         return _ModelRepoStub()
 
     @pytest.fixture
-    def job_repo(self) -> _JobRepoStub:
-        return _JobRepoStub()
-
-    @pytest.fixture
     def storage(self) -> _StorageManagerStub:
         return _StorageManagerStub()
 
     @pytest.fixture
     def service(
-        self, model_repo: _ModelRepoStub, job_repo: _JobRepoStub, storage: _StorageManagerStub
+        self, model_repo: _ModelRepoStub, storage: _StorageManagerStub
     ) -> ModelService:
-        return ModelService(model_repo, job_repo, storage)
+        return ModelService(model_repo, storage)
 
     @pytest.mark.asyncio
     async def test_register_model_creates_new_record(
@@ -246,90 +228,6 @@ class TestRegisterModel:
         assert record.capabilities == []
 
 
-class TestRequestDownload:
-    """Tests for ModelService.request_download()."""
-
-    @pytest.fixture
-    def model_repo(self) -> _ModelRepoStub:
-        return _ModelRepoStub()
-
-    @pytest.fixture
-    def job_repo(self) -> _JobRepoStub:
-        return _JobRepoStub()
-
-    @pytest.fixture
-    def storage(self) -> _StorageManagerStub:
-        return _StorageManagerStub()
-
-    @pytest.fixture
-    def service(
-        self, model_repo: _ModelRepoStub, job_repo: _JobRepoStub, storage: _StorageManagerStub
-    ) -> ModelService:
-        model = _make_model_record(model_id="test/model", status="not_downloaded")
-        model_repo._records["test/model"] = model
-        return ModelService(model_repo, job_repo, storage)
-
-    @pytest.mark.asyncio
-    async def test_request_download_creates_job(
-        self, service: ModelService, job_repo: _JobRepoStub
-    ) -> None:
-        job_id = await service.request_download("test/model")
-        assert job_id is not None
-        assert len(job_repo.created_jobs) == 1
-        job = job_repo.created_jobs[0]
-        assert job.job_type == JobType.MODEL_DOWNLOAD
-        assert job.status == JobStatus.PENDING
-
-    @pytest.mark.asyncio
-    async def test_request_download_updates_model_status(
-        self, service: ModelService, model_repo: _ModelRepoStub
-    ) -> None:
-        await service.request_download("test/model")
-        assert len(model_repo.status_updates) == 1
-        model_id, status = model_repo.status_updates[0]
-        assert model_id == "test/model"
-        assert status == ModelStatus.DOWNLOADING
-
-    @pytest.mark.asyncio
-    async def test_request_download_sets_job_params(
-        self, service: ModelService, job_repo: _JobRepoStub
-    ) -> None:
-        await service.request_download("test/model")
-        job = job_repo.created_jobs[0]
-        assert job.params == {"model_id": "test/model", "source": "huggingface"}
-
-    @pytest.mark.asyncio
-    async def test_request_download_sets_model_id_ref(
-        self, service: ModelService, job_repo: _JobRepoStub, model_repo: _ModelRepoStub
-    ) -> None:
-        await service.request_download("test/model")
-        job = job_repo.created_jobs[0]
-        assert job.model_id == model_repo._records["test/model"].id
-
-    @pytest.mark.asyncio
-    async def test_request_download_raises_when_model_not_found(
-        self, service: ModelService
-    ) -> None:
-        with pytest.raises(ValueError, match="not found in registry"):
-            await service.request_download("nonexistent/model")
-
-    @pytest.mark.asyncio
-    async def test_request_download_error_message_includes_model_id(
-        self, service: ModelService
-    ) -> None:
-        with pytest.raises(ValueError) as exc_info:
-            await service.request_download("missing/id")
-        assert "missing/id" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_request_download_returns_uuid(
-        self, service: ModelService
-    ) -> None:
-        job_id = await service.request_download("test/model")
-        # Verify it's a valid UUID
-        str(job_id)  # Should not raise
-
-
 class TestListModels:
     """Tests for ModelService.list_models()."""
 
@@ -349,7 +247,7 @@ class TestListModels:
 
     @pytest.fixture
     def service(self, model_repo: _ModelRepoStub) -> ModelService:
-        return ModelService(model_repo, _JobRepoStub(), _StorageManagerStub())
+        return ModelService(model_repo, _StorageManagerStub())
 
     @pytest.mark.asyncio
     async def test_list_models_returns_all_when_no_filter(
@@ -386,7 +284,7 @@ class TestListModels:
         self, model_repo: _ModelRepoStub
     ) -> None:
         model_repo._records.clear()
-        service = ModelService(model_repo, _JobRepoStub(), _StorageManagerStub())
+        service = ModelService(model_repo, _StorageManagerStub())
         models = await service.list_models()
         assert models == []
 
@@ -412,7 +310,7 @@ class TestGetModel:
 
     @pytest.fixture
     def service(self, model_repo: _ModelRepoStub) -> ModelService:
-        return ModelService(model_repo, _JobRepoStub(), _StorageManagerStub())
+        return ModelService(model_repo, _StorageManagerStub())
 
     @pytest.mark.asyncio
     async def test_get_model_returns_existing_model(self, service: ModelService) -> None:
@@ -452,7 +350,7 @@ class TestDeleteModel:
 
     @pytest.fixture
     def service(self, model_repo: _ModelRepoStub, storage: _StorageManagerStub) -> ModelService:
-        return ModelService(model_repo, _JobRepoStub(), storage)
+        return ModelService(model_repo, storage)
 
     @pytest.mark.asyncio
     async def test_delete_model_removes_from_storage(
@@ -506,6 +404,6 @@ class TestDeleteModel:
         model_repo._records["cv/model"] = _make_model_record(
             model_id="cv/model", source="civitai", status="downloaded"
         )
-        service = ModelService(model_repo, _JobRepoStub(), storage)
+        service = ModelService(model_repo, storage)
         await service.delete_model("cv/model")
         assert ("civitai", "cv/model") in storage.deleted_files

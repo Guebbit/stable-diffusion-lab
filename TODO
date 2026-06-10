@@ -1,0 +1,16 @@
+Check the ALL files in the /backend folders, I want to put a comment that explain the logics behind the function (and, if important, the "link" with the workflow and other functions).
+I have a slight ADHD
+
+
+
+
+Activity log is working correctly but it doesn't get hydrated when I refresh. There should be a backend with all the activity log and I should see that.
+Same for the generation history, I see nothing there.
+
+
+
+
+
+
+
+Create a brief documentation
