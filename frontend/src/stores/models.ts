@@ -58,6 +58,17 @@ export const useModelsStore = defineStore('models', () => {
     return diffusionApi.getModels()
       .then((models) => {
         registry.value = models
+        // Resume polling for downloads that were in-progress before this page load
+        for (const m of models) {
+          if (
+            (m.status === 'downloading' || m.status === 'download_paused') &&
+            !isDownloading.value.has(m.model_id)
+          ) {
+            isDownloading.value = new Set(isDownloading.value)
+            isDownloading.value.add(m.model_id)
+            _pollDownloadStatus(m.model_id)
+          }
+        }
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : 'Failed to fetch model registry'
@@ -119,7 +130,10 @@ export const useModelsStore = defineStore('models', () => {
 
   /** Check if a specific model is currently being downloaded. */
   function isModelDownloading(modelId: string): boolean {
-    return isDownloading.value.has(modelId)
+    if (isDownloading.value.has(modelId)) return true
+    // Also catch downloads that started before this session (e.g. after a page refresh)
+    const model = registry.value.find(m => m.model_id === modelId)
+    return model?.status === 'downloading' || model?.status === 'download_paused'
   }
 
   /**

@@ -7,11 +7,14 @@ Hugging Face Hub. Supports multi-file models with resume capability.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 from pathlib import Path
 from typing import Any
 
-from huggingface_hub import HfApi, hf_hub_download, HfFolder
+from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub.utils import get_token as hf_get_token
 
 from app.services.sources.utils import compute_file_sha256
 
@@ -38,7 +41,7 @@ class HuggingFaceSourceProvider:
         self._token = token
         # If token not provided, try to use cached token
         if self._token is None:
-            self._token = HfFolder.get_token()
+            self._token = hf_get_token()
 
         self._api = HfApi(token=self._token)
 
@@ -58,7 +61,10 @@ class HuggingFaceSourceProvider:
             raise ValueError(f"Invalid model_id: {model_id!r}")
 
         try:
-            repo_info = self._api.repo_info(model_id, repo_type="model")
+            loop = asyncio.get_running_loop()
+            repo_info = await loop.run_in_executor(
+                None, lambda: self._api.repo_info(model_id, repo_type="model")
+            )
         except Exception as e:
             raise RuntimeError(
                 f"Failed to fetch repo info for '{model_id}': {e}"
@@ -121,73 +127,55 @@ class HuggingFaceSourceProvider:
 
         destination.parent.mkdir(parents=True, exist_ok=True)
 
-        # Check if file already exists and is complete (resume logic)
+        # Check if file already exists and is complete
         if destination.exists():
             existing_size = destination.stat().st_size
             if resume_from_byte == 0 and existing_size > 0:
-                # File already downloaded, compute hash and return
                 sha256 = compute_file_sha256(destination)
                 logger.info(
                     "File already exists at %s (%d bytes), skipping download",
                     destination,
                     existing_size,
                 )
-                return {
-                    "sha256": sha256,
-                    "size_bytes": existing_size,
-                }
-            elif resume_from_byte > 0 and existing_size >= resume_from_byte:
-                # Partial file exists, will resume
-                logger.info(
-                    "Resuming download of %s from byte %d (existing: %d bytes)",
-                    destination,
-                    resume_from_byte,
-                    existing_size,
-                )
+                return {"sha256": sha256, "size_bytes": existing_size}
 
-        # Download to a temporary file first, then move to destination
-        # This prevents corruption if download is interrupted
-        tmp_destination = destination.with_suffix(".download.tmp")
+        # hf_hub_download(local_dir=base_dir, filename=file_path)
+        # places the file at base_dir/file_path (preserving subdirectory structure).
+        # Compute base_dir by stripping the file_path components from destination.
+        # e.g. destination = /models/sd15/feature_extractor/preprocessor_config.json
+        #      file_path   = feature_extractor/preprocessor_config.json
+        #      base_dir    = /models/sd15/
+        base_dir = destination
+        for _ in Path(file_path).parts:
+            base_dir = base_dir.parent
 
         try:
-            # hf_hub_download supports progress_callback in newer versions
-            # We use local_dir_use_symlks=False to get actual files
-            downloaded_path = hf_hub_download(
-                repo_id=model_id,
-                filename=file_path,
-                token=self._token,
-                local_dir=str(tmp_destination.parent),
-                local_dir_use_symlinks=False,
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: hf_hub_download(
+                    repo_id=model_id,
+                    filename=file_path,
+                    token=self._token,
+                    local_dir=str(base_dir),
+                ),
             )
 
-            # hf_hub_download downloads to local_dir with the same relative path
-            actual_downloaded = tmp_destination.parent / Path(file_path).name
-
-            # If downloaded to a different path, move it
-            if actual_downloaded.exists() and actual_downloaded != tmp_destination:
-                tmp_destination.unlink(missing_ok=True)
-                actual_downloaded.rename(tmp_destination)
-
-            # Ensure the downloaded file exists
-            if not tmp_destination.exists():
+            if not destination.exists():
                 raise FileNotFoundError(
-                    f"Download failed: file not found at {tmp_destination}"
+                    f"Download failed: file not found at {destination}"
                 )
 
-            # Compute size and hash
-            final_size = tmp_destination.stat().st_size
-            sha256 = compute_file_sha256(tmp_destination)
+            final_size = destination.stat().st_size
+            sha256 = compute_file_sha256(destination)
 
-            # Report 100% progress
+            # hf_hub_download manages its own temp files; report 100% at completion
             if on_progress is not None:
-                on_progress({
-                    "bytes_downloaded": final_size,
-                    "total_size": final_size,
-                    "percent": 100.0,
-                })
-
-            # Move final file to destination
-            tmp_destination.rename(destination)
+                info = {"bytes_downloaded": final_size, "total_size": final_size, "percent": 100.0}
+                if inspect.iscoroutinefunction(on_progress):
+                    await on_progress(info)
+                else:
+                    on_progress(info)
 
             logger.info(
                 "Downloaded %s/%s -> %s (%d bytes, sha256: %s)",
@@ -198,14 +186,9 @@ class HuggingFaceSourceProvider:
                 sha256[:16] if sha256 else "unknown",
             )
 
-            return {
-                "sha256": sha256,
-                "size_bytes": final_size,
-            }
+            return {"sha256": sha256, "size_bytes": final_size}
 
         except Exception as e:
-            # Clean up temp file on failure
-            tmp_destination.unlink(missing_ok=True)
             raise RuntimeError(
                 f"Failed to download '{file_path}' from '{model_id}': {e}"
             ) from e

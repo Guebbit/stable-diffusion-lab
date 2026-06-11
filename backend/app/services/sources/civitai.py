@@ -7,8 +7,9 @@ Civitai models are typically single-file (safetensors/ckpt).
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import inspect
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -289,22 +290,26 @@ class CivitaiSourceProvider:
                             f.write(chunk)
                             downloaded += len(chunk)
                             if on_progress is not None and total_size > 0:
-                                on_progress({
+                                info = {
                                     "bytes_downloaded": downloaded,
                                     "total_size": total_size,
                                     "percent": round(downloaded / total_size * 100, 2),
-                                })
+                                }
+                                if inspect.iscoroutinefunction(on_progress):
+                                    await on_progress(info)
+                                else:
+                                    on_progress(info)
 
             # Verify and finalize
             final_size = tmp_destination.stat().st_size
             sha256 = compute_file_sha256(tmp_destination)
 
             if on_progress is not None:
-                on_progress({
-                    "bytes_downloaded": final_size,
-                    "total_size": final_size,
-                    "percent": 100.0,
-                })
+                info = {"bytes_downloaded": final_size, "total_size": final_size, "percent": 100.0}
+                if inspect.iscoroutinefunction(on_progress):
+                    await on_progress(info)
+                else:
+                    on_progress(info)
 
             tmp_destination.rename(destination)
 

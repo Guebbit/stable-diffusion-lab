@@ -44,6 +44,8 @@ def _model_record(
         notes="",
         is_verified=True,
         last_verified_at=now,
+        local_path=None,
+        file_count=0,
         created_at=now,
         updated_at=now,
     )

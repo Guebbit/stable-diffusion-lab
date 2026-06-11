@@ -112,10 +112,10 @@ class ComfyUIClient:
         import websockets
 
         async with websockets.connect(self.ws_url) as ws:
-            deadline = asyncio.get_event_loop().time() + timeout
+            deadline = asyncio.get_running_loop().time() + timeout
 
             while True:
-                remaining = deadline - asyncio.get_event_loop().time()
+                remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     raise TimeoutError(f"ComfyUI workflow {prompt_id} timed out after {timeout}s")
 

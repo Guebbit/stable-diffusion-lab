@@ -22,17 +22,17 @@ from app.domain.errors import JobNotFoundError
 
 
 def _job_record() -> SimpleNamespace:
+    now = datetime.now(timezone.utc)
     return SimpleNamespace(
         id=uuid4(),
         job_type="text_to_image",
         status="pending",
-        progress=0,
-        error_message="",
-        correlation_id=None,
+        progress_percent=0,
+        error="",
         model_id=None,
         params={},
-        created_at=datetime.now(timezone.utc),
-        updated_at=None,
+        created_at=now,
+        updated_at=now,
     )
 
 
@@ -377,6 +377,8 @@ async def test_get_job_status_returns_job(client, app) -> None:
     assert body["id"] == str(job.id)
     assert body["status"] == "pending"
     assert body["job_type"] == "text_to_image"
+    assert body["progress_percent"] == 0
+    assert body["error"] == ""
     assert str(job.id) in job_service.status_calls
 
 

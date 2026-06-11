@@ -109,6 +109,8 @@ def _model_ns(model_id: str = "org/model") -> SimpleNamespace:
         notes="",
         is_verified=False,
         last_verified_at=None,
+        local_path=None,
+        file_count=0,
         created_at=now,
         updated_at=now,
     )

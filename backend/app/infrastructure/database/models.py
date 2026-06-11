@@ -39,6 +39,7 @@ class ModelRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # --- Identity ---
     model_id: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    preferred_name: Mapped[str] = mapped_column(String(255), default="")
     source: Mapped[str] = mapped_column(String(50), nullable=False)
     family: Mapped[str] = mapped_column(String(50), nullable=False, default="custom")
     variant: Mapped[str] = mapped_column(String(100), default="")

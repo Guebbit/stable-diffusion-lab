@@ -136,13 +136,12 @@ async def get_job_status(
 
     return {
         "id": str(job.id),
-        "status": job.status.value if hasattr(job.status, "value") else job.status,
-        "job_type": job.job_type.value if hasattr(job.job_type, "value") else job.job_type,
+        "status": job.status,
+        "job_type": job.job_type,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
-        "progress": job.progress,
-        "error_message": job.error_message,
-        "correlation_id": job.correlation_id,
+        "progress_percent": job.progress_percent,
+        "error": job.error,
         "model_id": str(job.model_id) if job.model_id else None,
         "params": job.params,
     }
