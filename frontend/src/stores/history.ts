@@ -37,10 +37,16 @@ export const useHistoryStore = defineStore('history', () => {
       })
   }
 
+  /** Initialize store by fetching history from the backend. */
+  function init() {
+    fetchHistory()
+  }
+
   return {
     images,
     isLoading,
     fetchHistory,
     deleteEntry,
+    init,
   }
 })

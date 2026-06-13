@@ -175,6 +175,11 @@ export const useModelsStore = defineStore('models', () => {
     sseConnected.value = false
   }
 
+  /** Initialize store by fetching the model registry from the backend. */
+  function init() {
+    fetchRegistry()
+  }
+
   function _handleSSEEvent(event: { event_type?: string; type?: string; payload?: Record<string, unknown> }) {
     const eventType = event.event_type ?? event.type
     const payload = event.payload ?? {}
@@ -229,5 +234,6 @@ export const useModelsStore = defineStore('models', () => {
     isModelDownloading,
     connectSSE,
     disconnectSSE,
+    init,
   }
 })

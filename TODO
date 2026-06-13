@@ -1,0 +1,27 @@
+Remove "/edit", "/describe", "/edit" and "/ink" from the frontend, they are redundant (and remove all components, composables, files in general that are associated only to them).
+NO Backward compatibility, NO stubs. Clean code only.
+
+In the home, add "Describe Image" in the "Generation mode" select.
+Every selection in the "generation mode" should have a different job and maybe a different form too.
+
+ - Text to Image: Create an image from a prompt.
+ - Image o Image: Same as "Text to Image" but with an image as input (it will be changed using the prompt too)
+ - Upscale Image: No prompt, only image upload.
+ - Describe image: No prompt, only image upload.
+
+  Remove? Test?
+ - Recolor Image: Should try to recolor the image using the prompt.
+ - Sketch to Ink: Should try to sketch the image (no prompt)
+ - Style Transfer: ????
+
+For all of them I have doubts: What options should they have?
+
+
+Also, there are some models that are useful with one of these options and not with others, some are specialized some are general.
+We should add a "tag" system to all models to handle this. "Where these model should be used" kinda question.
+Then when we change the generation mode, we should filter the models to show only the ones that are compatible with the current mode.
+
+
+
+Future plan:
+Adding audio, voice and video generation\management\description.

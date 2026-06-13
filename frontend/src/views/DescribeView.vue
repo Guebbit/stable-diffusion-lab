@@ -6,7 +6,7 @@
 import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useNotificationStore } from '../stores/notifications'
 import { useModelsStore } from '../stores/models'
-import api from '../api/diffusion'
+import { api } from '../api/diffusion'
 
 const notif = useNotificationStore()
 const modelsStore = useModelsStore()
@@ -136,10 +136,10 @@ onBeforeUnmount(() => {
             class="mb-4"
             :disabled="modelsStore.captioningModels.length === 0"
           >
-            <template #item="{ raw, props: itemProps }">
+            <template #item="{ item, props: itemProps }">
               <v-list-item
                 v-bind="itemProps"
-                :subtitle="`${raw.source} - ${raw.status}`"
+                :subtitle="`${item.raw.source} - ${item.raw.status}`"
               />
             </template>
           </v-select>

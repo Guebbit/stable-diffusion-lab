@@ -128,6 +128,11 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     error.value = null
   }
 
+  /** Initialize store by fetching the gallery from the backend. */
+  function init() {
+    refreshGallery()
+  }
+
   /**
    * Wait for a job to reach a terminal state via SSE events.
    *
@@ -184,5 +189,6 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     clearError,
     connectObservability,
     disconnectObservability,
+    init,
   }
 })

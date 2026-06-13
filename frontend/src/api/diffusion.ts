@@ -11,7 +11,7 @@ import type {
 } from '../types'
 
 // Base client pointing to versioned API
-const api = axios.create({
+export const api = axios.create({
   baseURL: '/api/v1',
   timeout: 600000,
 })

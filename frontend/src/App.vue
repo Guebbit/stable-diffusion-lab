@@ -9,15 +9,22 @@
  */
 import { computed, onMounted } from 'vue'
 import { useDiffusionStore } from './stores/diffusion'
+import { useHistoryStore } from './stores/history'
+import { useModelsStore } from './stores/models'
 import { useNotificationStore, LEVEL_COLOR, LEVEL_ICON } from './stores/notifications'
 
 const store = useDiffusionStore()
+const historyStore = useHistoryStore()
+const modelsStore = useModelsStore()
 const notif = useNotificationStore()
 
-// Check backend health and connect SSE stream on first load
+// Initialize all stores on app mount so data survives page refresh
 onMounted(() => {
   store.fetchStatus()
   store.connectObservability()
+  store.init()
+  historyStore.init()
+  modelsStore.init()
 })
 
 // v-model for v-snackbar
