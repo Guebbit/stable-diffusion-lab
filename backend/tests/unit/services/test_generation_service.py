@@ -2,9 +2,9 @@
 Unit tests for GenerationService.
 
 Tests job submission (text-to-image, image-to-image) using the refactored
-service that delegates to JobCreator and ModelResolver.
+service that delegates to JobCreator.
 
-Since GenerationService is a thin facade, we mock the internal JobCreator
+Since GenerationService is a thin facade, we mock the injected JobCreator
 to test the service contract: correct delegation, logging, and return value.
 The actual job creation logic is tested in test_job_creator.py.
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -23,6 +23,7 @@ from app.domain.enums import JobStatus, JobType
 from app.domain.events import JobEvent
 from app.domain.value_objects import GenerationParams
 from app.services.generation_service import GenerationService
+from app.services.job_creator import JobCreator
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
@@ -48,23 +49,27 @@ def minimal_params() -> GenerationParams:
     return GenerationParams(prompt="test")
 
 
+@pytest.fixture
+def mock_job_creator(mocker: MockerFixture) -> AsyncMock:
+    """Shared mock JobCreator injected into GenerationService."""
+    mock = AsyncMock(spec=JobCreator)
+    mock.create_text_to_image_job = AsyncMock(return_value=uuid4())
+    mock.create_image_to_image_job = AsyncMock(return_value=uuid4())
+    mock.create_image_captioning_job = AsyncMock(return_value=uuid4())
+    return mock
+
+
 # ── Tests: submit_text_to_image ─────────────────────────────────────────
 
 class TestSubmitTextToImage:
     """Tests for GenerationService.submit_text_to_image()."""
 
-    @pytest.fixture
-    def mock_job_creator(self, mocker: MockerFixture) -> AsyncMock:
-        """Create a mock JobCreator with patched property access."""
-        mock = AsyncMock()
-        mock.create_text_to_image_job = AsyncMock(return_value=uuid4())
-        mocker.patch.object(GenerationService, "_job_creator", property(lambda self: mock))
-        return mock
-
     @pytest.mark.asyncio
-    async def test_delegates_to_job_creator(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_delegates_to_job_creator(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """submit_text_to_image delegates to JobCreator.create_text_to_image_job."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_text_to_image(params, model_id="runwayml/stable-diffusion-v1-5")
 
@@ -73,19 +78,23 @@ class TestSubmitTextToImage:
         )
 
     @pytest.mark.asyncio
-    async def test_returns_job_id_from_creator(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_returns_job_id_from_creator(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """submit_text_to_image returns the job_id from JobCreator."""
         expected_id = uuid4()
         mock_job_creator.create_text_to_image_job = AsyncMock(return_value=expected_id)
 
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
         result = await service.submit_text_to_image(params, model_id="runwayml/stable-diffusion-v1-5")
         assert result == expected_id
 
     @pytest.mark.asyncio
-    async def test_passes_correlation_id(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_passes_correlation_id(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """Correlation ID is passed through to JobCreator."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_text_to_image(
             params, model_id="runwayml/stable-diffusion-v1-5", correlation_id="corr-123"
@@ -96,9 +105,11 @@ class TestSubmitTextToImage:
         )
 
     @pytest.mark.asyncio
-    async def test_passes_params_correctly(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_passes_params_correctly(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """GenerationParams are passed correctly to JobCreator."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_text_to_image(params, model_id="some-model")
 
@@ -120,7 +131,7 @@ class TestSubmitTextToImage:
         self, minimal_params: GenerationParams, mock_job_creator: AsyncMock
     ) -> None:
         """Minimal GenerationParams with defaults are passed correctly."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_text_to_image(minimal_params, model_id="runwayml/stable-diffusion-v1-5")
 
@@ -137,7 +148,7 @@ class TestSubmitTextToImage:
     @pytest.mark.asyncio
     async def test_allows_empty_prompt(self, mock_job_creator: AsyncMock) -> None:
         """Empty prompt string is allowed and passed through."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         empty_params = GenerationParams(prompt="")
         await service.submit_text_to_image(empty_params, model_id="runwayml/stable-diffusion-v1-5")
@@ -153,7 +164,7 @@ class TestSubmitTextToImage:
         id1, id2 = uuid4(), uuid4()
         mock_job_creator.create_text_to_image_job = AsyncMock(side_effect=[id1, id2])
 
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         result1 = await service.submit_text_to_image(params, model_id="runwayml/stable-diffusion-v1-5")
         result2 = await service.submit_text_to_image(params, model_id="stabilityai/sdxl")
@@ -168,18 +179,12 @@ class TestSubmitTextToImage:
 class TestSubmitImageToImage:
     """Tests for GenerationService.submit_image_to_image()."""
 
-    @pytest.fixture
-    def mock_job_creator(self, mocker: MockerFixture) -> AsyncMock:
-        """Create a mock JobCreator with patched property access."""
-        mock = AsyncMock()
-        mock.create_image_to_image_job = AsyncMock(return_value=uuid4())
-        mocker.patch.object(GenerationService, "_job_creator", property(lambda self: mock))
-        return mock
-
     @pytest.mark.asyncio
-    async def test_delegates_to_job_creator(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_delegates_to_job_creator(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """submit_image_to_image delegates to JobCreator.create_image_to_image_job."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_to_image(
             params, model_id="runwayml/stable-diffusion-v1-5", source_image_path="/tmp/source.png"
@@ -190,21 +195,25 @@ class TestSubmitImageToImage:
         )
 
     @pytest.mark.asyncio
-    async def test_returns_job_id_from_creator(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_returns_job_id_from_creator(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """Returns the job_id from JobCreator."""
         expected_id = uuid4()
         mock_job_creator.create_image_to_image_job = AsyncMock(return_value=expected_id)
 
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
         result = await service.submit_image_to_image(
             params, model_id="runwayml/stable-diffusion-v1-5", source_image_path="/tmp/img.png"
         )
         assert result == expected_id
 
     @pytest.mark.asyncio
-    async def test_passes_source_image_path(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_passes_source_image_path(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """source_image_path is passed through to JobCreator."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_to_image(
             params, model_id="runwayml/stable-diffusion-v1-5", source_image_path="/tmp/img.png"
@@ -214,9 +223,11 @@ class TestSubmitImageToImage:
         assert call_args[2] == "/tmp/img.png"
 
     @pytest.mark.asyncio
-    async def test_passes_custom_strength(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_passes_custom_strength(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """Custom strength is passed through to JobCreator."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_to_image(
             params,
@@ -229,9 +240,11 @@ class TestSubmitImageToImage:
         assert call_args[4] == 0.5
 
     @pytest.mark.asyncio
-    async def test_default_strength_is_0_75(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_default_strength_is_0_75(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """Default strength is 0.75."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_to_image(
             params, model_id="runwayml/stable-diffusion-v1-5", source_image_path="/tmp/img.png"
@@ -241,9 +254,11 @@ class TestSubmitImageToImage:
         assert call_args[4] == 0.75
 
     @pytest.mark.asyncio
-    async def test_passes_correlation_id(self, params: GenerationParams, mock_job_creator: AsyncMock) -> None:
+    async def test_passes_correlation_id(
+        self, params: GenerationParams, mock_job_creator: AsyncMock
+    ) -> None:
         """Correlation ID is passed through to JobCreator."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_to_image(
             params,
@@ -256,50 +271,15 @@ class TestSubmitImageToImage:
         assert call_args[3] == "corr-img2img"
 
 
-# ── Tests: ModelResolver wiring ────────────────────────────────────────
-
-class TestModelResolverWiring:
-    """Verify GenerationService correctly wires ModelResolver."""
-
-    @pytest.mark.asyncio
-    async def test_raises_when_model_repo_none(self, mocker: MockerFixture) -> None:
-        """_model_resolver raises RuntimeError when model_repository is None."""
-        # GenerationService created without model_repository
-        service = GenerationService(job_repository=MagicMock(), model_repository=None)
-
-        with pytest.raises(RuntimeError, match="ModelResolver requires a ModelRepository"):
-            _ = service._model_resolver
-
-    @pytest.mark.asyncio
-    async def test_model_resolver_created_with_repo(self, mocker: MockerFixture) -> None:
-        """_model_resolver returns a ModelResolver instance when repo is provided."""
-        from app.infrastructure.database.repositories import ModelRepository
-        from app.services.model_resolver import ModelResolver
-
-        mock_repo = MagicMock(spec=ModelRepository)
-        service = GenerationService(job_repository=MagicMock(), model_repository=mock_repo)
-
-        resolver = service._model_resolver
-        assert isinstance(resolver, ModelResolver)
-
-
 # ── Tests: submit_image_captioning ──────────────────────────────────────────
 
 class TestSubmitImageCaptioning:
     """Tests for GenerationService.submit_image_captioning()."""
 
-    @pytest.fixture
-    def mock_job_creator(self, mocker: MockerFixture) -> AsyncMock:
-        """Create a mock JobCreator with patched property access."""
-        mock = AsyncMock()
-        mock.create_image_captioning_job = AsyncMock(return_value=uuid4())
-        mocker.patch.object(GenerationService, "_job_creator", property(lambda self: mock))
-        return mock
-
     @pytest.mark.asyncio
     async def test_delegates_to_job_creator(self, mock_job_creator: AsyncMock) -> None:
         """submit_image_captioning delegates to JobCreator.create_image_captioning_job."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_captioning(
             model_id="org/vision-model",
@@ -316,7 +296,7 @@ class TestSubmitImageCaptioning:
         expected_id = uuid4()
         mock_job_creator.create_image_captioning_job = AsyncMock(return_value=expected_id)
 
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
         result = await service.submit_image_captioning(
             model_id="org/vision-model",
             image_path="/tmp/upload.png",
@@ -325,7 +305,7 @@ class TestSubmitImageCaptioning:
 
     @pytest.mark.asyncio
     async def test_passes_model_id_correctly(self, mock_job_creator: AsyncMock) -> None:
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_captioning(
             model_id="specific/vision-model",
@@ -337,7 +317,7 @@ class TestSubmitImageCaptioning:
 
     @pytest.mark.asyncio
     async def test_passes_image_path_correctly(self, mock_job_creator: AsyncMock) -> None:
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_captioning(
             model_id="org/model",
@@ -350,7 +330,7 @@ class TestSubmitImageCaptioning:
     @pytest.mark.asyncio
     async def test_passes_correlation_id(self, mock_job_creator: AsyncMock) -> None:
         """Correlation ID is forwarded to JobCreator."""
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_captioning(
             model_id="org/vision-model",
@@ -363,7 +343,7 @@ class TestSubmitImageCaptioning:
 
     @pytest.mark.asyncio
     async def test_correlation_id_defaults_to_none(self, mock_job_creator: AsyncMock) -> None:
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         await service.submit_image_captioning(
             model_id="org/model",
@@ -381,7 +361,7 @@ class TestSubmitImageCaptioning:
         id1, id2 = uuid4(), uuid4()
         mock_job_creator.create_image_captioning_job = AsyncMock(side_effect=[id1, id2])
 
-        service = GenerationService(job_repository=MagicMock(), model_repository=MagicMock())
+        service = GenerationService(job_creator=mock_job_creator)
 
         result1 = await service.submit_image_captioning("model/a", "/tmp/1.png")
         result2 = await service.submit_image_captioning("model/b", "/tmp/2.png")

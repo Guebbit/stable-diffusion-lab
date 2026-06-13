@@ -7,6 +7,8 @@ and the client polls or subscribes via WebSocket for completion.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -20,32 +22,50 @@ from app.api.schemas import (
 )
 from app.domain.errors import JobNotFoundError
 from app.domain.value_objects import GenerationParams
-from app.infrastructure.database.repositories import JobRepository, ModelRepository
+from app.infrastructure.database.repositories import (
+    JobEventRepository,
+    JobRepository,
+    ModelRepository,
+)
 from app.infrastructure.database.session import get_async_session
 from app.services.artifact_service import ArtifactService
 from app.services.generation_service import GenerationService
+from app.services.job_creator import JobCreator
 from app.services.job_service import JobService
+from app.services.model_resolver import ModelResolver
 
 router = APIRouter(prefix="/generation", tags=["generation"])
 
+
+# ── Dependency factories ──────────────────────────────────────────────────
 
 def _get_generation_service(
     session: AsyncSession = Depends(get_async_session),
 ) -> GenerationService:
     """Dependency injection for GenerationService."""
-    return GenerationService(
-        job_repository=JobRepository(session),
-        model_repository=ModelRepository(session),
-    )
+    model_repo = ModelRepository(session)
+    job_repo = JobRepository(session)
+    model_resolver = ModelResolver(model_repo)
+    job_creator = JobCreator(job_repo, model_resolver, model_repo)
+    return GenerationService(job_creator)
 
 
 def _get_job_service(
     session: AsyncSession = Depends(get_async_session),
 ) -> JobService:
     """Dependency injection for JobService."""
-    from app.infrastructure.database.repositories import JobEventRepository
     return JobService(JobRepository(session), JobEventRepository(session))
 
+
+# ── Helper utilities ──────────────────────────────────────────────────────
+
+def _set_correlation_header(response: Response, correlation_id: str | None) -> None:
+    """Set X-Correlation-ID response header if a correlation ID was provided."""
+    if correlation_id:
+        response.headers["X-Correlation-ID"] = correlation_id
+
+
+# ── Route handlers ────────────────────────────────────────────────────────
 
 @router.post("/text-to-image", response_model=JobResponse, status_code=202)
 async def submit_text_to_image(
@@ -75,8 +95,7 @@ async def submit_text_to_image(
         request.model_id,
         correlation_id=correlation_id,
     )
-    if correlation_id:
-        response.headers["X-Correlation-ID"] = correlation_id
+    _set_correlation_header(response, correlation_id)
     return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
 
 
@@ -95,10 +114,6 @@ async def submit_describe(
     The vision model will analyze the image and produce a text description.
     """
     # Save uploaded image to a temporary path for the job processor
-    import tempfile
-    import os
-
-    # Create a temp file with the same extension for proper handling
     suffix = os.path.splitext(image.filename)[1] if image.filename else ".png"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir="/tmp") as tmp:
         content = await image.read()
@@ -110,8 +125,7 @@ async def submit_describe(
         image_path,
         correlation_id=correlation_id,
     )
-    if correlation_id:
-        response.headers["X-Correlation-ID"] = correlation_id
+    _set_correlation_header(response, correlation_id)
     return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
 
 

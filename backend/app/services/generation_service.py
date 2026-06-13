@@ -11,10 +11,8 @@ import logging
 from uuid import UUID
 
 from app.domain.value_objects import GenerationParams
-from app.infrastructure.database.repositories import JobRepository, ModelRepository
 
 from .job_creator import JobCreator
-from .model_resolver import ModelResolver
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +23,14 @@ class GenerationService:
 
     Does NOT run inference directly — it creates jobs and delegates
     to the orchestrator. The API gets back a job_id immediately.
+
+    Dependencies are injected via the constructor (proper DI pattern).
     """
 
-    def __init__(
-        self,
-        job_repository: JobRepository,
-        model_repository: ModelRepository | None = None,
-    ) -> None:
-        self._job_repo = job_repository
-        self._model_repo = model_repository
+    def __init__(self, job_creator: JobCreator) -> None:
+        self._job_creator = job_creator
 
-    # ── Public API ────────────────────────────────
+    # ── Public API ────────────────────────────────────────
 
     async def submit_text_to_image(
         self,
@@ -89,18 +84,3 @@ class GenerationService:
             model_id,
         )
         return job_id
-
-    # ── Lazy property wiring ──────────────────────
-
-    @property
-    def _model_resolver(self) -> ModelResolver:
-        if self._model_repo is None:
-            raise RuntimeError(
-                "ModelResolver requires a ModelRepository. "
-                "Wire one via the constructor or use DirectExecutionService."
-            )
-        return ModelResolver(self._model_repo)
-
-    @property
-    def _job_creator(self) -> JobCreator:
-        return JobCreator(self._job_repo, self._model_resolver)
