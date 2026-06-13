@@ -5,6 +5,7 @@
  *  - Fetch all registered models (with download status)
  *  - Add/remove models from the registry
  *  - Trigger model downloads (async job-based)
+ *  - Track download progress via SSE (no polling)
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
@@ -12,61 +13,52 @@ import { diffusionApi } from '../api/diffusion'
 import { useNotificationStore } from './notifications'
 import type { ModelRegistryEntry, ModelRegistryAddRequest } from '../types'
 
-// Polling config for download status checks
-const POLL_INTERVAL_MS = 5_000   // Check every 5 seconds
-const MAX_POLL_ATTEMPTS = 120    // Give up after ~10 minutes
-
 export const useModelsStore = defineStore('models', () => {
-  // All registered models (full catalog with download status)
   const registry = ref<ModelRegistryEntry[]>([])
-  // Loading states
   const isLoading = ref(false)
   const isDownloading = ref<Set<string>>(new Set())
+  const sseConnected = ref(false)
 
-  // Computed: models grouped by source for convenience
+  // SSE connection — one per store instance, managed by the view
+  let _sseSource: EventSource | null = null
+  let _reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
   const huggingfaceModels = computed(() =>
     registry.value.filter(m => m.source === 'huggingface' && m.status === 'downloaded'),
   )
   const civitaiModels = computed(() =>
     registry.value.filter(m => m.source === 'civitai' && m.status === 'downloaded'),
   )
-  // Downloaded models (ready for generation)
   const downloadedModels = computed(() =>
     registry.value.filter(m => m.status === 'downloaded'),
   )
-
-  // Computed: models filtered by capability (for form dropdowns)
   const captioningModels = computed(() =>
-    registry.value.filter(
-      m => m.status === 'downloaded' && m.capabilities?.includes('captioning'),
-    ),
+    registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('captioning')),
   )
   const txt2imgModels = computed(() =>
-    registry.value.filter(
-      m => m.status === 'downloaded' && m.capabilities?.includes('txt2img'),
-    ),
+    registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('txt2img')),
   )
   const img2imgModels = computed(() =>
-    registry.value.filter(
-      m => m.status === 'downloaded' && m.capabilities?.includes('img2img'),
-    ),
+    registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('img2img')),
   )
 
-  /** Fetch the full model registry. */
+  /** Fetch the full model registry from the server. */
   function fetchRegistry() {
     isLoading.value = true
     return diffusionApi.getModels()
       .then((models) => {
         registry.value = models
-        // Resume polling for downloads that were in-progress before this page load
-        for (const m of models) {
-          if (
-            (m.status === 'downloading' || m.status === 'download_paused') &&
-            !isDownloading.value.has(m.model_id)
-          ) {
-            isDownloading.value = new Set(isDownloading.value)
-            isDownloading.value.add(m.model_id)
-            _pollDownloadStatus(m.model_id)
+        // If any model is in-progress (e.g. after a page refresh) ensure SSE is active
+        const hasActiveDownload = models.some(
+          m => m.status === 'downloading' || m.status === 'download_paused',
+        )
+        if (hasActiveDownload) {
+          connectSSE()
+          for (const m of models) {
+            if (m.status === 'downloading' || m.status === 'download_paused') {
+              isDownloading.value = new Set(isDownloading.value)
+              isDownloading.value.add(m.model_id)
+            }
           }
         }
       })
@@ -108,78 +100,115 @@ export const useModelsStore = defineStore('models', () => {
       })
   }
 
-  /** Trigger a background download for a model. */
+  /** Trigger a background download for a model. Progress arrives via SSE. */
   function downloadModel(modelId: string) {
     const notif = useNotificationStore()
     isDownloading.value = new Set(isDownloading.value)
     isDownloading.value.add(modelId)
+    connectSSE()
 
-    notif.push('info', `Downloading model "${modelId}"…`)
+    notif.push('info', `Queuing download for "${modelId}"…`)
     return diffusionApi.downloadModel(modelId)
       .then((res) => {
         notif.push('info', res.message)
-        // Poll registry for completion
-        _pollDownloadStatus(modelId)
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : 'Failed to start download'
         notif.push('error', msg)
+        isDownloading.value = new Set(isDownloading.value)
         isDownloading.value.delete(modelId)
       })
   }
 
-  /** Check if a specific model is currently being downloaded. */
+  /** True while a model is being downloaded (current session OR server status). */
   function isModelDownloading(modelId: string): boolean {
     if (isDownloading.value.has(modelId)) return true
-    // Also catch downloads that started before this session (e.g. after a page refresh)
     const model = registry.value.find(m => m.model_id === modelId)
     return model?.status === 'downloading' || model?.status === 'download_paused'
   }
 
-  /**
-   * Poll the model registry until the model shows as downloaded or fails.
-   */
-  function _pollDownloadStatus(modelId: string) {
-    let attempts = 0
+  // ── SSE connection ────────────────────────────────────────────────────────
 
-    const interval = setInterval(() => {
-      attempts++
+  /** Open (or reuse) the SSE connection to the observability stream. */
+  function connectSSE() {
+    if (_sseSource && _sseSource.readyState !== EventSource.CLOSED) return
+    if (_reconnectTimer !== null) {
+      clearTimeout(_reconnectTimer)
+      _reconnectTimer = null
+    }
 
-      diffusionApi.getModels()
-        .then((models) => {
-          registry.value = models
-          const model = models.find(m => m.model_id === modelId)
-          
-          if (!model) {
-            // Model not found in registry, continue polling
-            return
-          }
-          
-          if (model.status === 'downloaded' || model.status === 'loaded' || model.status === 'loaded') {
-            clearInterval(interval)
-            isDownloading.value.delete(modelId)
-            useNotificationStore().push('success', `Model "${model.name}" downloaded successfully!`)
-          } else if (model.status === 'downloading' || model.status === 'download_paused') {
-            // Model is actively downloading - show progress
-            const progress = model.download_progress ?? 0
-            useNotificationStore().push(
-              'info',
-              `Downloading "${model.name}": ${progress.toFixed(1)}%`,
-            )
-          } else if (model.status === 'error') {
-            clearInterval(interval)
-            isDownloading.value.delete(modelId)
-            useNotificationStore().push('error', `Model "${model.name}" download failed`)
-          } else if (attempts >= MAX_POLL_ATTEMPTS) {
-            clearInterval(interval)
-            isDownloading.value.delete(modelId)
-            useNotificationStore().push('warning', `Download polling timed out for "${model.name}"`)
-          }
-        })
-        .catch(() => {
-          // Silently retry on network errors during polling
-        })
-    }, POLL_INTERVAL_MS)
+    _sseSource = new EventSource(
+      `${window.location.origin}/sse/observability?subscribe=job,model`,
+    )
+
+    _sseSource.onopen = () => {
+      sseConnected.value = true
+    }
+
+    _sseSource.onmessage = (evt: MessageEvent) => {
+      try {
+        _handleSSEEvent(JSON.parse(evt.data as string))
+      } catch {
+        // malformed frame, ignore
+      }
+    }
+
+    _sseSource.onerror = () => {
+      sseConnected.value = false
+      _sseSource?.close()
+      _sseSource = null
+      // Reconnect only if downloads are still pending
+      if (isDownloading.value.size > 0) {
+        _reconnectTimer = setTimeout(connectSSE, 5000)
+      }
+    }
+  }
+
+  /** Close the SSE connection. Call from the view's onUnmounted. */
+  function disconnectSSE() {
+    if (_reconnectTimer !== null) {
+      clearTimeout(_reconnectTimer)
+      _reconnectTimer = null
+    }
+    _sseSource?.close()
+    _sseSource = null
+    sseConnected.value = false
+  }
+
+  function _handleSSEEvent(event: { event_type?: string; type?: string; payload?: Record<string, unknown> }) {
+    const eventType = event.event_type ?? event.type
+    const payload = event.payload ?? {}
+
+    if (eventType === 'job.progress') {
+      const modelId = payload.model_id as string | undefined
+      const progressPct = payload.progress_percent as number | undefined
+      if (!modelId || progressPct === undefined) return
+      registry.value = registry.value.map(m =>
+        m.model_id === modelId
+          ? { ...m, status: 'downloading', download_progress: progressPct }
+          : m,
+      )
+    }
+
+    else if (eventType === 'model.downloaded') {
+      const modelId = payload.model_id as string | undefined
+      if (!modelId) return
+      const name = registry.value.find(m => m.model_id === modelId)?.name ?? modelId
+      isDownloading.value = new Set(isDownloading.value)
+      isDownloading.value.delete(modelId)
+      useNotificationStore().push('success', `Model "${name}" downloaded successfully!`)
+      fetchRegistry()
+    }
+
+    else if (eventType === 'model.download_failed') {
+      const modelId = payload.model_id as string | undefined
+      if (!modelId) return
+      const name = registry.value.find(m => m.model_id === modelId)?.name ?? modelId
+      isDownloading.value = new Set(isDownloading.value)
+      isDownloading.value.delete(modelId)
+      useNotificationStore().push('error', `Model "${name}" download failed`)
+      fetchRegistry()
+    }
   }
 
   return {
@@ -187,6 +216,7 @@ export const useModelsStore = defineStore('models', () => {
     downloadedModels,
     isLoading,
     isDownloading,
+    sseConnected,
     huggingfaceModels,
     civitaiModels,
     captioningModels,
@@ -197,5 +227,7 @@ export const useModelsStore = defineStore('models', () => {
     removeModel,
     downloadModel,
     isModelDownloading,
+    connectSSE,
+    disconnectSSE,
   }
 })

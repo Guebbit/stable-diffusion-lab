@@ -4,15 +4,19 @@
  * Shows all registered models with download status, allows adding new models
  * and triggering downloads. The backend is the source of truth for the catalog.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useModelsStore } from '../stores/models'
 import type { ModelFamily, ModelRegistryAddRequest, ModelRegistryEntry, ModelSource } from '../types'
 
 const modelsStore = useModelsStore()
 
-// Fetch registry on mount
 onMounted(() => {
   modelsStore.fetchRegistry()
+  modelsStore.connectSSE()
+})
+
+onUnmounted(() => {
+  modelsStore.disconnectSSE()
 })
 
 // ─── Filters ──────────────────────────────────────────────────────────────

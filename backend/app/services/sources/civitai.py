@@ -178,6 +178,7 @@ class CivitaiSourceProvider:
         destination: Path,
         resume_from_byte: int = 0,
         on_progress: Any = None,
+        download_url: str | None = None,
     ) -> dict[str, Any]:
         """
         Download a model file from Civitai.
@@ -191,6 +192,8 @@ class CivitaiSourceProvider:
             destination: Local path to write the file
             resume_from_byte: Byte offset to resume from (0 for fresh download)
             on_progress: Callback for progress updates
+            download_url: Pre-resolved download URL from resolve_model_info(); if
+                provided the Civitai API is not called again.
 
         Returns:
             Dict with {sha256, size_bytes} for verification
@@ -212,60 +215,69 @@ class CivitaiSourceProvider:
                 )
                 return {"sha256": sha256, "size_bytes": existing_size}
 
-        # Resolve the download URL from Civitai API
-        parts = model_id.split("/")
-        model_ref = parts[0]
-        version_ref = parts[1] if len(parts) > 1 else None
+        # Use pre-resolved URL when available; otherwise fetch from Civitai API.
+        if not download_url:
+            parts = model_id.split("/")
+            model_ref = parts[0]
+            version_ref = parts[1] if len(parts) > 1 else None
 
-        download_url = None
-        async with httpx.AsyncClient(timeout=30) as client:
-            if model_ref.isdigit():
-                resp = await client.get(
-                    f"{CIVITAI_API_BASE}/models/{model_ref}",
-                    headers=self._headers,
-                )
-                if resp.status_code != 200:
-                    raise RuntimeError(f"Civitai API error: {resp.status_code}")
-                model_data = resp.json()
-            else:
-                resp = await client.get(
-                    f"{CIVITAI_API_BASE}/models",
-                    params={"tags": model_ref, "limit": 1},
-                    headers=self._headers,
-                )
-                if resp.status_code != 200:
-                    raise RuntimeError(f"Civitai search failed: {resp.status_code}")
-                data = resp.json()
-                models = data.get("models", [])
-                if not models:
-                    raise ValueError(f"No Civitai model found matching '{model_id}'")
-                model_data = models[0]
+            async with httpx.AsyncClient(timeout=30) as client:
+                if model_ref.isdigit():
+                    resp = await client.get(
+                        f"{CIVITAI_API_BASE}/models/{model_ref}",
+                        headers=self._headers,
+                    )
+                    if resp.status_code != 200:
+                        raise RuntimeError(f"Civitai API error: {resp.status_code}")
+                    model_data = resp.json()
+                else:
+                    resp = await client.get(
+                        f"{CIVITAI_API_BASE}/models",
+                        params={"tags": model_ref, "limit": 1},
+                        headers=self._headers,
+                    )
+                    if resp.status_code != 200:
+                        raise RuntimeError(f"Civitai search failed: {resp.status_code}")
+                    data = resp.json()
+                    models = data.get("models", [])
+                    if not models:
+                        raise ValueError(f"No Civitai model found matching '{model_id}'")
+                    model_data = models[0]
 
-            versions = model_data.get("versions", [])
-            target_version = None
-            if version_ref:
-                for v in versions:
-                    if str(v.get("id", "")) == version_ref or v.get("name", "") == version_ref:
-                        target_version = v
-                        break
-            if target_version is None:
-                target_version = versions[0] if versions else None
-            if target_version is None:
-                raise ValueError(f"No version found for model '{model_id}'")
+                versions = model_data.get("versions", [])
+                target_version = None
+                if version_ref:
+                    for v in versions:
+                        if str(v.get("id", "")) == version_ref or v.get("name", "") == version_ref:
+                            target_version = v
+                            break
+                if target_version is None:
+                    target_version = versions[0] if versions else None
+                if target_version is None:
+                    raise ValueError(f"No version found for model '{model_id}'")
 
-            files = target_version.get("files", [])
-            for f in files:
-                if f.get("type") == "Model":
-                    url = f.get("url", "")
-                    if url:
-                        download_url = url
-                        break
+                files = target_version.get("files", [])
+                for f in files:
+                    if f.get("type") == "Model":
+                        url = f.get("url", "")
+                        if url:
+                            download_url = url
+                            break
 
         if not download_url:
             raise RuntimeError(f"No download URL found for model '{model_id}'")
 
         # Download with streaming and progress reporting
         tmp_destination = destination.with_suffix(".download.tmp")
+        _progress_is_async = on_progress is not None and inspect.iscoroutinefunction(on_progress)
+
+        async def _emit_progress(info: dict) -> None:
+            if on_progress is None:
+                return
+            if _progress_is_async:
+                await on_progress(info)
+            else:
+                on_progress(info)
 
         try:
             async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
@@ -290,26 +302,17 @@ class CivitaiSourceProvider:
                             f.write(chunk)
                             downloaded += len(chunk)
                             if on_progress is not None and total_size > 0:
-                                info = {
+                                await _emit_progress({
                                     "bytes_downloaded": downloaded,
                                     "total_size": total_size,
                                     "percent": round(downloaded / total_size * 100, 2),
-                                }
-                                if inspect.iscoroutinefunction(on_progress):
-                                    await on_progress(info)
-                                else:
-                                    on_progress(info)
+                                })
 
             # Verify and finalize
             final_size = tmp_destination.stat().st_size
             sha256 = compute_file_sha256(tmp_destination)
 
-            if on_progress is not None:
-                info = {"bytes_downloaded": final_size, "total_size": final_size, "percent": 100.0}
-                if inspect.iscoroutinefunction(on_progress):
-                    await on_progress(info)
-                else:
-                    on_progress(info)
+            await _emit_progress({"bytes_downloaded": final_size, "total_size": final_size, "percent": 100.0})
 
             tmp_destination.rename(destination)
 

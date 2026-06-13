@@ -93,6 +93,15 @@ class ModelOperationHandler:
                 await ModelRepository(session).update_status(model_id, "error")
                 await session.commit()
             logger.error("[download] FAILED  job=%s | model=%s", job_id, model_id)
+            await event_bus.publish_event(
+                ModelEvent(
+                    event_type="model.download_failed",
+                    job_id=str(job_id),
+                    level="error",
+                    message=f"Download failed for model '{model_id}'",
+                    payload={"model_id": model_id, "source": source},
+                )
+            )
             raise
 
     async def _do_download(
@@ -171,6 +180,7 @@ class ModelOperationHandler:
                 file_path=relative_path,
                 destination=dest_file,
                 on_progress=progress_fn,
+                download_url=file_info.get("download_url"),
             )
 
             # Commit per-file completion into DB
@@ -272,6 +282,7 @@ class ModelOperationHandler:
                         job_id=str(job_id),
                         message=f"Downloading {file_name}: {file_pct}%",
                         payload={
+                            "model_id": model_id,
                             "progress_percent": overall_pct,
                             "file": file_name,
                             "file_index": file_idx + 1,

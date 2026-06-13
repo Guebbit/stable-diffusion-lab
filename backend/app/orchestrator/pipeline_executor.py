@@ -19,6 +19,8 @@ from app.domain.enums import InferenceBackend, JobType
 from app.domain.value_objects import GenerationParams
 from app.infrastructure.config.settings import get_settings
 
+from app.domain.value_objects import ArtifactReference
+
 if TYPE_CHECKING:
     from app.domain.value_objects import JobProgress
 
@@ -37,7 +39,7 @@ class PipelineExecutor:
         job_type: str,
         params: dict,
         on_progress: None | callable = None,
-    ) -> None:
+    ) -> list[ArtifactReference]:
         """
         Route a job to the correct adapter and execute it.
 
@@ -59,17 +61,17 @@ class PipelineExecutor:
         job_type_enum = JobType(job_type)
 
         if job_type_enum == JobType.TEXT_TO_IMAGE:
-            await self._run_text_to_image(
+            return await self._run_text_to_image(
                 job_id, backend, params, output_dir, progress_cb
             )
         elif job_type_enum == JobType.IMAGE_TO_IMAGE:
-            await self._run_image_to_image(
+            return await self._run_image_to_image(
                 job_id, backend, params, output_dir, progress_cb
             )
         elif job_type_enum == JobType.IMAGE_CAPTIONING:
             await self._run_captioning(job_id, backend, params)
         elif job_type_enum == JobType.VIDEO_GENERATION:
-            await self._run_video(job_id, backend, params, output_dir, progress_cb)
+            return await self._run_video(job_id, backend, params, output_dir, progress_cb)
         elif job_type_enum == JobType.LLM_INFERENCE:
             await self._run_llm(job_id, backend, params)
         else:
@@ -77,6 +79,7 @@ class PipelineExecutor:
                 f"PipelineExecutor does not handle job type '{job_type}'. "
                 "Use ModelOperationHandler for model lifecycle jobs."
             )
+        return []
 
     # ── Private dispatch methods ──────────────────────────────────────
 
@@ -87,10 +90,10 @@ class PipelineExecutor:
         params: dict,
         output_dir: Path,
         on_progress: callable,
-    ) -> None:
+    ) -> list[ArtifactReference]:
         adapter = self._adapter_registry.get_provider(JobType.TEXT_TO_IMAGE, backend)
         gen_params = _build_gen_params(params)
-        await adapter.generate(
+        return await adapter.generate(
             gen_params, params["model_id"], output_dir, on_progress=on_progress
         )
 
@@ -101,10 +104,10 @@ class PipelineExecutor:
         params: dict,
         output_dir: Path,
         on_progress: callable,
-    ) -> None:
+    ) -> list[ArtifactReference]:
         adapter = self._adapter_registry.get_provider(JobType.IMAGE_TO_IMAGE, backend)
         gen_params = _build_gen_params(params)
-        await adapter.generate(
+        return await adapter.generate(
             gen_params,
             params["model_id"],
             Path(params["source_image_path"]),
@@ -118,13 +121,14 @@ class PipelineExecutor:
         job_id: UUID,
         backend: InferenceBackend | None,
         params: dict,
-    ) -> None:
+    ) -> list[ArtifactReference]:
         adapter = self._adapter_registry.get_provider(JobType.IMAGE_CAPTIONING, backend)
         await adapter.caption(
             Path(params["image_path"]),
             params["model_id"],
             prompt=params.get("prompt", ""),
         )
+        return []
 
     async def _run_video(
         self,
@@ -133,13 +137,13 @@ class PipelineExecutor:
         params: dict,
         output_dir: Path,
         on_progress: callable,
-    ) -> None:
+    ) -> list[ArtifactReference]:
         adapter = self._adapter_registry.get_provider(JobType.VIDEO_GENERATION, backend)
         gen_params = _build_gen_params(params, default_steps=25)
         source_path = (
             Path(params["source_image_path"]) if params.get("source_image_path") else None
         )
-        await adapter.generate(
+        return await adapter.generate(
             gen_params,
             params["model_id"],
             output_dir,
@@ -152,7 +156,7 @@ class PipelineExecutor:
         job_id: UUID,
         backend: InferenceBackend | None,
         params: dict,
-    ) -> None:
+    ) -> list[ArtifactReference]:
         adapter = self._adapter_registry.get_provider(JobType.LLM_INFERENCE, backend)
         await adapter.generate(
             params["messages"],
@@ -160,6 +164,7 @@ class PipelineExecutor:
             max_tokens=params.get("max_tokens", 512),
             temperature=params.get("temperature", 0.7),
         )
+        return []
 
 
 # ── Module-level helpers ────────────────────────────────────────────────

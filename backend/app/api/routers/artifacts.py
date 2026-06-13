@@ -7,9 +7,11 @@ Provides listing, metadata access, file serving, and gallery management
 
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.artifacts import ArtifactResponse, ArtifactUpdateRequest
@@ -79,6 +81,21 @@ async def update_artifact(
     return _to_response(artifact)
 
 
+@router.get("/{artifact_id}/file")
+async def get_artifact_file(
+    artifact_id: UUID,
+    service: ArtifactService = Depends(_get_artifact_service),
+) -> FileResponse:
+    """Serve the raw file for an artifact."""
+    artifact = await service.get_artifact(artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    file_path = Path(artifact.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Artifact file not found on disk")
+    return FileResponse(str(file_path), media_type=artifact.media_type)
+
+
 @router.delete("/{artifact_id}", status_code=204, response_model=None)
 async def delete_artifact(
     artifact_id: UUID,
@@ -95,7 +112,7 @@ def _to_response(a: object) -> ArtifactResponse:
     return ArtifactResponse(
         id=a.id,  # type: ignore[attr-defined]
         job_id=a.job_id,  # type: ignore[attr-defined]
-        file_path=a.file_path,  # type: ignore[attr-defined]
+        file_path=f"/api/v1/artifacts/{a.id}/file",  # type: ignore[attr-defined]
         thumbnail_path=a.thumbnail_path,  # type: ignore[attr-defined]
         media_type=a.media_type,  # type: ignore[attr-defined]
         size_bytes=a.size_bytes,  # type: ignore[attr-defined]

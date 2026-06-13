@@ -105,6 +105,7 @@ class HuggingFaceSourceProvider:
         destination: Path,
         resume_from_byte: int = 0,
         on_progress: Any = None,
+        download_url: str | None = None,  # unused; accepted for interface uniformity
     ) -> dict[str, Any]:
         """
         Download a single file with resume support.

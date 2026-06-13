@@ -28,8 +28,10 @@ from app.adapters.adapter_registry import AdapterRegistry
 from app.adapters.resource_coordinator import ResourceCoordinator
 from app.domain.events import ArtifactEvent, JobEvent, ResourceEvent
 from app.domain.enums import JobType
+from app.domain.value_objects import ArtifactReference
 from app.infrastructure.config.settings import get_settings
-from app.infrastructure.database.repositories import JobRepository
+from app.infrastructure.database.models import ArtifactRecord
+from app.infrastructure.database.repositories import ArtifactRepository, JobRepository
 from app.orchestrator.event_bus import event_bus
 from app.orchestrator.pipeline_executor import PipelineExecutor
 from app.services.model_operation_handler import ModelOperationHandler
@@ -47,11 +49,12 @@ _GPU_JOB_TYPES: frozenset[JobType] = frozenset(
     }
 )
 
-# Jobs that are model lifecycle operations (download, load, etc.).
+# Jobs that are model lifecycle operations (download, delete, refresh).
 _MODEL_JOB_TYPES: frozenset[JobType] = frozenset(
     {
         JobType.MODEL_DOWNLOAD,
-        JobType.MODEL_LOAD,
+        JobType.MODEL_DELETE,
+        JobType.MODEL_REFRESH,
     }
 )
 
@@ -167,7 +170,11 @@ class JobWorker:
                 await self._acquire_gpu_lock(job_id_str, correlation_id)
 
             # Dispatch to appropriate handler
-            await self._dispatch(job_id, job_type, params)
+            artifacts = await self._dispatch(job_id, job_type, params)
+
+            # Persist any produced artifacts to the DB
+            if artifacts:
+                await self._persist_artifacts(job_id, artifacts, params)
 
             # Mark completed
             await self._mark_completed(job_id)
@@ -227,14 +234,17 @@ class JobWorker:
 
     # ── Dispatch routing ─────────────────────────────────
 
-    async def _dispatch(self, job_id: UUID, job_type: str, params: dict) -> None:
+    async def _dispatch(
+        self, job_id: UUID, job_type: str, params: dict
+    ) -> list[ArtifactReference]:
         """Route a job to the correct handler based on job type."""
         job_type_enum = JobType(job_type)
 
         if job_type_enum in _MODEL_JOB_TYPES:
             await self._model_operation_handler.handle(job_id, job_type, params)
+            return []
         elif job_type_enum in _GPU_JOB_TYPES:
-            await self._pipeline_executor.execute(job_id, job_type_enum, params)
+            return await self._pipeline_executor.execute(job_id, job_type_enum, params)
         else:
             raise ValueError(f"Unknown job type: {job_type}")
 
@@ -291,6 +301,36 @@ class JobWorker:
             job_repo = JobRepository(session)
             await job_repo.mark_cancelled(job_id)
             await session.commit()
+
+    async def _persist_artifacts(
+        self,
+        job_id: UUID,
+        artifacts: list[ArtifactReference],
+        params: dict,
+    ) -> None:
+        """Save artifact references produced by a generation job to the DB."""
+        async with self._session_factory() as session:
+            repo = ArtifactRepository(session)
+            for ref in artifacts:
+                record = ArtifactRecord(
+                    id=ref.artifact_id,
+                    job_id=job_id,
+                    file_path=ref.file_path,
+                    thumbnail_path=ref.thumbnail_path,
+                    media_type=ref.media_type,
+                    size_bytes=ref.size_bytes,
+                    width=ref.width,
+                    height=ref.height,
+                    prompt=params.get("prompt", ""),
+                    negative_prompt=params.get("negative_prompt", ""),
+                    seed=params.get("seed") or 0,
+                    model_name=params.get("model_id", ""),
+                    model_id_ref=params.get("original_model_id", params.get("model_id", "")),
+                    generation_params=params,
+                )
+                await repo.create(record)
+            await session.commit()
+        logger.info("Persisted %d artifact(s) for job %s", len(artifacts), job_id)
 
     # ── Lazy handler wiring ──────────────────────────────
 

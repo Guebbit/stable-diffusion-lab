@@ -14,9 +14,10 @@ import { useNotificationStore, LEVEL_COLOR, LEVEL_ICON } from './stores/notifica
 const store = useDiffusionStore()
 const notif = useNotificationStore()
 
-// Check backend health on first load
+// Check backend health and connect SSE stream on first load
 onMounted(() => {
   store.fetchStatus()
+  store.connectObservability()
 })
 
 // v-model for v-snackbar
