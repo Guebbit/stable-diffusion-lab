@@ -1,0 +1,11 @@
+Change the job tags.
+
+text_to_image
+image_to_image
+upscale_image
+describe_image
+recolor_image
+sketch_to_ink
+
+In the future we will add video and audio processing (not for now) so we must make a little change to the code.
+These "jobs tags" are the various objectives of the platform and are used to determine which processing to apply to the image.

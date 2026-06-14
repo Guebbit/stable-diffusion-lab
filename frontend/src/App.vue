@@ -35,10 +35,7 @@ const showToast = computed({
 
 // Navigation items for the app bar
 const navItems = [
-  { title: 'Generate', icon: 'mdi-image-sparkle', to: '/' },
-  { title: 'Describe', icon: 'mdi-eye', to: '/describe' },
-  { title: 'Edit', icon: 'mdi-image-edit', to: '/edit' },
-  { title: 'Ink', icon: 'mdi-draw-pen', to: '/ink' },
+  { title: 'Image', icon: 'mdi-image-sparkle', to: '/image' },
   { title: 'Models', icon: 'mdi-brain', to: '/models' },
   { title: 'History', icon: 'mdi-history', to: '/history' },
 ]

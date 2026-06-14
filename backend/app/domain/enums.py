@@ -47,12 +47,37 @@ class JobStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class GenerationMode(StrEnum):
+    """High-level generation mode presented to the user."""
+
+    TEXT_TO_IMAGE = "text_to_image"
+    IMAGE_TO_IMAGE = "image_to_image"
+    UPSCALE = "upscale"
+    DESCRIBE = "describe"
+    RECOLOR = "recolor"
+    SKETCH_TO_INK = "sketch_to_ink"
+
+
+class ModelCapability(StrEnum):
+    """Capabilities a model supports, used to filter by generation mode."""
+
+    TEXT_TO_IMAGE = "text_to_image"
+    IMAGE_TO_IMAGE = "image_to_image"
+    UPSCALE = "upscale"
+    DESCRIBE = "describe"
+    RECOLOR = "recolor"
+    SKETCH_TO_INK = "sketch_to_ink"
+
+
 class JobType(StrEnum):
     """The kind of work a job performs."""
 
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
-    IMAGE_CAPTIONING = "image_captioning"
+    IMAGE_ANALYSIS = "image_analysis"
+    UPSCALE = "upscale"
+    RECOLOR = "recolor"
+    SKETCH_TO_INK = "sketch_to_ink"
     VIDEO_GENERATION = "video_generation"
     LLM_INFERENCE = "llm_inference"
     MODEL_DOWNLOAD = "model_download"
@@ -66,7 +91,10 @@ class GenerationTask(StrEnum):
 
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
-    CAPTIONING = "captioning"
+    IMAGE_ANALYSIS = "image_analysis"
+    UPSCALE = "upscale"
+    RECOLOR = "recolor"
+    SKETCH_TO_INK = "sketch_to_ink"
     VIDEO = "video"
     LLM_CHAT = "llm_chat"
 

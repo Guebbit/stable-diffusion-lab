@@ -39,6 +39,27 @@ class DescribeRequest(BaseModel):
     model_id: str = Field(..., description="ID of the vision model to use for captioning")
 
 
+class UpscaleRequest(BaseModel):
+    """Request body for image upscaling."""
+    model_config = ConfigDict(protected_namespaces=())
+    model_id: str = Field(..., description="ID of the upscale model to use")
+    scale_factor: float = Field(2.0, ge=1.0, le=4.0, description="Upscale factor")
+
+
+class RecolorRequest(BaseModel):
+    """Request body for image recoloring."""
+    model_config = ConfigDict(protected_namespaces=())
+    prompt: str = Field(..., min_length=1, description="Color guidance prompt")
+    model_id: str = Field(..., description="ID of the model to use for recoloring")
+    strength: float = Field(0.75, ge=0.0, le=1.0, description="How much to recolor")
+
+
+class SketchToInkRequest(BaseModel):
+    """Request body for sketch-to-ink generation."""
+    model_config = ConfigDict(protected_namespaces=())
+    model_id: str = Field(..., description="ID of the model to use for sketch-to-ink")
+
+
 class JobResponse(BaseModel):
     """Response returned when a job is successfully enqueued."""
     job_id: UUID

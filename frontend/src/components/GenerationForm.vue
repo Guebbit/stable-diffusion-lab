@@ -2,43 +2,33 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useDiffusionStore } from '../stores/diffusion'
 import { useModelsStore } from '../stores/models'
-import type { GenerationMode, ImageWorkflowPreset, ModelSource } from '../types'
+import type { GenerationMode, ModelSource } from '../types'
 
 const store = useDiffusionStore()
 const modelsStore = useModelsStore()
 
-// Fetch models on mount (for the select dropdown)
 onMounted(() => {
   modelsStore.fetchRegistry()
 })
 
-/**
- * Current model source and available source options.
- */
 const modelSourceSelection = ref<ModelSource>('huggingface')
 const modelSourceItems = [
   { title: 'HuggingFace', value: 'huggingface' as ModelSource },
   { title: 'CivitAI', value: 'civitai' as ModelSource },
 ]
 
-/**
- * Mode selector includes practical image workflow options.
- */
 const generationMode = ref<GenerationMode>('text-to-image')
 const generationModeItems = [
-  { title: 'Text to Image', value: 'text-to-image' as GenerationMode },
-  { title: 'Image to Image', value: 'image-to-image' as GenerationMode },
-  { title: 'Recolor Image', value: 'recolor-image' as GenerationMode },
-  { title: 'Style Transfer', value: 'style-transfer' as GenerationMode },
-  { title: 'Upscale Image', value: 'upscale-image' as GenerationMode },
-  { title: 'Sketch to Ink', value: 'sketch-to-ink' as GenerationMode },
+  { title: 'Text to Image', value: 'text-to-image' as GenerationMode, icon: 'mdi-text-box-plus' },
+  { title: 'Image to Image', value: 'image-to-image' as GenerationMode, icon: 'mdi-image-filter-center-focus' },
+  { title: 'Upscale', value: 'upscale-image' as GenerationMode, icon: 'mdi-arrow-expand-all' },
+  { title: 'Describe', value: 'describe-image' as GenerationMode, icon: 'mdi-text-recognition' },
+  { title: 'Recolor', value: 'recolor-image' as GenerationMode, icon: 'mdi-palette' },
+  { title: 'Sketch to Ink', value: 'sketch-to-ink' as GenerationMode, icon: 'mdi-pencil' },
 ]
+
 const imageFile = ref<File | null>(null)
 const imagePreviewUrl = ref<string | null>(null)
-
-/**
- * Toggle for custom model ID input.
- */
 const useCustomModel = ref(false)
 
 interface IForm {
@@ -54,18 +44,6 @@ interface IForm {
   numImages: number
 }
 
-interface ImageWorkflowPresetConfig {
-  workflowPreset: ImageWorkflowPreset
-  prompt: string
-  negativePrompt: string
-  strength: number
-  numInferenceSteps: number
-  guidanceScale: number
-  width?: number
-  height?: number
-  helperText: string
-}
-
 const defaultForm: IForm = {
   prompt: '',
   negativePrompt: '',
@@ -79,234 +57,209 @@ const defaultForm: IForm = {
   numImages: 1,
 }
 
-const sketchPromptPreset = 'clean black ink line art, crisp comic inking, bold outlines, high contrast, white background'
-const sketchNegativePromptPreset = 'color, shading, painterly, blurry, messy sketch lines, grayscale wash, textured paper'
-const sketchDefaultSteps = 28
-const sketchDefaultGuidanceScale = 8
+const form = ref<IForm>({ ...defaultForm })
+const dimensionOptions = [256, 512, 768, 1024, 1280, 1536, 1792, 2048]
 
-/**
- * Prompt + parameter presets for image-guided workflows.
- */
-const imageWorkflowPresets: Record<
-  Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'>,
-  ImageWorkflowPresetConfig
-> = {
+// Mode metadata: which fields each mode needs
+interface ModeMeta {
+  needsPrompt: boolean
+  needsImage: boolean
+  needsNegativePrompt: boolean
+  needsStrength: boolean
+  needsControlnetScale: boolean
+  defaultSteps: number
+  defaultGuidance: number
+  defaultStrength: number
+  helperText: string
+}
+
+const modeMeta: Record<GenerationMode, ModeMeta> = {
+  'text-to-image': {
+    needsPrompt: true,
+    needsImage: false,
+    needsNegativePrompt: true,
+    needsStrength: false,
+    needsControlnetScale: false,
+    defaultSteps: 20,
+    defaultGuidance: 7.5,
+    defaultStrength: 0.6,
+    helperText: 'Generate an image from a text description.',
+  },
   'image-to-image': {
-    workflowPreset: 'general',
-    prompt: 'refine details, preserve composition, clean textures',
-    negativePrompt: 'low quality, blur, distorted anatomy, artifacts',
-    strength: 0.6,
-    numInferenceSteps: 20,
-    guidanceScale: 7.5,
-    helperText: 'Balanced transformation while preserving original composition.',
-  },
-  'recolor-image': {
-    workflowPreset: 'recolor',
-    prompt: 'recolor image with cohesive palette, preserve shapes and edges',
-    negativePrompt: 'muddy colors, grayscale, oversaturated, color bleeding',
-    strength: 0.45,
-    numInferenceSteps: 24,
-    guidanceScale: 7,
-    helperText: 'Best when you want new colors but stable line work.',
-  },
-  'style-transfer': {
-    workflowPreset: 'style-transfer',
-    prompt: 'apply stylized painterly look with detailed brushwork',
-    negativePrompt: 'blurry, deformed, low detail, washed out',
-    strength: 0.72,
-    numInferenceSteps: 30,
-    guidanceScale: 8,
-    helperText: 'Higher creativity mode for major style changes.',
+    needsPrompt: true,
+    needsImage: true,
+    needsNegativePrompt: true,
+    needsStrength: true,
+    needsControlnetScale: false,
+    defaultSteps: 20,
+    defaultGuidance: 7.5,
+    defaultStrength: 0.6,
+    helperText: 'Transform an existing image using a text prompt.',
   },
   'upscale-image': {
-    workflowPreset: 'upscale',
-    prompt: 'highly detailed upscale, sharp edges, clean textures',
-    negativePrompt: 'pixelated, blurry, noise, compression artifacts',
-    strength: 0.3,
-    numInferenceSteps: 18,
-    guidanceScale: 6.5,
-    width: 1024,
-    height: 1024,
-    helperText: 'Gentle denoise setting intended for resolution/detail upgrades.',
+    needsPrompt: false,
+    needsImage: true,
+    needsNegativePrompt: false,
+    needsStrength: true,
+    needsControlnetScale: false,
+    defaultSteps: 18,
+    defaultGuidance: 6.5,
+    defaultStrength: 0.3,
+    helperText: 'Increase resolution and add detail to an image.',
+  },
+  'describe-image': {
+    needsPrompt: false,
+    needsImage: true,
+    needsNegativePrompt: false,
+    needsStrength: false,
+    needsControlnetScale: false,
+    defaultSteps: 1,
+    defaultGuidance: 1,
+    defaultStrength: 0,
+    helperText: 'Generate a text description of an uploaded image.',
+  },
+  'recolor-image': {
+    needsPrompt: true,
+    needsImage: true,
+    needsNegativePrompt: true,
+    needsStrength: true,
+    needsControlnetScale: false,
+    defaultSteps: 24,
+    defaultGuidance: 7,
+    defaultStrength: 0.45,
+    helperText: 'Change the colors of an image while preserving shapes.',
+  },
+  'sketch-to-ink': {
+    needsPrompt: true,
+    needsImage: true,
+    needsNegativePrompt: true,
+    needsStrength: false,
+    needsControlnetScale: true,
+    defaultSteps: 28,
+    defaultGuidance: 8,
+    defaultStrength: 0.6,
+    helperText: 'Convert a sketch or scribble into clean ink line art.',
   },
 }
 
-/**
- * Form state is shared across all modes so users can switch without losing context.
- */
-const form = ref<IForm>({ ...defaultForm })
-
-/**
- * Allowed image sizes expected by the backend.
- */
-const dimensionOptions = [256, 512, 768, 1024, 1280, 1536, 1792, 2048]
-
-/**
- * Select model list based on current source — only shows downloaded models.
- */
+const currentModeMeta = computed(() => modeMeta[generationMode.value])
 const availableModels = computed(() =>
   modelSourceSelection.value === 'huggingface'
     ? modelsStore.huggingfaceModels
     : modelsStore.civitaiModels,
 )
 const isSketchToInkMode = computed(() => generationMode.value === 'sketch-to-ink')
-const isImageGuidedMode = computed(() => generationMode.value !== 'text-to-image')
+const needsImage = computed(() => currentModeMeta.value.needsImage)
+const needsPrompt = computed(() => currentModeMeta.value.needsPrompt)
+
 const availableModelSourceItems = computed(() =>
   isSketchToInkMode.value ? [modelSourceItems[0]] : modelSourceItems,
 )
-const selectedPhaseThreePreset = computed(() =>
-  isImageWorkflowPresetMode(generationMode.value)
-    ? imageWorkflowPresets[generationMode.value]
-    : null,
-)
 
-/**
- * Model selection controls.
- */
 const modelIdSelected = ref('')
 const customModelId = ref('')
 const activeModelId = computed(() =>
   useCustomModel.value ? customModelId.value : modelIdSelected.value,
 )
 
-/**
- * Keep generate button disabled until required fields are valid.
- */
 const formValid = computed(
   () =>
-    form.value.prompt.trim().length > 0 &&
+    (needsPrompt.value ? form.value.prompt.trim().length > 0 : true) &&
     activeModelId.value.trim().length > 0 &&
-    (!isImageGuidedMode.value || !!imageFile.value),
-)
-const initializedWorkflowModes = ref<Set<Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'>>>(
-  new Set(),
+    (!needsImage.value || !!imageFile.value),
 )
 
-/**
- * Type guard for modes that use image-workflow preset configs.
- */
-function isImageWorkflowPresetMode(
-  mode: GenerationMode,
-): mode is Exclude<GenerationMode, 'text-to-image' | 'sketch-to-ink'> {
-  return mode in imageWorkflowPresets
-}
-
-/**
- * Apply default prompt/inference values when the user switches generation mode.
- */
 function handleGenerationModeChange(mode: GenerationMode) {
+  const meta = modeMeta[mode]
+  form.value.numInferenceSteps = meta.defaultSteps
+  form.value.guidanceScale = meta.defaultGuidance
+  form.value.strength = meta.defaultStrength
+
   if (mode === 'sketch-to-ink') {
     modelSourceSelection.value = 'huggingface'
     useCustomModel.value = false
     modelIdSelected.value = modelsStore.huggingfaceModels[0]?.id ?? ''
-
     if (!form.value.prompt.trim()) {
-      form.value.prompt = sketchPromptPreset
+      form.value.prompt = 'clean black ink line art, crisp comic inking, bold outlines, high contrast, white background'
     }
-
     if (!form.value.negativePrompt.trim()) {
-      form.value.negativePrompt = sketchNegativePromptPreset
+      form.value.negativePrompt = 'color, shading, painterly, blurry, messy sketch lines, grayscale wash, textured paper'
     }
-
-    form.value.numInferenceSteps = sketchDefaultSteps
-    form.value.guidanceScale = sketchDefaultGuidanceScale
-    form.value.controlnetConditioningScale = 1.1
     return
   }
 
-  if (isImageWorkflowPresetMode(mode)) {
-    if (initializedWorkflowModes.value.has(mode)) return
-    const preset = imageWorkflowPresets[mode]
-    form.value.prompt = preset.prompt
-    form.value.negativePrompt = preset.negativePrompt
-    form.value.strength = preset.strength
-    form.value.numInferenceSteps = preset.numInferenceSteps
-    form.value.guidanceScale = preset.guidanceScale
-    if (typeof preset.width === 'number') form.value.width = preset.width
-    if (typeof preset.height === 'number') form.value.height = preset.height
-    initializedWorkflowModes.value.add(mode)
+  if (mode === 'upscale-image' && !form.value.prompt.trim()) {
+    form.value.prompt = 'highly detailed upscale, sharp edges, clean textures'
+  }
+  if (mode === 'image-to-image' && !form.value.prompt.trim()) {
+    form.value.prompt = 'refine details, preserve composition, clean textures'
+  }
+  if (mode === 'recolor-image' && !form.value.prompt.trim()) {
+    form.value.prompt = 'recolor with cohesive palette, preserve shapes and edges'
   }
 }
 
-/**
- * Build the common prompt/model payload fields shared by all generation calls.
- */
-function buildCommonGenerationPayload() {
+function buildCommonPayload() {
   return {
-    prompt: form.value.prompt.trim(),
-    negative_prompt: form.value.negativePrompt.trim() || undefined,
+    prompt: (needsPrompt.value ? form.value.prompt : '').trim(),
+    negative_prompt: (needsPrompt.value && form.value.negativePrompt.trim()) ? form.value.negativePrompt.trim() : undefined,
     model_id: activeModelId.value,
   }
 }
 
-/**
- * Trigger one of the image-to-image preset workflows.
- * TODO: Backend /api/v1/generation/image-to-image not yet implemented.
- */
-function generatePresetWorkflow() {
-  if (!imageFile.value) return
-  const payload = buildCommonGenerationPayload()
-  return store.generate({
-    ...payload,
-    model_source: modelSourceSelection.value,
-    width: form.value.width,
-    height: form.value.height,
-    num_inference_steps: form.value.numInferenceSteps,
-    guidance_scale: form.value.guidanceScale,
-    seed: form.value.seed ?? undefined,
-    num_images: form.value.numImages,
-  })
-}
-
-/**
- * Trigger sketch-to-ink generation.
- * TODO: Backend /api/v1/generation/sketch-to-ink not yet implemented.
- */
-function generateSketchWorkflow() {
-  if (!imageFile.value) return
-  const payload = buildCommonGenerationPayload()
-  return store.generate({
-    ...payload,
-    model_source: 'huggingface',
-    width: form.value.width,
-    height: form.value.height,
-    num_inference_steps: form.value.numInferenceSteps,
-    guidance_scale: form.value.guidanceScale,
-    seed: form.value.seed ?? undefined,
-    num_images: form.value.numImages,
-  })
-}
-
-/**
- * Trigger standard text-to-image generation.
- */
-function generateTextWorkflow() {
-  const payload = buildCommonGenerationPayload()
-  return store.generate({
-    ...payload,
-    model_source: modelSourceSelection.value,
-    width: form.value.width,
-    height: form.value.height,
-    num_inference_steps: form.value.numInferenceSteps,
-    guidance_scale: form.value.guidanceScale,
-    seed: form.value.seed ?? undefined,
-    num_images: form.value.numImages,
-  })
-}
-
-/**
- * Route the request to the correct backend endpoint based on generation mode.
- */
 function handleGenerate() {
   if (!formValid.value) return
-  if (isImageGuidedMode.value && !isSketchToInkMode.value) return generatePresetWorkflow()
-  if (generationMode.value === 'sketch-to-ink') return generateSketchWorkflow()
-  return generateTextWorkflow()
+
+  const mode = generationMode.value
+  const modelId = activeModelId.value
+
+  // Modes that require an image file
+  if (mode === 'describe-image') {
+    if (!imageFile.value) return
+    return store.describe(modelId, imageFile.value)
+  }
+  if (mode === 'upscale-image') {
+    if (!imageFile.value) return
+    // Use strength as scale factor (map 0.1-1.0 to 1.5-4.0)
+    const scaleFactor = form.value.strength * 4 + 0.5
+    return store.upscale(modelId, imageFile.value!, scaleFactor)
+  }
+  if (mode === 'recolor-image') {
+    if (!imageFile.value) return
+    return store.recolor(modelId, imageFile.value, form.value.prompt, form.value.strength)
+  }
+  if (mode === 'sketch-to-ink') {
+    if (!imageFile.value) return
+    return store.sketchToInk(modelId, imageFile.value)
+  }
+  if (mode === 'image-to-image') {
+    const payload = {
+      ...buildCommonPayload(),
+      model_source: modelSourceSelection.value,
+      width: form.value.width,
+      height: form.value.height,
+      num_inference_steps: form.value.numInferenceSteps,
+      guidance_scale: form.value.guidanceScale,
+      seed: form.value.seed ?? undefined,
+      num_images: form.value.numImages,
+    }
+    return store.imageToImage(payload)
+  }
+
+  // Default: text-to-image
+  const payload = {
+    ...buildCommonPayload(),
+    model_source: modelSourceSelection.value,
+    width: form.value.width,
+    height: form.value.height,
+    num_inference_steps: form.value.numInferenceSteps,
+    guidance_scale: form.value.guidanceScale,
+    seed: form.value.seed ?? undefined,
+    num_images: form.value.numImages,
+  }
+  return store.generate(payload)
 }
 
-/**
- * Whether the currently selected model is loaded in the backend.
- */
 const isCurrentModelLoaded = computed(
   () =>
     !useCustomModel.value &&
@@ -314,17 +267,8 @@ const isCurrentModelLoaded = computed(
     store.status?.models?.active_model === activeModelId.value,
 )
 
-/**
- * Model loading is now automatic — the backend loads models on first use.
- * This is a no-op placeholder for UI compatibility.
- */
-function loadSelectedModel() {
-  // Models auto-load on generation; no explicit load needed in the v1 API
-}
+function loadSelectedModel() {}
 
-/**
- * Keep one uploaded file and manage its local preview URL lifecycle safely.
- */
 function handleImageSelection(value: File | File[] | null) {
   const selected = Array.isArray(value) ? value[0] ?? null : value
   imageFile.value = selected
@@ -339,9 +283,6 @@ function handleImageSelection(value: File | File[] | null) {
   }
 }
 
-/**
- * Cleanup object URL to avoid browser memory leaks.
- */
 onBeforeUnmount(() => {
   if (imagePreviewUrl.value) URL.revokeObjectURL(imagePreviewUrl.value)
 })
@@ -355,6 +296,7 @@ onBeforeUnmount(() => {
     </v-card-title>
 
     <v-card-text>
+      <!-- Mode Selector -->
       <v-select
           v-model="generationMode"
           :items="generationModeItems"
@@ -362,10 +304,24 @@ onBeforeUnmount(() => {
           variant="outlined"
           prepend-inner-icon="mdi-tune-variant"
           class="mb-4"
+          item-title="title"
+          item-value="value"
           @update:model-value="handleGenerationModeChange"
       />
-      
+
+      <!-- Helper text -->
+      <v-alert
+          :type="isSketchToInkMode ? 'info' : 'success'"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+      >
+        {{ currentModeMeta.helperText }}
+      </v-alert>
+
+      <!-- Prompt (modes that need it) -->
       <v-textarea
+          v-if="needsPrompt"
           v-model="form.prompt"
           label="Prompt"
           rows="3"
@@ -375,7 +331,9 @@ onBeforeUnmount(() => {
           class="mb-3"
       />
 
+      <!-- Negative Prompt (modes that need it) -->
       <v-textarea
+          v-if="currentModeMeta.needsNegativePrompt"
           v-model="form.negativePrompt"
           label="Negative Prompt"
           rows="2"
@@ -385,26 +343,8 @@ onBeforeUnmount(() => {
           class="mb-4"
       />
 
-      <v-alert
-          v-if="isSketchToInkMode"
-          type="info"
-          variant="tonal"
-          density="compact"
-          class="mb-4"
-      >
-        Sketch to Ink uses a built-in ControlNet scribble pipeline and currently supports HuggingFace SD 1.5 / SDXL base models.
-      </v-alert>
-      <v-alert
-          v-else-if="selectedPhaseThreePreset"
-          type="info"
-          variant="tonal"
-          density="compact"
-          class="mb-4"
-      >
-        {{ selectedPhaseThreePreset.helperText }}
-      </v-alert>
-
-      <div v-if="isImageGuidedMode" class="mb-4">
+      <!-- Image Upload (modes that need it) -->
+      <div v-if="needsImage" class="mb-4">
         <v-file-input
             accept="image/*"
             :label="isSketchToInkMode ? 'Sketch Upload' : 'Input Image'"
@@ -424,7 +364,7 @@ onBeforeUnmount(() => {
 
       <v-divider class="mb-4"/>
 
-      <!-- Model Source -->
+      <!-- Model Source + Model -->
       <v-row>
         <v-col cols="12">
           <v-select
@@ -460,7 +400,7 @@ onBeforeUnmount(() => {
               modelSourceSelection === 'huggingface'
                 ? 'e.g. runwayml/stable-diffusion-v1-5'
                 : 'e.g. 4201'
-            "
+          "
               variant="outlined"
               prepend-inner-icon="mdi-identifier"
           />
@@ -520,11 +460,7 @@ onBeforeUnmount(() => {
         <v-col cols="12" sm="6">
           <div class="text-caption text-medium-emphasis mb-1">
             Steps: {{ form.numInferenceSteps }}
-            <p>
-              <small>
-                inference steps refer to the process of drawing conclusions based on evidence and reasoning. This typically involves gathering relevant information, identifying patterns, and synthesizing these details to reach a logical conclusion.
-              </small>
-            </p>
+            <p><small>inference steps for drawing conclusions from evidence.</small></p>
           </div>
           <v-slider
               v-model="form.numInferenceSteps"
@@ -538,13 +474,7 @@ onBeforeUnmount(() => {
         <v-col cols="12" sm="6">
           <div class="text-caption text-medium-emphasis mb-1">
             CFG Scale: {{ form.guidanceScale }}
-            <p>
-              <small>
-                controls how closely the generated image follows the text prompt. A higher CFG scale value means the
-                image will adhere more strictly to the prompt, while a lower value allows for more creative freedom and
-                variation in the output.
-              </small>
-            </p>
+            <p><small>higher = stricter prompt adherence, lower = more creative.</small></p>
           </div>
           <v-slider
               v-model="form.guidanceScale"
@@ -555,7 +485,7 @@ onBeforeUnmount(() => {
               color="primary"
           />
         </v-col>
-        <v-col v-if="generationMode === 'image-to-image'" cols="12" sm="6">
+        <v-col v-if="currentModeMeta.needsStrength" cols="12" sm="6">
           <div class="text-caption text-medium-emphasis mb-1">
             Strength: {{ form.strength }}
           </div>
@@ -568,7 +498,7 @@ onBeforeUnmount(() => {
               color="primary"
           />
         </v-col>
-        <v-col v-if="isSketchToInkMode" cols="12" sm="6">
+        <v-col v-if="currentModeMeta.needsControlnetScale" cols="12" sm="6">
           <div class="text-caption text-medium-emphasis mb-1">
             Sketch Guidance: {{ form.controlnetConditioningScale }}
           </div>
@@ -584,44 +514,42 @@ onBeforeUnmount(() => {
       </v-row>
     </v-card-text>
 
-      <!-- Model Loading Status -->
-      <div class="mb-4" v-if="!useCustomModel && activeModelId">
-        <v-alert
-            :type="isCurrentModelLoaded ? 'success' : 'warning'"
-            :text="isCurrentModelLoaded ? 'Model loaded' : 'Model not loaded — click to load'"
-            :icon="isCurrentModelLoaded ? 'mdi-check-circle' : 'mdi-memory'"
-            variant="tonal"
-            density="compact"
-            class="mb-2"
-        >
-          <template #default>
-            <span class="text-body-2">{{ activeModelId }}</span>
-          </template>
-        </v-alert>
-        <v-btn
-            v-if="!isCurrentModelLoaded"
-            color="primary"
-            variant="tonal"
-            size="small"
-            prepend-icon="mdi-download"
-            @click="loadSelectedModel"
-        >
-          Load Model
-        </v-btn>
-      </div>
+    <!-- Model Loading Status -->
+    <div class="mb-4" v-if="!useCustomModel && activeModelId">
+      <v-alert
+          :type="isCurrentModelLoaded ? 'success' : 'warning'"
+          :text="isCurrentModelLoaded ? 'Model loaded' : 'Model not loaded — click to load'"
+          :icon="isCurrentModelLoaded ? 'mdi-check-circle' : 'mdi-memory'"
+          variant="tonal"
+          density="compact"
+          class="mb-2"
+      >
+        <span class="text-body-2">{{ activeModelId }}</span>
+      </v-alert>
+      <v-btn
+          v-if="!isCurrentModelLoaded"
+          color="primary"
+          variant="tonal"
+          size="small"
+          prepend-icon="mdi-download"
+          @click="loadSelectedModel"
+      >
+        Load Model
+      </v-btn>
+    </div>
 
-      <v-card-actions class="pa-4 pt-0">
-        <v-btn
-            color="primary"
-            size="large"
-            :loading="store.isGenerating || false"
-            :disabled="!formValid || false"
-            prepend-icon="mdi-creation"
-            block
-            @click="handleGenerate"
-        >
-          {{ store.isGenerating ? 'Generating...' : 'Generate' }}
-        </v-btn>
-      </v-card-actions>
+    <v-card-actions class="pa-4 pt-0">
+      <v-btn
+          color="primary"
+          size="large"
+          :loading="store.isGenerating || false"
+          :disabled="!formValid || false"
+          prepend-icon="mdi-creation"
+          block
+          @click="handleGenerate"
+      >
+        {{ store.isGenerating ? 'Generating...' : 'Generate' }}
+      </v-btn>
+    </v-card-actions>
   </v-card>
 </template>

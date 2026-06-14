@@ -16,9 +16,11 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Respo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import (
-    DescribeRequest,
     JobResponse,
+    RecolorRequest,
+    SketchToInkRequest,
     TextToImageRequest,
+    UpscaleRequest,
 )
 from app.domain.errors import JobNotFoundError
 from app.domain.value_objects import GenerationParams
@@ -99,8 +101,8 @@ async def submit_text_to_image(
     return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
 
 
-@router.post("/describe", response_model=JobResponse, status_code=202)
-async def submit_describe(
+@router.post("/analyze", response_model=JobResponse, status_code=202)
+async def submit_analyze(
     model_id: str = Form(...),
     image: UploadFile = File(...),
     response: Response = Response(),
@@ -108,7 +110,7 @@ async def submit_describe(
     correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
 ) -> JobResponse:
     """
-    Submit an image description (captioning) job.
+    Submit an image analysis job.
 
     Accepts an image via multipart/form-data and returns a job_id.
     The vision model will analyze the image and produce a text description.
@@ -120,7 +122,128 @@ async def submit_describe(
         tmp.write(content)
         image_path = tmp.name
 
+    job_id = await service.submit_image_analysis(
+        model_id,
+        image_path,
+        correlation_id=correlation_id,
+    )
+    _set_correlation_header(response, correlation_id)
+    return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
+
+
+@router.post("/describe", response_model=JobResponse, status_code=202)
+async def submit_describe(
+    model_id: str = Form(...),
+    image: UploadFile = File(...),
+    response: Response = Response(),
+    service: GenerationService = Depends(_get_generation_service),
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
+) -> JobResponse:
+    """
+    Submit an image captioning (describe) job.
+
+    Accepts an image via multipart/form-data and returns a job_id.
+    The vision model will analyze the image and produce a text description.
+    """
+    suffix = os.path.splitext(image.filename)[1] if image.filename else ".png"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir="/tmp") as tmp:
+        content = await image.read()
+        tmp.write(content)
+        image_path = tmp.name
+
     job_id = await service.submit_image_captioning(
+        model_id,
+        image_path,
+        correlation_id=correlation_id,
+    )
+    _set_correlation_header(response, correlation_id)
+    return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
+
+
+@router.post("/upscale", response_model=JobResponse, status_code=202)
+async def submit_upscale(
+    model_id: str = Form(...),
+    image: UploadFile = File(...),
+    scale_factor: float = Form(2.0),
+    response: Response = Response(),
+    service: GenerationService = Depends(_get_generation_service),
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
+) -> JobResponse:
+    """
+    Submit an image upscale job.
+
+    Accepts an image via multipart/form-data and returns a job_id.
+    The model will upscale the image by the specified factor.
+    """
+    suffix = os.path.splitext(image.filename)[1] if image.filename else ".png"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir="/tmp") as tmp:
+        content = await image.read()
+        tmp.write(content)
+        image_path = tmp.name
+
+    job_id = await service.submit_upscale(
+        model_id,
+        image_path,
+        scale_factor=scale_factor,
+        correlation_id=correlation_id,
+    )
+    _set_correlation_header(response, correlation_id)
+    return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
+
+
+@router.post("/recolor", response_model=JobResponse, status_code=202)
+async def submit_recolor(
+    model_id: str = Form(...),
+    image: UploadFile = File(...),
+    prompt: str = Form(...),
+    strength: float = Form(0.75),
+    response: Response = Response(),
+    service: GenerationService = Depends(_get_generation_service),
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
+) -> JobResponse:
+    """
+    Submit an image recolor job.
+
+    Accepts an image and a color guidance prompt via multipart/form-data.
+    """
+    suffix = os.path.splitext(image.filename)[1] if image.filename else ".png"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir="/tmp") as tmp:
+        content = await image.read()
+        tmp.write(content)
+        image_path = tmp.name
+
+    job_id = await service.submit_recolor(
+        model_id,
+        image_path,
+        prompt=prompt,
+        strength=strength,
+        correlation_id=correlation_id,
+    )
+    _set_correlation_header(response, correlation_id)
+    return JobResponse(job_id=job_id, status="pending", correlation_id=correlation_id)
+
+
+@router.post("/sketch-to-ink", response_model=JobResponse, status_code=202)
+async def submit_sketch_to_ink(
+    model_id: str = Form(...),
+    image: UploadFile = File(...),
+    response: Response = Response(),
+    service: GenerationService = Depends(_get_generation_service),
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
+) -> JobResponse:
+    """
+    Submit a sketch-to-ink job.
+
+    Accepts a sketch image via multipart/form-data and returns a job_id.
+    The model will convert the sketch to a finished inked image.
+    """
+    suffix = os.path.splitext(image.filename)[1] if image.filename else ".png"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir="/tmp") as tmp:
+        content = await image.read()
+        tmp.write(content)
+        image_path = tmp.name
+
+    job_id = await service.submit_sketch_to_ink(
         model_id,
         image_path,
         correlation_id=correlation_id,

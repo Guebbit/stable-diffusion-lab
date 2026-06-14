@@ -6,23 +6,13 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'generate',
-      component: () => import('../views/GenerateView.vue'),
+      name: 'home',
+      component: () => import('../views/HomeView.vue'),
     },
     {
-      path: '/describe',
-      name: 'describe',
-      component: () => import('../views/DescribeView.vue'),
-    },
-    {
-      path: '/edit',
-      name: 'edit',
-      component: () => import('../views/EditImageView.vue'),
-    },
-    {
-      path: '/ink',
-      name: 'ink',
-      component: () => import('../views/InkSketchView.vue'),
+      path: '/image',
+      name: 'image',
+      component: () => import('../views/ImageView.vue'),
     },
     {
       path: '/models',

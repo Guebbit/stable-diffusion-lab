@@ -26,7 +26,17 @@ from app.services.generation_service import GenerationService
 from app.services.job_creator import JobCreator
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────
+# ── Fixtures ───────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def mock_job_creator(mocker: MockerFixture) -> AsyncMock:
+    """Shared mock JobCreator injected into GenerationService."""
+    mock = AsyncMock(spec=JobCreator)
+    mock.create_text_to_image_job = AsyncMock(return_value=uuid4())
+    mock.create_image_to_image_job = AsyncMock(return_value=uuid4())
+    mock.create_image_analysis_job = AsyncMock(return_value=uuid4())
+    return mock
+
 
 @pytest.fixture
 def params() -> GenerationParams:
@@ -49,17 +59,7 @@ def minimal_params() -> GenerationParams:
     return GenerationParams(prompt="test")
 
 
-@pytest.fixture
-def mock_job_creator(mocker: MockerFixture) -> AsyncMock:
-    """Shared mock JobCreator injected into GenerationService."""
-    mock = AsyncMock(spec=JobCreator)
-    mock.create_text_to_image_job = AsyncMock(return_value=uuid4())
-    mock.create_image_to_image_job = AsyncMock(return_value=uuid4())
-    mock.create_image_captioning_job = AsyncMock(return_value=uuid4())
-    return mock
-
-
-# ── Tests: submit_text_to_image ─────────────────────────────────────────
+# ── Tests: submit_text_to_image ───────────────────────────────────────────
 
 class TestSubmitTextToImage:
     """Tests for GenerationService.submit_text_to_image()."""
@@ -174,7 +174,7 @@ class TestSubmitTextToImage:
         assert mock_job_creator.create_text_to_image_job.await_count == 2
 
 
-# ── Tests: submit_image_to_image ────────────────────────────────────────
+# ── Tests: submit_image_to_image ──────────────────────────────────────────
 
 class TestSubmitImageToImage:
     """Tests for GenerationService.submit_image_to_image()."""
@@ -271,33 +271,33 @@ class TestSubmitImageToImage:
         assert call_args[3] == "corr-img2img"
 
 
-# ── Tests: submit_image_captioning ──────────────────────────────────────────
+# ── Tests: submit_image_analysis ──────────────────────────────────────────
 
-class TestSubmitImageCaptioning:
-    """Tests for GenerationService.submit_image_captioning()."""
+class TestSubmitImageAnalysis:
+    """Tests for GenerationService.submit_image_analysis()."""
 
     @pytest.mark.asyncio
     async def test_delegates_to_job_creator(self, mock_job_creator: AsyncMock) -> None:
-        """submit_image_captioning delegates to JobCreator.create_image_captioning_job."""
+        """submit_image_analysis delegates to JobCreator.create_image_analysis_job."""
         service = GenerationService(job_creator=mock_job_creator)
 
-        await service.submit_image_captioning(
+        await service.submit_image_analysis(
             model_id="org/vision-model",
             image_path="/tmp/upload.png",
         )
 
-        mock_job_creator.create_image_captioning_job.assert_awaited_once_with(
+        mock_job_creator.create_image_analysis_job.assert_awaited_once_with(
             "org/vision-model", "/tmp/upload.png", None
         )
 
     @pytest.mark.asyncio
     async def test_returns_job_id_from_creator(self, mock_job_creator: AsyncMock) -> None:
-        """submit_image_captioning returns the job_id from JobCreator."""
+        """submit_image_analysis returns the job_id from JobCreator."""
         expected_id = uuid4()
-        mock_job_creator.create_image_captioning_job = AsyncMock(return_value=expected_id)
+        mock_job_creator.create_image_analysis_job = AsyncMock(return_value=expected_id)
 
         service = GenerationService(job_creator=mock_job_creator)
-        result = await service.submit_image_captioning(
+        result = await service.submit_image_analysis(
             model_id="org/vision-model",
             image_path="/tmp/upload.png",
         )
@@ -307,24 +307,24 @@ class TestSubmitImageCaptioning:
     async def test_passes_model_id_correctly(self, mock_job_creator: AsyncMock) -> None:
         service = GenerationService(job_creator=mock_job_creator)
 
-        await service.submit_image_captioning(
+        await service.submit_image_analysis(
             model_id="specific/vision-model",
             image_path="/tmp/img.png",
         )
 
-        call_args = mock_job_creator.create_image_captioning_job.call_args[0]
+        call_args = mock_job_creator.create_image_analysis_job.call_args[0]
         assert call_args[0] == "specific/vision-model"
 
     @pytest.mark.asyncio
     async def test_passes_image_path_correctly(self, mock_job_creator: AsyncMock) -> None:
         service = GenerationService(job_creator=mock_job_creator)
 
-        await service.submit_image_captioning(
+        await service.submit_image_analysis(
             model_id="org/model",
             image_path="/tmp/specific_path.jpg",
         )
 
-        call_args = mock_job_creator.create_image_captioning_job.call_args[0]
+        call_args = mock_job_creator.create_image_analysis_job.call_args[0]
         assert call_args[1] == "/tmp/specific_path.jpg"
 
     @pytest.mark.asyncio
@@ -332,40 +332,40 @@ class TestSubmitImageCaptioning:
         """Correlation ID is forwarded to JobCreator."""
         service = GenerationService(job_creator=mock_job_creator)
 
-        await service.submit_image_captioning(
+        await service.submit_image_analysis(
             model_id="org/vision-model",
             image_path="/tmp/img.png",
-            correlation_id="caption-corr-abc",
+            correlation_id="analysis-corr-abc",
         )
 
-        call_args = mock_job_creator.create_image_captioning_job.call_args[0]
-        assert call_args[2] == "caption-corr-abc"
+        call_args = mock_job_creator.create_image_analysis_job.call_args[0]
+        assert call_args[2] == "analysis-corr-abc"
 
     @pytest.mark.asyncio
     async def test_correlation_id_defaults_to_none(self, mock_job_creator: AsyncMock) -> None:
         service = GenerationService(job_creator=mock_job_creator)
 
-        await service.submit_image_captioning(
+        await service.submit_image_analysis(
             model_id="org/model",
             image_path="/tmp/img.png",
         )
 
-        call_args = mock_job_creator.create_image_captioning_job.call_args[0]
+        call_args = mock_job_creator.create_image_analysis_job.call_args[0]
         assert call_args[2] is None
 
     @pytest.mark.asyncio
     async def test_multiple_calls_produce_independent_jobs(
         self, mock_job_creator: AsyncMock
     ) -> None:
-        """Two independent captioning submissions return different job IDs."""
+        """Two independent analysis submissions return different job IDs."""
         id1, id2 = uuid4(), uuid4()
-        mock_job_creator.create_image_captioning_job = AsyncMock(side_effect=[id1, id2])
+        mock_job_creator.create_image_analysis_job = AsyncMock(side_effect=[id1, id2])
 
         service = GenerationService(job_creator=mock_job_creator)
 
-        result1 = await service.submit_image_captioning("model/a", "/tmp/1.png")
-        result2 = await service.submit_image_captioning("model/b", "/tmp/2.png")
+        result1 = await service.submit_image_analysis("model/a", "/tmp/1.png")
+        result2 = await service.submit_image_analysis("model/b", "/tmp/2.png")
 
         assert result1 == id1
         assert result2 == id2
-        assert mock_job_creator.create_image_captioning_job.await_count == 2
+        assert mock_job_creator.create_image_analysis_job.await_count == 2

@@ -297,7 +297,7 @@ class TestDispatch:
         mock_adapter.generate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_dispatches_image_captioning(self, worker: JobWorker, mocker: MockerFixture) -> None:
+    async def test_dispatches_image_analysis(self, worker: JobWorker, mocker: MockerFixture) -> None:
         job_id = uuid4()
         mock_adapter = AsyncMock()
         worker._adapter_registry.get_provider.return_value = mock_adapter
@@ -309,10 +309,10 @@ class TestDispatch:
 
         await worker._dispatch(
             job_id,
-            JobType.IMAGE_CAPTIONING,
+            JobType.IMAGE_ANALYSIS,
             {
                 "image_path": "/tmp/photo.jpg",
-                "model_id": "blip",
+                "model_id": "vision-model",
             },
         )
 
@@ -391,7 +391,7 @@ class TestDispatch:
         
         This documents the current behavior: MODEL_LOAD (and MODEL_REFRESH) are not routed
         by the worker dispatcher. Only MODEL_DOWNLOAD, MODEL_DELETE are in _MODEL_JOB_TYPES,
-        and only TEXT_TO_IMAGE, IMAGE_TO_IMAGE, IMAGE_CAPTIONING, VIDEO_GENERATION, LLM_INFERENCE
+        and only TEXT_TO_IMAGE, IMAGE_TO_IMAGE, IMAGE_ANALYSIS, VIDEO_GENERATION, LLM_INFERENCE
         are in _GPU_JOB_TYPES.
         """
         job_id = uuid4()

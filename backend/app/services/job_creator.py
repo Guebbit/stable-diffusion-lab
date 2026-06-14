@@ -148,6 +148,125 @@ class JobCreator:
         )
         return created_job.id
 
+    async def create_image_analysis_job(
+        self,
+        model_id: str,
+        image_path: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Create a PENDING image analysis job."""
+        job_params: dict = {
+            "model_id": model_id,
+            "image_path": image_path,
+        }
+
+        if correlation_id is not None:
+            job_params["correlation_id"] = correlation_id
+
+        job = JobRecord(
+            job_type=JobType.IMAGE_ANALYSIS,
+            status=JobStatus.PENDING,
+            params=job_params,
+        )
+        created_job = await self._job_repo.create(job)
+        await self._publish_enqueued_event(
+            created_job.id, JobType.IMAGE_ANALYSIS, correlation_id
+        )
+        return created_job.id
+
+    async def create_upscale_job(
+        self,
+        model_id: str,
+        image_path: str,
+        scale_factor: float = 2.0,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Create a PENDING upscale job."""
+        resolved_model = await self._model_resolver.resolve(model_id)
+
+        job_params: dict = {
+            "model_id": resolved_model,
+            "original_model_id": model_id,
+            "image_path": image_path,
+            "scale_factor": scale_factor,
+        }
+
+        if correlation_id is not None:
+            job_params["correlation_id"] = correlation_id
+
+        job = JobRecord(
+            job_type=JobType.UPSCALE,
+            status=JobStatus.PENDING,
+            params=job_params,
+        )
+        created_job = await self._job_repo.create(job)
+        await self._publish_enqueued_event(
+            created_job.id, JobType.UPSCALE, correlation_id
+        )
+        return created_job.id
+
+    async def create_recolor_job(
+        self,
+        model_id: str,
+        image_path: str,
+        prompt: str,
+        strength: float = 0.75,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Create a PENDING recolor job."""
+        resolved_model = await self._model_resolver.resolve(model_id)
+
+        job_params: dict = {
+            "model_id": resolved_model,
+            "original_model_id": model_id,
+            "image_path": image_path,
+            "prompt": prompt,
+            "strength": strength,
+        }
+
+        if correlation_id is not None:
+            job_params["correlation_id"] = correlation_id
+
+        job = JobRecord(
+            job_type=JobType.RECOLOR,
+            status=JobStatus.PENDING,
+            params=job_params,
+        )
+        created_job = await self._job_repo.create(job)
+        await self._publish_enqueued_event(
+            created_job.id, JobType.RECOLOR, correlation_id
+        )
+        return created_job.id
+
+    async def create_sketch_to_ink_job(
+        self,
+        model_id: str,
+        image_path: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Create a PENDING sketch-to-ink job."""
+        resolved_model = await self._model_resolver.resolve(model_id)
+
+        job_params: dict = {
+            "model_id": resolved_model,
+            "original_model_id": model_id,
+            "image_path": image_path,
+        }
+
+        if correlation_id is not None:
+            job_params["correlation_id"] = correlation_id
+
+        job = JobRecord(
+            job_type=JobType.SKETCH_TO_INK,
+            status=JobStatus.PENDING,
+            params=job_params,
+        )
+        created_job = await self._job_repo.create(job)
+        await self._publish_enqueued_event(
+            created_job.id, JobType.SKETCH_TO_INK, correlation_id
+        )
+        return created_job.id
+
     async def create_image_captioning_job(
         self,
         model_id: str,
@@ -164,13 +283,13 @@ class JobCreator:
             job_params["correlation_id"] = correlation_id
 
         job = JobRecord(
-            job_type=JobType.IMAGE_CAPTIONING,
+            job_type=JobType.IMAGE_ANALYSIS,
             status=JobStatus.PENDING,
             params=job_params,
         )
         created_job = await self._job_repo.create(job)
         await self._publish_enqueued_event(
-            created_job.id, JobType.IMAGE_CAPTIONING, correlation_id
+            created_job.id, JobType.IMAGE_ANALYSIS, correlation_id
         )
         return created_job.id
 

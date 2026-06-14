@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _PROTOCOL_MAP: dict[JobType, type[Any]] = {
     JobType.TEXT_TO_IMAGE: TextToImageProvider,
     JobType.IMAGE_TO_IMAGE: ImageToImageProvider,
-    JobType.IMAGE_CAPTIONING: VisionProvider,
+    JobType.IMAGE_ANALYSIS: VisionProvider,
     JobType.VIDEO_GENERATION: VideoProvider,
     JobType.LLM_INFERENCE: LLMProvider,
 }

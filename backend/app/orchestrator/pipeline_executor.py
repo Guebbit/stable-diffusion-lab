@@ -68,8 +68,8 @@ class PipelineExecutor:
             return await self._run_image_to_image(
                 job_id, backend, params, output_dir, progress_cb
             )
-        elif job_type_enum == JobType.IMAGE_CAPTIONING:
-            await self._run_captioning(job_id, backend, params)
+        elif job_type_enum == JobType.IMAGE_ANALYSIS:
+            await self._run_image_analysis(job_id, backend, params)
         elif job_type_enum == JobType.VIDEO_GENERATION:
             return await self._run_video(job_id, backend, params, output_dir, progress_cb)
         elif job_type_enum == JobType.LLM_INFERENCE:
@@ -116,13 +116,13 @@ class PipelineExecutor:
             on_progress=on_progress,
         )
 
-    async def _run_captioning(
+    async def _run_image_analysis(
         self,
         job_id: UUID,
         backend: InferenceBackend | None,
         params: dict,
     ) -> list[ArtifactReference]:
-        adapter = self._adapter_registry.get_provider(JobType.IMAGE_CAPTIONING, backend)
+        adapter = self._adapter_registry.get_provider(JobType.IMAGE_ANALYSIS, backend)
         await adapter.caption(
             Path(params["image_path"]),
             params["model_id"],

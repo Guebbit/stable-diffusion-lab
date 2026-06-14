@@ -3,6 +3,7 @@
 .vscode/
 *.swp
 *.swo
+.claude
 
 # ─── Frontend ─────────────────────────────────────────────
 frontend/node_modules/

@@ -15,7 +15,10 @@ from app.api.schemas.generation import (
     DescribeRequest,
     ImageToImageRequest,
     JobResponse,
+    RecolorRequest,
+    SketchToInkRequest,
     TextToImageRequest,
+    UpscaleRequest,
 )
 from app.api.schemas.jobs import (
     JobCancelResponse,

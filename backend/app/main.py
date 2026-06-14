@@ -66,7 +66,7 @@ def _build_adapter_registry(
 
     registry.register(JobType.TEXT_TO_IMAGE, InferenceBackend.DIRECT_PYTHON, direct_txt2img)
     registry.register(JobType.IMAGE_TO_IMAGE, InferenceBackend.DIRECT_PYTHON, direct_img2img)
-    registry.register(JobType.IMAGE_CAPTIONING, InferenceBackend.DIRECT_PYTHON, direct_vision)
+    registry.register(JobType.IMAGE_ANALYSIS, InferenceBackend.DIRECT_PYTHON, direct_vision)
     registry.register(JobType.VIDEO_GENERATION, InferenceBackend.DIRECT_PYTHON, direct_video)
     registry.register(JobType.LLM_INFERENCE, InferenceBackend.DIRECT_PYTHON, direct_llm)
 
@@ -92,11 +92,6 @@ def _build_adapter_registry(
             JobType.IMAGE_TO_IMAGE,
             InferenceBackend.BENTOML,
             BentoMLImageToImageAdapter(bento_client),
-        )
-        registry.register(
-            JobType.IMAGE_CAPTIONING,
-            InferenceBackend.BENTOML,
-            BentoMLVisionAdapter(bento_client),
         )
         registry.register(
             JobType.VIDEO_GENERATION,

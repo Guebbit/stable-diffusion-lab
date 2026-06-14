@@ -24,7 +24,7 @@ onUnmounted(() => {
 const activeSource = ref<'all' | 'huggingface' | 'civitai'>('all')
 const activeFamily = ref<'all' | 'sd15' | 'sdxl' | 'flux' | 'custom'>('all')
 const activeDownloaded = ref<'all' | 'downloaded' | 'not-downloaded'>('all')
-const activeCapability = ref<'all' | 'captioning' | 'txt2img' | 'img2img'>('all')
+const activeCapability = ref<'all' | 'analysis' | 'txt2img' | 'img2img'>('all')
 
 const filteredModels = computed(() =>
   modelsStore.registry.filter(m => {
@@ -219,9 +219,9 @@ function statusChipLabel(model: ModelRegistryEntry): string {
           divided
         >
           <v-btn value="all">All caps</v-btn>
-          <v-btn value="captioning">
+          <v-btn value="analysis">
             <v-icon icon="mdi-eye" class="mr-1" size="16" />
-            Captioning
+            Analysis
           </v-btn>
           <v-btn value="txt2img">
             <v-icon icon="mdi-text-box" class="mr-1" size="16" />
@@ -346,7 +346,7 @@ function statusChipLabel(model: ModelRegistryEntry): string {
                 v-for="cap in model.capabilities"
                 :key="cap"
                 size="x-small"
-                :color="cap === 'captioning' ? 'cyan' : cap === 'txt2img' ? 'purple' : 'teal'"
+                :color="cap === 'analysis' ? 'cyan' : cap === 'txt2img' ? 'purple' : 'teal'"
                 class="mr-1 mb-1"
               >
                 {{ cap }}

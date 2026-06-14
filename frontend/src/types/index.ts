@@ -35,9 +35,9 @@ export type GenerationTask = 'text_to_image' | 'image_to_image' | 'video_generat
 export type GenerationMode =
   | 'text-to-image'
   | 'image-to-image'
-  | 'recolor-image'
-  | 'style-transfer'
   | 'upscale-image'
+  | 'describe-image'
+  | 'recolor-image'
   | 'sketch-to-ink'
 
 /**

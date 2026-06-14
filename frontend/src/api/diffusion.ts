@@ -35,6 +35,64 @@ export const diffusionApi = {
     return api.post<JobSubmissionResponse>('/generation/text-to-image', payload).then((r) => r.data)
   },
 
+  /**
+   * Submit an image-to-image generation job.
+   */
+  submitImageToImage(payload: GenerationRequest & { image?: string }): Promise<JobSubmissionResponse> {
+    return api.post<JobSubmissionResponse>('/generation/image-to-image', payload).then((r) => r.data)
+  },
+
+  /**
+   * Submit an upscale job (multipart/form-data with file upload).
+   */
+  submitUpscale(modelId: string, imageFile: File, scaleFactor: number = 2.0): Promise<JobSubmissionResponse> {
+    const formData = new FormData()
+    formData.append('model_id', modelId)
+    formData.append('image', imageFile)
+    formData.append('scale_factor', String(scaleFactor))
+    return api.post<JobSubmissionResponse>('/generation/upscale', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+
+  /**
+   * Submit a describe-image (vision) job (multipart/form-data with file upload).
+   */
+  submitDescribe(modelId: string, imageFile: File): Promise<JobSubmissionResponse> {
+    const formData = new FormData()
+    formData.append('model_id', modelId)
+    formData.append('image', imageFile)
+    return api.post<JobSubmissionResponse>('/generation/describe', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+
+  /**
+   * Submit a recolor job (multipart/form-data with file upload).
+   */
+  submitRecolor(modelId: string, imageFile: File, prompt: string, strength: number = 0.75): Promise<JobSubmissionResponse> {
+    const formData = new FormData()
+    formData.append('model_id', modelId)
+    formData.append('image', imageFile)
+    formData.append('prompt', prompt)
+    formData.append('strength', String(strength))
+    return api.post<JobSubmissionResponse>('/generation/recolor', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+
+  /**
+   * Submit a sketch-to-ink job (multipart/form-data with file upload).
+   */
+  submitSketchToInk(modelId: string, imageFile: File): Promise<JobSubmissionResponse> {
+    const formData = new FormData()
+    formData.append('model_id', modelId)
+    formData.append('image', imageFile)
+    return api.post<JobSubmissionResponse>('/generation/sketch-to-ink', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+
   // ─── Jobs ──
 
   /**

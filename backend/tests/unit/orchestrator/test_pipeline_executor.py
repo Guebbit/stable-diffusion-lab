@@ -38,7 +38,7 @@ def mock_registry():
         JobType.IMAGE_TO_IMAGE: {
             InferenceBackend.DIRECT_PYTHON: AsyncMock(),
         },
-        JobType.IMAGE_CAPTIONING: {
+        JobType.IMAGE_ANALYSIS: {
             InferenceBackend.DIRECT_PYTHON: AsyncMock(),
         },
         JobType.VIDEO_GENERATION: {

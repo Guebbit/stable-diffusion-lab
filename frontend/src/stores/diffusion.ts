@@ -73,8 +73,6 @@ export const useDiffusionStore = defineStore('diffusion', () => {
 
   /**
    * Submit a text-to-image job and wait for completion.
-   * Listens for SSE events (job.completed / job.failed / job.cancelled) to know
-   * when the job reached a terminal state, then fetches the final status via API.
    */
   function generate(request: GenerationRequest): Promise<void> {
     const notif = useNotificationStore()
@@ -99,6 +97,187 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : 'Generation failed'
+        error.value = msg
+        notif.push('error', msg)
+      })
+      .finally(() => {
+        isGenerating.value = false
+      })
+  }
+
+  /**
+   * Submit a describe-image (vision) job and wait for completion.
+   */
+  function describe(modelId: string, imageFile: File): Promise<void> {
+    const notif = useNotificationStore()
+    isGenerating.value = true
+    error.value = null
+    notif.push('info', 'Describe image — submitting job…')
+
+    return diffusionApi.submitDescribe(modelId, imageFile)
+      .then((submission: JobSubmissionResponse) => {
+        notif.push('info', `Job ${submission.job_id} queued`)
+        return _waitForJobCompletion(submission.job_id)
+      })
+      .then((job: JobStatusResponse) => {
+        if (job.status === 'completed') {
+          notif.push('success', `Description complete — job ${job.id}`)
+          return refreshGallery()
+        } else {
+          const msg = job.error || `Job ended with status: ${job.status}`
+          error.value = msg
+          notif.push('error', msg)
+        }
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Description failed'
+        error.value = msg
+        notif.push('error', msg)
+      })
+      .finally(() => {
+        isGenerating.value = false
+      })
+  }
+
+  /**
+   * Submit an image-to-image job and wait for completion.
+   */
+  function imageToImage(request: GenerationRequest & { image?: string }): Promise<void> {
+    return _submitMode('Image-to-image', diffusionApi.submitImageToImage, request)
+  }
+
+  /**
+   * Submit an upscale job and wait for completion.
+   */
+  function upscale(modelId: string, imageFile: File, scaleFactor: number = 2.0): Promise<void> {
+    const notif = useNotificationStore()
+    isGenerating.value = true
+    error.value = null
+    notif.push('info', 'Upscale — submitting job…')
+
+    return diffusionApi.submitUpscale(modelId, imageFile, scaleFactor)
+      .then((submission: JobSubmissionResponse) => {
+        notif.push('info', `Job ${submission.job_id} queued`)
+        return _waitForJobCompletion(submission.job_id)
+      })
+      .then((job: JobStatusResponse) => {
+        if (job.status === 'completed') {
+          notif.push('success', `Upscale complete — job ${job.id}`)
+          return refreshGallery()
+        } else {
+          const msg = job.error || `Job ended with status: ${job.status}`
+          error.value = msg
+          notif.push('error', msg)
+        }
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Upscale failed'
+        error.value = msg
+        notif.push('error', msg)
+      })
+      .finally(() => {
+        isGenerating.value = false
+      })
+  }
+
+  /**
+   * Submit a recolor job and wait for completion.
+   */
+  function recolor(modelId: string, imageFile: File, prompt: string, strength: number = 0.75): Promise<void> {
+    const notif = useNotificationStore()
+    isGenerating.value = true
+    error.value = null
+    notif.push('info', 'Recolor — submitting job…')
+
+    return diffusionApi.submitRecolor(modelId, imageFile, prompt, strength)
+      .then((submission: JobSubmissionResponse) => {
+        notif.push('info', `Job ${submission.job_id} queued`)
+        return _waitForJobCompletion(submission.job_id)
+      })
+      .then((job: JobStatusResponse) => {
+        if (job.status === 'completed') {
+          notif.push('success', `Recolor complete — job ${job.id}`)
+          return refreshGallery()
+        } else {
+          const msg = job.error || `Job ended with status: ${job.status}`
+          error.value = msg
+          notif.push('error', msg)
+        }
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Recolor failed'
+        error.value = msg
+        notif.push('error', msg)
+      })
+      .finally(() => {
+        isGenerating.value = false
+      })
+  }
+
+  /**
+   * Submit a sketch-to-ink job and wait for completion.
+   */
+  function sketchToInk(modelId: string, imageFile: File): Promise<void> {
+    const notif = useNotificationStore()
+    isGenerating.value = true
+    error.value = null
+    notif.push('info', 'Sketch-to-ink — submitting job…')
+
+    return diffusionApi.submitSketchToInk(modelId, imageFile)
+      .then((submission: JobSubmissionResponse) => {
+        notif.push('info', `Job ${submission.job_id} queued`)
+        return _waitForJobCompletion(submission.job_id)
+      })
+      .then((job: JobStatusResponse) => {
+        if (job.status === 'completed') {
+          notif.push('success', `Sketch-to-ink complete — job ${job.id}`)
+          return refreshGallery()
+        } else {
+          const msg = job.error || `Job ended with status: ${job.status}`
+          error.value = msg
+          notif.push('error', msg)
+        }
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Sketch-to-ink failed'
+        error.value = msg
+        notif.push('error', msg)
+      })
+      .finally(() => {
+        isGenerating.value = false
+      })
+  }
+
+  /**
+   * Generic submission helper for any mode.
+   */
+  function _submitMode(
+    label: string,
+    submitFn: (payload: any) => Promise<JobSubmissionResponse>,
+    request: any,
+  ): Promise<void> {
+    const notif = useNotificationStore()
+    isGenerating.value = true
+    error.value = null
+    notif.push('info', `${label} — submitting job…`)
+
+    return submitFn(request)
+      .then((submission: JobSubmissionResponse) => {
+        notif.push('info', `Job ${submission.job_id} queued`)
+        return _waitForJobCompletion(submission.job_id)
+      })
+      .then((job: JobStatusResponse) => {
+        if (job.status === 'completed') {
+          notif.push('success', `${label} complete — job ${job.id}`)
+          return refreshGallery()
+        } else {
+          const msg = job.error || `Job ended with status: ${job.status}`
+          error.value = msg
+          notif.push('error', msg)
+        }
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : `${label} failed`
         error.value = msg
         notif.push('error', msg)
       })
@@ -135,11 +314,6 @@ export const useDiffusionStore = defineStore('diffusion', () => {
 
   /**
    * Wait for a job to reach a terminal state via SSE events.
-   *
-   * The SSE stream emits `job.progress`, `job.completed`, `job.failed`,
-   * and `job.cancelled` events with progress percentage included.
-   * We watch the `jobProgress` map for a terminal event, then fetch
-   * the final status from the API to resolve the promise.
    */
   function _waitForJobCompletion(jobId: string): Promise<JobStatusResponse> {
     const terminalTypes = new Set([
@@ -184,6 +358,11 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     sseConnected,
     fetchStatus,
     generate,
+    describe,
+    imageToImage,
+    upscale,
+    recolor,
+    sketchToInk,
     refreshGallery,
     clearImages,
     clearError,

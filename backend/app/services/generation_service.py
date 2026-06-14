@@ -68,6 +68,77 @@ class GenerationService:
         )
         return job_id
 
+    async def submit_image_analysis(
+        self,
+        model_id: str,
+        image_path: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Submit an image analysis job."""
+        job_id = await self._job_creator.create_image_analysis_job(
+            model_id, image_path, correlation_id
+        )
+        logger.info(
+            "Created image-analysis job: %s (model_id=%s)",
+            job_id,
+            model_id,
+        )
+        return job_id
+
+    async def submit_upscale(
+        self,
+        model_id: str,
+        image_path: str,
+        scale_factor: float = 2.0,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Submit an upscale job."""
+        job_id = await self._job_creator.create_upscale_job(
+            model_id, image_path, scale_factor, correlation_id
+        )
+        logger.info(
+            "Created upscale job: %s (model_id=%s)",
+            job_id,
+            model_id,
+        )
+        return job_id
+
+    async def submit_recolor(
+        self,
+        model_id: str,
+        image_path: str,
+        prompt: str,
+        strength: float = 0.75,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Submit a recolor job."""
+        job_id = await self._job_creator.create_recolor_job(
+            model_id, image_path, prompt, strength, correlation_id
+        )
+        logger.info(
+            "Created recolor job: %s (model_id=%s)",
+            job_id,
+            model_id,
+        )
+        return job_id
+
+    async def submit_sketch_to_ink(
+        self,
+        model_id: str,
+        image_path: str,
+        correlation_id: str | None = None,
+    ) -> UUID:
+        """Submit a sketch-to-ink job."""
+        job_id = await self._job_creator.create_sketch_to_ink_job(
+            model_id, image_path, correlation_id
+        )
+        logger.info(
+            "Created sketch-to-ink job: %s (model_id=%s)",
+            job_id,
+            model_id,
+        )
+        return job_id
+
     async def submit_image_captioning(
         self,
         model_id: str,

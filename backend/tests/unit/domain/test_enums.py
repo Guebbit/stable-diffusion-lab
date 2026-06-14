@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from app.domain.enums import (
+    GenerationMode,
     GenerationTask,
     InferenceBackend,
     JobStatus,
     JobType,
+    ModelCapability,
     ModelFamily,
     ModelSource,
     ModelStatus,
@@ -35,10 +37,29 @@ def test_enum_values_match_expected_contract() -> None:
         JobStatus.FAILED,
         JobStatus.CANCELLED,
     }
+    assert set(GenerationMode) == {
+        GenerationMode.TEXT_TO_IMAGE,
+        GenerationMode.IMAGE_TO_IMAGE,
+        GenerationMode.UPSCALE,
+        GenerationMode.DESCRIBE,
+        GenerationMode.RECOLOR,
+        GenerationMode.SKETCH_TO_INK,
+    }
+    assert set(ModelCapability) == {
+        ModelCapability.TEXT_TO_IMAGE,
+        ModelCapability.IMAGE_TO_IMAGE,
+        ModelCapability.UPSCALE,
+        ModelCapability.DESCRIBE,
+        ModelCapability.RECOLOR,
+        ModelCapability.SKETCH_TO_INK,
+    }
     assert set(JobType) == {
         JobType.TEXT_TO_IMAGE,
         JobType.IMAGE_TO_IMAGE,
-        JobType.IMAGE_CAPTIONING,
+        JobType.IMAGE_ANALYSIS,
+        JobType.UPSCALE,
+        JobType.RECOLOR,
+        JobType.SKETCH_TO_INK,
         JobType.VIDEO_GENERATION,
         JobType.LLM_INFERENCE,
         JobType.MODEL_DOWNLOAD,
@@ -49,7 +70,10 @@ def test_enum_values_match_expected_contract() -> None:
     assert set(GenerationTask) == {
         GenerationTask.TEXT_TO_IMAGE,
         GenerationTask.IMAGE_TO_IMAGE,
-        GenerationTask.CAPTIONING,
+        GenerationTask.IMAGE_ANALYSIS,
+        GenerationTask.UPSCALE,
+        GenerationTask.RECOLOR,
+        GenerationTask.SKETCH_TO_INK,
         GenerationTask.VIDEO,
         GenerationTask.LLM_CHAT,
     }
@@ -73,6 +97,8 @@ def test_enum_values_are_unique_within_each_enum() -> None:
         ModelFamily,
         ModelStatus,
         JobStatus,
+        GenerationMode,
+        ModelCapability,
         JobType,
         GenerationTask,
         InferenceBackend,
@@ -88,3 +114,10 @@ def test_model_and_backend_enum_values_do_not_overlap() -> None:
     }
     backend_values = {item.value for item in InferenceBackend}
     assert model_values.isdisjoint(backend_values)
+
+
+def test_generation_mode_and_capability_are_aligned() -> None:
+    """GenerationMode and ModelCapability should have identical members."""
+    mode_values = {m.value for m in GenerationMode}
+    capability_values = {c.value for c in ModelCapability}
+    assert mode_values == capability_values

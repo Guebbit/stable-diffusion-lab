@@ -43,7 +43,7 @@ _GPU_JOB_TYPES: frozenset[JobType] = frozenset(
     {
         JobType.TEXT_TO_IMAGE,
         JobType.IMAGE_TO_IMAGE,
-        JobType.IMAGE_CAPTIONING,
+        JobType.IMAGE_ANALYSIS,
         JobType.VIDEO_GENERATION,
         JobType.LLM_INFERENCE,
     }
@@ -232,7 +232,7 @@ class JobWorker:
             if needs_gpu:
                 await self._release_gpu_lock(job_id_str, correlation_id)
 
-    # ── Dispatch routing ─────────────────────────────────
+    # ── Dispatch routing ────────────────────────────────
 
     async def _dispatch(
         self, job_id: UUID, job_type: str, params: dict
@@ -248,7 +248,7 @@ class JobWorker:
         else:
             raise ValueError(f"Unknown job type: {job_type}")
 
-    # ── GPU lock helpers ─────────────────────────────────
+    # ── GPU lock helpers ────────────────────────────────
 
     async def _acquire_gpu_lock(
         self, job_id: str, correlation_id: str | None
@@ -281,7 +281,7 @@ class JobWorker:
             )
         )
 
-    # ── Job status helpers ───────────────────────────────
+    # ── Job status helpers ─────────────────────────────
 
     async def _mark_completed(self, job_id: UUID) -> None:
         async with self._session_factory() as session:
@@ -332,7 +332,7 @@ class JobWorker:
             await session.commit()
         logger.info("Persisted %d artifact(s) for job %s", len(artifacts), job_id)
 
-    # ── Lazy handler wiring ──────────────────────────────
+    # ── Lazy handler wiring ─────────────────────────────
 
     @property
     def _pipeline_executor(self) -> PipelineExecutor:
@@ -345,4 +345,3 @@ class JobWorker:
         return ModelOperationHandler(
             session_factory=self._session_factory,
         )
-

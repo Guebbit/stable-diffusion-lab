@@ -32,8 +32,8 @@ export const useModelsStore = defineStore('models', () => {
   const downloadedModels = computed(() =>
     registry.value.filter(m => m.status === 'downloaded'),
   )
-  const captioningModels = computed(() =>
-    registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('captioning')),
+  const analysisModels = computed(() =>
+    registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('analysis')),
   )
   const txt2imgModels = computed(() =>
     registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('txt2img')),
@@ -224,7 +224,7 @@ export const useModelsStore = defineStore('models', () => {
     sseConnected,
     huggingfaceModels,
     civitaiModels,
-    captioningModels,
+    analysisModels,
     txt2imgModels,
     img2imgModels,
     fetchRegistry,

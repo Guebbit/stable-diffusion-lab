@@ -210,35 +210,35 @@ async def test_create_model_download_job_raises_when_model_not_found() -> None:
         await creator.create_model_download_job("missing/model", "huggingface")
 
 
-# ── create_image_captioning_job ──────────────────────────────────────────────
+# ── create_image_analysis_job ──────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_create_image_captioning_job_success() -> None:
+async def test_create_image_analysis_job_success() -> None:
     job_repo = AsyncMock()
     created = _FakeJobRecord()
     job_repo.create = AsyncMock(return_value=created)
     model_resolver = AsyncMock()
 
     creator = _make_job_creator(job_repo, model_resolver)
-    job_id = await creator.create_image_captioning_job(
-        model_id="blip-model", image_path="/tmp/photo.jpg"
+    job_id = await creator.create_image_analysis_job(
+        model_id="vision-model", image_path="/tmp/photo.jpg"
     )
 
     assert isinstance(job_id, UUID)
     call_args = job_repo.create.call_args[0][0]
-    assert call_args.job_type == JobType.IMAGE_CAPTIONING
+    assert call_args.job_type == JobType.IMAGE_ANALYSIS
     assert call_args.params["image_path"] == "/tmp/photo.jpg"
 
 
 @pytest.mark.asyncio
-async def test_create_image_captioning_job_with_correlation_id() -> None:
+async def test_create_image_analysis_job_with_correlation_id() -> None:
     job_repo = AsyncMock()
     job_repo.create = AsyncMock(return_value=_FakeJobRecord())
     model_resolver = AsyncMock()
 
     creator = _make_job_creator(job_repo, model_resolver)
-    await creator.create_image_captioning_job(
-        model_id="blip-model",
+    await creator.create_image_analysis_job(
+        model_id="vision-model",
         image_path="/tmp/photo.jpg",
         correlation_id="corr-describe",
     )
