@@ -13,6 +13,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator
+
+# Configure root logger before any third-party code runs.
+# Uvicorn's dictConfig only sets up its own namespace loggers and leaves the
+# root handler empty, so app.* INFO messages are silently dropped by default.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)-8s %(name)s - %(message)s",
+    force=True,
+)
+for _noisy_lib in ("sqlalchemy", "huggingface_hub", "httpx", "httpcore", "filelock"):
+    logging.getLogger(_noisy_lib).setLevel(logging.WARNING)
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request

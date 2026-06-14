@@ -76,9 +76,7 @@ class ModelOperationHandler:
             model = await ModelRepository(session).get_by_model_id(model_id)
             if model is None:
                 raise ValueError(f"Model '{model_id}' not found in registry")
-            await ModelRepository(session).update_status(
-                model_id, "downloading", download_progress=0
-            )
+            await ModelRepository(session).update_status(model_id, "downloading")
             await session.commit()
 
         logger.info(
@@ -140,12 +138,18 @@ class ModelOperationHandler:
             total_size / 1024 / 1024 if total_size else 0,
         )
 
-        # Update job with known file count
+        # Update job with known file count + record download-start milestone
         async with self._session_factory() as session:
-            await JobRepository(session).update_progress(
+            job_repo = JobRepository(session)
+            await job_repo.update_progress(
                 job_id, 0,
                 total_steps=total_files,
                 message=f"Preparing {total_files} file(s)",
+            )
+            await job_repo.record_milestone(
+                job_id,
+                message=f"Download started: {total_files} file(s), {round(total_size / 1024 / 1024, 1)} MB",
+                metadata={"model_id": model_id, "total_files": total_files, "total_size_bytes": total_size},
             )
             await session.commit()
 
@@ -186,14 +190,17 @@ class ModelOperationHandler:
             # Commit per-file completion into DB
             done_pct = int((file_idx + 1) / total_files * 100)
             async with self._session_factory() as session:
-                await JobRepository(session).update_progress(
+                job_repo = JobRepository(session)
+                await job_repo.update_progress(
                     job_id, done_pct,
                     current_step=file_idx + 1,
                     total_steps=total_files,
                     message=f"Downloaded {file_name}",
                 )
-                await ModelRepository(session).update_status(
-                    model_id, "downloading", download_progress=done_pct
+                await job_repo.record_milestone(
+                    job_id,
+                    message=f"File {file_idx + 1}/{total_files} complete: {file_name} ({size_mb} MB)",
+                    metadata={"file": file_name, "file_index": file_idx + 1, "total_files": total_files, "size_mb": size_mb},
                 )
                 await session.commit()
 
@@ -206,7 +213,6 @@ class ModelOperationHandler:
         async with self._session_factory() as session:
             await ModelRepository(session).update_status(
                 model_id, "downloaded",
-                download_progress=100,
                 local_path=str(dest_dir),
                 total_size_bytes=total_size,
                 file_count=total_files,
@@ -270,9 +276,6 @@ class ModelOperationHandler:
                         current_step=file_idx,
                         total_steps=total_files,
                         message=f"Downloading {file_name} ({file_pct}%)",
-                    )
-                    await ModelRepository(s).update_status(
-                        model_id, "downloading", download_progress=overall_pct
                     )
                     await s.commit()
 

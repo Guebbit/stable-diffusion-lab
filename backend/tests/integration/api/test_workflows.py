@@ -99,7 +99,6 @@ def _model_ns(model_id: str = "org/model") -> SimpleNamespace:
         total_size_bytes=0,
         disk_size_bytes=0,
         download_size_bytes=None,
-        download_progress=0,
         recommended_vram_min_gb=None,
         recommended_vram_max_gb=None,
         license="",

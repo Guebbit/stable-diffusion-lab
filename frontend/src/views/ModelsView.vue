@@ -101,10 +101,6 @@ function familyColor(family: string): string {
   return colors[family] || 'grey'
 }
 
-function downloadPercentageFor(model: ModelRegistryEntry): number {
-  return model.download_progress || 0
-}
-
 function statusChipColor(model: ModelRegistryEntry): string {
   if (model.status === 'downloaded') return 'success'
   if (model.status === 'downloading' || model.status === 'download_paused') return 'warning'
@@ -357,18 +353,28 @@ function statusChipLabel(model: ModelRegistryEntry): string {
           <v-card-actions class="px-4 pb-4">
             <!-- Download button (only if not yet downloaded) -->
             <div v-if="model.status !== 'downloaded'" class="d-flex align-center gap-2">
-              <v-progress-linear
+              <div
                 v-if="modelsStore.isModelDownloading(model.model_id)"
-                :model-value="downloadPercentageFor(model)"
-                height="8"
-                width="200"
-                color="blue"
-                rounded
+                class="d-flex flex-column gap-1"
+                style="width: 200px"
               >
-                <template #default>
-                  <strong class="text-caption">{{ downloadPercentageFor(model) }}%</strong>
-                </template>
-              </v-progress-linear>
+                <v-progress-linear
+                  :model-value="modelsStore.downloadProgress.get(model.model_id)?.pct ?? 0"
+                  :indeterminate="!modelsStore.downloadProgress.has(model.model_id)"
+                  height="8"
+                  color="blue"
+                  rounded
+                />
+                <div class="text-caption text-center">
+                  <template v-if="modelsStore.downloadProgress.has(model.model_id)">
+                    {{ modelsStore.downloadProgress.get(model.model_id)!.pct }}%
+                    <template v-if="modelsStore.downloadProgress.get(model.model_id)!.totalFiles">
+                      · file {{ modelsStore.downloadProgress.get(model.model_id)!.fileIndex }}/{{ modelsStore.downloadProgress.get(model.model_id)!.totalFiles }}
+                    </template>
+                  </template>
+                  <template v-else>Preparing…</template>
+                </div>
+              </div>
 
               <v-btn
                 v-if="!modelsStore.isModelDownloading(model.model_id)"

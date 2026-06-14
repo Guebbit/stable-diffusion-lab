@@ -61,7 +61,6 @@ def _model_to_response(m) -> ModelRegistryResponse:
         total_size_bytes=m.total_size_bytes,
         disk_size_bytes=m.disk_size_bytes,
         download_size_bytes=m.download_size_bytes,
-        download_progress=m.download_progress,
         recommended_vram_min_gb=m.recommended_vram_min_gb,
         recommended_vram_max_gb=m.recommended_vram_max_gb,
         license=m.license,

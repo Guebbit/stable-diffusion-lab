@@ -34,7 +34,6 @@ def _model_record(
         total_size_bytes=1234,
         disk_size_bytes=1234,
         download_size_bytes=1234,
-        download_progress=100,
         recommended_vram_min_gb=None,
         recommended_vram_max_gb=None,
         license="",

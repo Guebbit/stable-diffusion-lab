@@ -13,7 +13,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.database.models import JobRecord
+from app.infrastructure.database.models import JobEventRecord, JobRecord
 
 
 class JobRepository:
@@ -56,6 +56,14 @@ class JobRepository:
             record.status = "running"
             record.started_at = datetime.now(timezone.utc)
             await self._session.flush()
+            event = JobEventRecord(
+                job_id=record.id,
+                from_status="pending",
+                to_status="running",
+                message="Job claimed by worker",
+            )
+            self._session.add(event)
+            await self._session.flush()
 
         return record
 
@@ -93,6 +101,14 @@ class JobRepository:
             )
         )
         await self._session.execute(stmt)
+        event = JobEventRecord(
+            job_id=job_id,
+            from_status="running",
+            to_status="completed",
+            message="Job completed successfully",
+        )
+        self._session.add(event)
+        await self._session.flush()
 
     async def mark_failed(self, job_id: UUID, error: str) -> None:
         """Mark a job as failed with an error message."""
@@ -106,6 +122,14 @@ class JobRepository:
             )
         )
         await self._session.execute(stmt)
+        event = JobEventRecord(
+            job_id=job_id,
+            from_status="running",
+            to_status="failed",
+            message=error[:500],
+        )
+        self._session.add(event)
+        await self._session.flush()
 
     async def mark_cancelled(self, job_id: UUID) -> None:
         """Mark a job as cancelled."""
@@ -118,6 +142,31 @@ class JobRepository:
             )
         )
         await self._session.execute(stmt)
+        event = JobEventRecord(
+            job_id=job_id,
+            from_status="running",
+            to_status="cancelled",
+            message="Job cancelled",
+        )
+        self._session.add(event)
+        await self._session.flush()
+
+    async def record_milestone(
+        self,
+        job_id: UUID,
+        message: str,
+        metadata: dict | None = None,
+    ) -> None:
+        """Append a progress milestone to a running job's audit log."""
+        event = JobEventRecord(
+            job_id=job_id,
+            from_status="running",
+            to_status="running",
+            message=message,
+            event_metadata=metadata or {},
+        )
+        self._session.add(event)
+        await self._session.flush()
 
     async def list_recent(self, limit: int = 50) -> list[JobRecord]:
         """List recent jobs ordered by creation date (newest first)."""

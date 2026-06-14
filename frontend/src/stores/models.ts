@@ -19,6 +19,9 @@ export const useModelsStore = defineStore('models', () => {
   const isDownloading = ref<Set<string>>(new Set())
   const sseConnected = ref(false)
 
+  // Per-model progress data received from SSE job.progress events
+  const downloadProgress = ref<Map<string, { pct: number; file: string; fileIndex: number; totalFiles: number }>>(new Map())
+
   // SSE connection — one per store instance, managed by the view
   let _sseSource: EventSource | null = null
   let _reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -186,12 +189,16 @@ export const useModelsStore = defineStore('models', () => {
 
     if (eventType === 'job.progress') {
       const modelId = payload.model_id as string | undefined
-      const progressPct = payload.progress_percent as number | undefined
-      if (!modelId || progressPct === undefined) return
+      if (!modelId) return
+      const pct = (payload.progress_percent as number | undefined) ?? 0
+      const file = (payload.file as string | undefined) ?? ''
+      const fileIndex = (payload.file_index as number | undefined) ?? 0
+      const totalFiles = (payload.total_files as number | undefined) ?? 0
+      const next = new Map(downloadProgress.value)
+      next.set(modelId, { pct, file, fileIndex, totalFiles })
+      downloadProgress.value = next
       registry.value = registry.value.map(m =>
-        m.model_id === modelId
-          ? { ...m, status: 'downloading', download_progress: progressPct }
-          : m,
+        m.model_id === modelId ? { ...m, status: 'downloading' } : m,
       )
     }
 
@@ -201,6 +208,9 @@ export const useModelsStore = defineStore('models', () => {
       const name = registry.value.find(m => m.model_id === modelId)?.name ?? modelId
       isDownloading.value = new Set(isDownloading.value)
       isDownloading.value.delete(modelId)
+      const next = new Map(downloadProgress.value)
+      next.delete(modelId)
+      downloadProgress.value = next
       useNotificationStore().push('success', `Model "${name}" downloaded successfully!`)
       fetchRegistry()
     }
@@ -211,6 +221,9 @@ export const useModelsStore = defineStore('models', () => {
       const name = registry.value.find(m => m.model_id === modelId)?.name ?? modelId
       isDownloading.value = new Set(isDownloading.value)
       isDownloading.value.delete(modelId)
+      const next = new Map(downloadProgress.value)
+      next.delete(modelId)
+      downloadProgress.value = next
       useNotificationStore().push('error', `Model "${name}" download failed`)
       fetchRegistry()
     }
@@ -222,6 +235,7 @@ export const useModelsStore = defineStore('models', () => {
     isLoading,
     isDownloading,
     sseConnected,
+    downloadProgress,
     huggingfaceModels,
     civitaiModels,
     analysisModels,

@@ -64,7 +64,6 @@ class ModelRegistryResponse(BaseModel):
     total_size_bytes: int = 0
     disk_size_bytes: int = 0
     download_size_bytes: int | None = None
-    download_progress: int = 0
     recommended_vram_min_gb: int | None = None
     recommended_vram_max_gb: int | None = None
     license: str = ""

@@ -58,7 +58,6 @@ class ModelRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     # --- Lifecycle status ---
     status: Mapped[str] = mapped_column(String(50), default="not_downloaded")
-    download_progress: Mapped[int] = mapped_column(Integer, default=0)
 
     # --- Integrity ---
     checksum: Mapped[str] = mapped_column(String(128), default="")

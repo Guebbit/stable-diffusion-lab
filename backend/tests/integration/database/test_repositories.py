@@ -112,11 +112,10 @@ class TestModelRepository:
     ) -> None:
         """Update model status atomically."""
         await repo.create(sample_model)
-        await repo.update_status("test-model-001", "downloading", download_progress=50)
+        await repo.update_status("test-model-001", "downloading")
         fetched = await repo.get_by_model_id("test-model-001")
         assert fetched is not None
         assert fetched.status == "downloading"
-        assert fetched.download_progress == 50
 
     async def test_delete(self, repo: ModelRepository, sample_model: ModelRecord) -> None:
         """Delete a model by internal UUID."""

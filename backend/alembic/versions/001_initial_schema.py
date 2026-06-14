@@ -50,7 +50,6 @@ def upgrade() -> None:
         sa.Column("precision", sa.String(50), server_default=""),
         sa.Column("requirements", postgresql.JSONB, server_default="{}"),
         sa.Column("notes", sa.Text, server_default=""),
-        sa.Column("download_progress", sa.Integer, server_default="0"),
         sa.Column("checksum", sa.String(128), server_default=""),
         sa.Column("is_verified", sa.Boolean, server_default="false"),
         sa.Column("last_verified_at", sa.DateTime(timezone=True), nullable=True),

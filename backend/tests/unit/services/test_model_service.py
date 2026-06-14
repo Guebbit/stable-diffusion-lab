@@ -51,7 +51,6 @@ def _make_model_record(
         total_size_bytes=1000,
         disk_size_bytes=1000,
         download_size_bytes=1000,
-        download_progress=0 if status == "not_downloaded" else 100,
         recommended_vram_min_gb=None,
         recommended_vram_max_gb=None,
         license="",

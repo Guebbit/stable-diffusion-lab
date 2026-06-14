@@ -147,7 +147,6 @@ export interface ModelRegistryEntry {
   status: string
   total_size_bytes: number
   disk_size_bytes: number
-  download_progress: number
   is_verified: boolean
   local_path: string | null
   file_count: number
