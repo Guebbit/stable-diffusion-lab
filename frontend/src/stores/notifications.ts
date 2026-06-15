@@ -7,9 +7,11 @@
  *
  * Usage: call push(level, message) from any store or component.
  * The toast auto-dismisses after TOAST_DURATION_MS; the log persists until clearLogs().
+ * On app startup, call loadFromJobs() to hydrate the log from persisted job history.
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import type { JobStatusResponse } from '../types'
 
 export type NotificationLevel = 'info' | 'success' | 'warning' | 'error'
 
@@ -37,8 +39,24 @@ export const LEVEL_ICON: Record<NotificationLevel, string> = {
 }
 
 const TOAST_DURATION_MS = 5000
+const CLEARED_AT_KEY = 'activity_log_cleared_at'
 
 let _nextId = 0
+
+function _jobToLevel(status: string): NotificationLevel {
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'error'
+  if (status === 'cancelled') return 'warning'
+  return 'info'
+}
+
+function _jobToMessage(job: JobStatusResponse): string {
+  const type = job.job_type.replace(/_/g, '-')
+  if (job.status === 'completed') return `${type} completed`
+  if (job.status === 'failed') return `${type} failed${job.error ? `: ${job.error}` : ''}`
+  if (job.status === 'cancelled') return `${type} cancelled`
+  return `${type} ${job.status}`
+}
 
 export const useNotificationStore = defineStore('notifications', () => {
   // All past notifications, newest first — drives the activity log panel
@@ -47,6 +65,10 @@ export const useNotificationStore = defineStore('notifications', () => {
   const current = ref<Notification | null>(null)
 
   let _dismissTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Persisted cutoff: entries from before this date are not shown (set by clearLogs)
+  const _clearedAt = localStorage.getItem(CLEARED_AT_KEY)
+  const _clearedAtDate = _clearedAt ? new Date(_clearedAt) : null
 
   /** Add a new notification, surface it as a toast, and append it to the log. */
   function push(level: NotificationLevel, message: string) {
@@ -70,10 +92,33 @@ export const useNotificationStore = defineStore('notifications', () => {
     }
   }
 
-  /** Wipe all log history (keeps current toast if one is showing). */
+  /**
+   * Wipe all log history and persist the cutoff so that a page refresh
+   * does not re-hydrate entries the user explicitly cleared.
+   */
   function clearLogs() {
     logs.value = []
+    localStorage.setItem(CLEARED_AT_KEY, new Date().toISOString())
   }
 
-  return { logs, current, push, dismiss, clearLogs }
+  /**
+   * Hydrate the activity log from persisted job records fetched from the backend.
+   * Only terminal-state jobs (completed/failed/cancelled) after the last clear are shown.
+   * Appended below any in-session entries already in the log.
+   */
+  function loadFromJobs(jobs: JobStatusResponse[]) {
+    const terminal = new Set(['completed', 'failed', 'cancelled'])
+    const historical: Notification[] = jobs
+      .filter((job) => terminal.has(job.status))
+      .filter((job) => !_clearedAtDate || new Date(job.created_at) > _clearedAtDate)
+      .map((job) => ({
+        id: _nextId++,
+        level: _jobToLevel(job.status),
+        message: _jobToMessage(job),
+        timestamp: new Date(job.completed_at ?? job.created_at),
+      }))
+    logs.value = [...logs.value, ...historical]
+  }
+
+  return { logs, current, push, dismiss, clearLogs, loadFromJobs }
 })

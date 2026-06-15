@@ -12,7 +12,9 @@ from app.adapters.direct.image_to_image import DirectImageToImageAdapter
 from app.adapters.direct.llm import DirectLLMAdapter
 from app.adapters.direct.model_manager import DirectModelManager
 from app.adapters.direct.pipeline_cache import PipelineCache
+from app.adapters.direct.sketch_to_ink import DirectSketchToInkAdapter
 from app.adapters.direct.text_to_image import DirectTextToImageAdapter
+from app.adapters.direct.upscale import DirectUpscaleAdapter
 from app.adapters.direct.video import DirectVideoAdapter
 from app.adapters.direct.vision import DirectVisionAdapter
 
@@ -21,7 +23,9 @@ __all__ = [
     "DirectImageToImageAdapter",
     "DirectLLMAdapter",
     "DirectModelManager",
+    "DirectSketchToInkAdapter",
     "DirectTextToImageAdapter",
+    "DirectUpscaleAdapter",
     "DirectVideoAdapter",
     "DirectVisionAdapter",
     "PipelineCache",

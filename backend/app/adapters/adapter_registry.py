@@ -21,6 +21,7 @@ from app.domain.protocols import (
     ImageToImageProvider,
     LLMProvider,
     TextToImageProvider,
+    UpscaleProvider,
     VideoProvider,
     VisionProvider,
 )
@@ -36,6 +37,7 @@ _PROTOCOL_MAP: dict[JobType, type[Any]] = {
     JobType.IMAGE_ANALYSIS: VisionProvider,
     JobType.VIDEO_GENERATION: VideoProvider,
     JobType.LLM_INFERENCE: LLMProvider,
+    JobType.UPSCALE: UpscaleProvider,
 }
 
 

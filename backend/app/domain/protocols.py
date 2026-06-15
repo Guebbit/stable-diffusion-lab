@@ -96,6 +96,24 @@ class VideoProvider(Protocol):
         ...
 
 
+# --- Upscale ---
+
+@runtime_checkable
+class UpscaleProvider(Protocol):
+    """Upscales an input image using a dedicated upscaling pipeline."""
+
+    async def upscale(
+        self,
+        image_path: Path,
+        model_id: str,
+        output_dir: Path,
+        scale_factor: float = 2.0,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[ArtifactReference]:
+        """Upscale the image and return references to saved artifacts."""
+        ...
+
+
 # --- Local LLM ---
 
 @runtime_checkable

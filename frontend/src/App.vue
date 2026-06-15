@@ -12,6 +12,7 @@ import { useDiffusionStore } from './stores/diffusion'
 import { useHistoryStore } from './stores/history'
 import { useModelsStore } from './stores/models'
 import { useNotificationStore, LEVEL_COLOR, LEVEL_ICON } from './stores/notifications'
+import { diffusionApi } from './api/diffusion'
 
 const store = useDiffusionStore()
 const historyStore = useHistoryStore()
@@ -25,6 +26,10 @@ onMounted(() => {
   store.init()
   historyStore.init()
   modelsStore.init()
+  // Hydrate the activity log from persisted job history in the database
+  diffusionApi.getJobs({ limit: 100 }).then((response) => {
+    notif.loadFromJobs(response.items)
+  }).catch(() => {})
 })
 
 // v-model for v-snackbar

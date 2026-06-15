@@ -44,6 +44,9 @@ _GPU_JOB_TYPES: frozenset[JobType] = frozenset(
         JobType.TEXT_TO_IMAGE,
         JobType.IMAGE_TO_IMAGE,
         JobType.IMAGE_ANALYSIS,
+        JobType.UPSCALE,
+        JobType.RECOLOR,
+        JobType.SKETCH_TO_INK,
         JobType.VIDEO_GENERATION,
         JobType.LLM_INFERENCE,
     }

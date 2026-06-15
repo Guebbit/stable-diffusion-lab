@@ -253,6 +253,15 @@ class JobCreator:
             "image_path": image_path,
         }
 
+        # Adapter/ControlNet models (e.g. T2I adapters) require a base diffusion model.
+        # Resolve it from the registry so the executor can load both together.
+        if self._model_repo is not None:
+            record = await self._model_repo.get_by_model_id(resolved_model)
+            if record and record.requirements:
+                base = record.requirements.get("requires_base_model")
+                if base:
+                    job_params["base_model_id"] = base
+
         if correlation_id is not None:
             job_params["correlation_id"] = correlation_id
 

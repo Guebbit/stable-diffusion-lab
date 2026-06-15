@@ -35,7 +35,9 @@ from app.adapters.direct import (
     DirectImageToImageAdapter,
     DirectLLMAdapter,
     DirectModelManager,
+    DirectSketchToInkAdapter,
     DirectTextToImageAdapter,
+    DirectUpscaleAdapter,
     DirectVideoAdapter,
     DirectVisionAdapter,
     PipelineCache,
@@ -72,12 +74,17 @@ def _build_adapter_registry(
     direct_txt2img = DirectTextToImageAdapter(pipeline_cache)
     direct_img2img = DirectImageToImageAdapter(pipeline_cache)
     direct_vision = DirectVisionAdapter(pipeline_cache)
+    direct_upscale = DirectUpscaleAdapter(pipeline_cache)
+    direct_sketch = DirectSketchToInkAdapter(pipeline_cache)
     direct_video = DirectVideoAdapter(pipeline_cache)
     direct_llm = DirectLLMAdapter(pipeline_cache)
 
     registry.register(JobType.TEXT_TO_IMAGE, InferenceBackend.DIRECT_PYTHON, direct_txt2img)
     registry.register(JobType.IMAGE_TO_IMAGE, InferenceBackend.DIRECT_PYTHON, direct_img2img)
     registry.register(JobType.IMAGE_ANALYSIS, InferenceBackend.DIRECT_PYTHON, direct_vision)
+    registry.register(JobType.UPSCALE, InferenceBackend.DIRECT_PYTHON, direct_upscale)
+    registry.register(JobType.RECOLOR, InferenceBackend.DIRECT_PYTHON, direct_img2img, validate_protocol=False)
+    registry.register(JobType.SKETCH_TO_INK, InferenceBackend.DIRECT_PYTHON, direct_sketch, validate_protocol=False)
     registry.register(JobType.VIDEO_GENERATION, InferenceBackend.DIRECT_PYTHON, direct_video)
     registry.register(JobType.LLM_INFERENCE, InferenceBackend.DIRECT_PYTHON, direct_llm)
 

@@ -96,6 +96,13 @@ export const diffusionApi = {
   // ─── Jobs ──
 
   /**
+   * List jobs with optional filtering and pagination (newest first).
+   */
+  getJobs(params?: { status?: string; job_type?: string; limit?: number; offset?: number }): Promise<PaginatedResponse<JobStatusResponse>> {
+    return api.get<PaginatedResponse<JobStatusResponse>>('/jobs/', { params }).then((r) => r.data)
+  },
+
+  /**
    * Get detailed status for a specific job (poll for progress/completion).
    */
   getJobStatus(jobId: string): Promise<JobStatusResponse> {

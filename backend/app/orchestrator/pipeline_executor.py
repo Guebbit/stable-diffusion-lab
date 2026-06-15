@@ -70,6 +70,12 @@ class PipelineExecutor:
             )
         elif job_type_enum == JobType.IMAGE_ANALYSIS:
             await self._run_image_analysis(job_id, backend, params)
+        elif job_type_enum == JobType.UPSCALE:
+            return await self._run_upscale(job_id, backend, params, output_dir, progress_cb)
+        elif job_type_enum == JobType.RECOLOR:
+            return await self._run_recolor(job_id, backend, params, output_dir, progress_cb)
+        elif job_type_enum == JobType.SKETCH_TO_INK:
+            return await self._run_sketch_to_ink(job_id, backend, params, output_dir, progress_cb)
         elif job_type_enum == JobType.VIDEO_GENERATION:
             return await self._run_video(job_id, backend, params, output_dir, progress_cb)
         elif job_type_enum == JobType.LLM_INFERENCE:
@@ -130,6 +136,64 @@ class PipelineExecutor:
         )
         return []
 
+    async def _run_upscale(
+        self,
+        job_id: UUID,
+        backend: InferenceBackend | None,
+        params: dict,
+        output_dir: Path,
+        on_progress: callable,
+    ) -> list[ArtifactReference]:
+        adapter = self._adapter_registry.get_provider(JobType.UPSCALE, backend)
+        return await adapter.upscale(
+            Path(params["image_path"]),
+            params["model_id"],
+            output_dir,
+            scale_factor=float(params.get("scale_factor", 2.0)),
+            on_progress=on_progress,
+        )
+
+    async def _run_recolor(
+        self,
+        job_id: UUID,
+        backend: InferenceBackend | None,
+        params: dict,
+        output_dir: Path,
+        on_progress: callable,
+    ) -> list[ArtifactReference]:
+        adapter = self._adapter_registry.get_provider(JobType.RECOLOR, backend)
+        image_path = Path(params["image_path"])
+        gen_params = _build_gen_params_from_image(params, image_path)
+        return await adapter.generate(
+            gen_params,
+            params["model_id"],
+            image_path,
+            output_dir,
+            strength=float(params.get("strength", 0.75)),
+            on_progress=on_progress,
+        )
+
+    async def _run_sketch_to_ink(
+        self,
+        job_id: UUID,
+        backend: InferenceBackend | None,
+        params: dict,
+        output_dir: Path,
+        on_progress: callable,
+    ) -> list[ArtifactReference]:
+        adapter = self._adapter_registry.get_provider(JobType.SKETCH_TO_INK, backend)
+        image_path = Path(params["image_path"])
+        gen_params = _build_gen_params_from_image(params, image_path)
+        return await adapter.generate(
+            gen_params,
+            params["model_id"],
+            image_path,
+            output_dir,
+            strength=0.9,
+            base_model_id=params.get("base_model_id"),
+            on_progress=on_progress,
+        )
+
     async def _run_video(
         self,
         job_id: UUID,
@@ -189,4 +253,27 @@ def _build_gen_params(params: dict, default_steps: int = 20) -> GenerationParams
         guidance_scale=params.get("guidance_scale", 7.5),
         seed=params.get("seed"),
         num_images=params.get("num_images", 1),
+    )
+
+
+def _build_gen_params_from_image(params: dict, image_path: Path) -> GenerationParams:
+    """Like _build_gen_params but falls back to source image dimensions when width/height are absent."""
+    width = params.get("width")
+    height = params.get("height")
+    if not (width and height):
+        try:
+            from PIL import Image
+            with Image.open(image_path) as img:
+                width, height = img.size
+        except Exception:
+            width, height = 512, 512
+    return GenerationParams(
+        prompt=params.get("prompt", ""),
+        negative_prompt=params.get("negative_prompt", ""),
+        width=int(width),
+        height=int(height),
+        num_inference_steps=params.get("num_inference_steps", 20),
+        guidance_scale=params.get("guidance_scale", 7.5),
+        seed=params.get("seed"),
+        num_images=1,
     )
