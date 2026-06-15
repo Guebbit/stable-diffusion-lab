@@ -94,6 +94,10 @@ class DirectTextToImageAdapter:
             torch_dtype=dtype,
             safety_checker=None,
         ).to(device)
+        if hasattr(pipeline, "enable_vae_tiling"):
+            pipeline.enable_vae_tiling()
+        if hasattr(pipeline, "enable_attention_slicing"):
+            pipeline.enable_attention_slicing()
 
         # Estimate VRAM: count parameters × bytes per element
         param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())

@@ -10,10 +10,17 @@ const router = useRouter()
 const features = [
   {
     title: 'Image Generation',
-    description: 'Create, edit, upscale, and transform images using AI diffusion models.',
-    icon: 'mdi-image-sparkle',
+    description: 'Create and transform images from text prompts, sketches, and more.',
+    icon: 'mdi-creation',
     route: '/image',
     color: 'primary',
+  },
+  {
+    title: 'Image Upscale',
+    description: 'Enlarge and restore image quality using dedicated AI upscaling pipelines.',
+    icon: 'mdi-image-size-select-large',
+    route: '/image-upscale',
+    color: 'deep-purple',
   },
   {
     title: 'Model Library',
@@ -41,8 +48,8 @@ const features = [
       </h1>
       <p class="text-h6 text-medium-emphasis max-width-600 mx-auto">
         An AI-powered image generation workspace. Create images from text prompts,
-        transform existing images, upscale, describe, recolor, and turn sketches into ink &mdash;
-        all from a single unified interface.
+        transform existing images, describe, recolor, turn sketches into ink, and
+        upscale with dedicated quality enhancement pipelines.
       </p>
     </div>
 

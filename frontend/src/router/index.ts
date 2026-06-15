@@ -20,6 +20,11 @@ const router = createRouter({
       component: () => import('../views/ModelsView.vue'),
     },
     {
+      path: '/image-upscale',
+      name: 'image-upscale',
+      component: () => import('../views/ImageUpscaleView.vue'),
+    },
+    {
       path: '/history',
       name: 'history',
       component: () => import('../views/HistoryView.vue'),

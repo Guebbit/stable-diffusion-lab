@@ -179,9 +179,16 @@ class JobCreator:
         model_id: str,
         image_path: str,
         scale_factor: float = 2.0,
+        prompt: str = "",
+        noise_level: int = 20,
+        num_inference_steps: int = 20,
+        enhance_model_id: str | None = None,
+        enhance_strength: float = 0.4,
+        face_restore_model_id: str | None = None,
+        face_restore_fidelity: float = 0.5,
         correlation_id: str | None = None,
     ) -> UUID:
-        """Create a PENDING upscale job."""
+        """Create a PENDING multi-step upscale pipeline job."""
         resolved_model = await self._model_resolver.resolve(model_id)
 
         job_params: dict = {
@@ -189,6 +196,13 @@ class JobCreator:
             "original_model_id": model_id,
             "image_path": image_path,
             "scale_factor": scale_factor,
+            "prompt": prompt,
+            "noise_level": noise_level,
+            "num_inference_steps": num_inference_steps,
+            "enhance_model_id": enhance_model_id,
+            "enhance_strength": enhance_strength,
+            "face_restore_model_id": face_restore_model_id,
+            "face_restore_fidelity": face_restore_fidelity,
         }
 
         if correlation_id is not None:

@@ -29,6 +29,16 @@ services:
       HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:-}
       CIVITAI_TOKEN: ${CIVITAI_TOKEN:-}
       INFERENCE_DEVICE: auto
+      ALLOW_CPU_FALLBACK: ${ALLOW_CPU_FALLBACK:-false}
+      # PyTorch's allocator carves out large contiguous chunks ("segments") and subdivides them.
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     depends_on:
       db:
         condition: service_healthy

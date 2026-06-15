@@ -63,7 +63,8 @@ class ModelCapability(StrEnum):
 
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
-    UPSCALE = "upscale"
+    UPSCALE_IMAGE = "upscale_image"
+    FACE_RESTORE = "face_restore"
     DESCRIBE = "describe"
     RECOLOR = "recolor"
     SKETCH_TO_INK = "sketch_to_ink"

@@ -146,39 +146,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     return _submitMode('Image-to-image', diffusionApi.submitImageToImage, request)
   }
 
-  /**
-   * Submit an upscale job and wait for completion.
-   */
-  function upscale(modelId: string, imageFile: File, scaleFactor: number = 2.0): Promise<void> {
-    const notif = useNotificationStore()
-    isGenerating.value = true
-    error.value = null
-    notif.push('info', 'Upscale — submitting job…')
 
-    return diffusionApi.submitUpscale(modelId, imageFile, scaleFactor)
-      .then((submission: JobSubmissionResponse) => {
-        notif.push('info', `Job ${submission.job_id} queued`)
-        return _waitForJobCompletion(submission.job_id)
-      })
-      .then((job: JobStatusResponse) => {
-        if (job.status === 'completed') {
-          notif.push('success', `Upscale complete — job ${job.id}`)
-          return refreshGallery()
-        } else {
-          const msg = job.error || `Job ended with status: ${job.status}`
-          error.value = msg
-          notif.push('error', msg)
-        }
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'Upscale failed'
-        error.value = msg
-        notif.push('error', msg)
-      })
-      .finally(() => {
-        isGenerating.value = false
-      })
-  }
 
   /**
    * Submit a recolor job and wait for completion.
@@ -360,7 +328,6 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     generate,
     describe,
     imageToImage,
-    upscale,
     recolor,
     sketchToInk,
     refreshGallery,

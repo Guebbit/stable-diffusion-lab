@@ -217,13 +217,16 @@ class PipelineCache:
             return
         self._last_unload_at = datetime.now(timezone.utc)
 
-        # Delete the pipeline object to release GPU memory
+        # Delete the pipeline object and force Python GC before clearing CUDA cache.
+        # Without gc.collect(), the object's reference count may not drop to zero
+        # immediately, leaving tensors pinned in VRAM when empty_cache() runs.
         del entry.pipeline
-
-        # Clear CUDA cache to actually free the VRAM
         try:
+            import gc
+
             import torch
 
+            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except ImportError:

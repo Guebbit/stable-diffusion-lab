@@ -18,8 +18,8 @@ from app.api.schemas.generation import (
     RecolorRequest,
     SketchToInkRequest,
     TextToImageRequest,
-    UpscaleRequest,
 )
+from app.api.schemas.upscale import UpscalePipelineRequest
 from app.api.schemas.jobs import (
     JobCancelResponse,
     JobDetailResponse,

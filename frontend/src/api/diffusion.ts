@@ -43,14 +43,42 @@ export const diffusionApi = {
   },
 
   /**
-   * Submit an upscale job (multipart/form-data with file upload).
+   * Submit an upscale pipeline job (multipart/form-data with file upload).
+   * Endpoint: POST /api/v1/upscale/run
    */
-  submitUpscale(modelId: string, imageFile: File, scaleFactor: number = 2.0): Promise<JobSubmissionResponse> {
+  submitUpscale(
+    modelId: string,
+    imageFile: File,
+    options: {
+      // Step 2: upscale (required params)
+      scaleFactor?: number
+      prompt?: string
+      noiseLevel?: number
+      numInferenceSteps?: number
+      // Step 1: enhancement (optional — omit or pass undefined to skip)
+      enhanceModelId?: string
+      enhanceStrength?: number
+      // Step 3: face restore (optional — omit or pass undefined to skip)
+      faceRestoreModelId?: string
+      faceRestoreFidelity?: number
+    } = {},
+  ): Promise<JobSubmissionResponse> {
     const formData = new FormData()
     formData.append('model_id', modelId)
     formData.append('image', imageFile)
-    formData.append('scale_factor', String(scaleFactor))
-    return api.post<JobSubmissionResponse>('/generation/upscale', formData, {
+    formData.append('scale_factor', String(options.scaleFactor ?? 2.0))
+    formData.append('prompt', options.prompt ?? '')
+    formData.append('noise_level', String(options.noiseLevel ?? 20))
+    formData.append('num_inference_steps', String(options.numInferenceSteps ?? 20))
+    if (options.enhanceModelId) {
+      formData.append('enhance_model_id', options.enhanceModelId)
+      formData.append('enhance_strength', String(options.enhanceStrength ?? 0.4))
+    }
+    if (options.faceRestoreModelId) {
+      formData.append('face_restore_model_id', options.faceRestoreModelId)
+      formData.append('face_restore_fidelity', String(options.faceRestoreFidelity ?? 0.5))
+    }
+    return api.post<JobSubmissionResponse>('/upscale/run', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data)
   },

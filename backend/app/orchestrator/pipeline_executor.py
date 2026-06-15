@@ -149,7 +149,17 @@ class PipelineExecutor:
             Path(params["image_path"]),
             params["model_id"],
             output_dir,
+            # Upscale step
             scale_factor=float(params.get("scale_factor", 2.0)),
+            prompt=params.get("prompt", ""),
+            noise_level=int(params.get("noise_level", 20)),
+            num_inference_steps=int(params.get("num_inference_steps", 20)),
+            # Enhancement step (None = skip)
+            enhance_model_id=params.get("enhance_model_id"),
+            enhance_strength=float(params.get("enhance_strength", 0.4)),
+            # Face restore step (None = skip)
+            face_restore_model_id=params.get("face_restore_model_id"),
+            face_restore_fidelity=float(params.get("face_restore_fidelity", 0.5)),
             on_progress=on_progress,
         )
 

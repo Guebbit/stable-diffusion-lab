@@ -36,6 +36,9 @@ class DirectUpscaleAdapter:
         model_id: str,
         output_dir: Path,
         scale_factor: float = 2.0,
+        prompt: str = "",
+        noise_level: int = 20,
+        num_inference_steps: int = 20,
         on_progress: ProgressCallback | None = None,
     ) -> list[ArtifactReference]:
         pipeline = await self._cache.get_or_load(
@@ -44,7 +47,9 @@ class DirectUpscaleAdapter:
             category="diffusion",
         )
         return await asyncio.to_thread(
-            self._run_inference, pipeline, image_path, output_dir, scale_factor
+            DirectUpscaleAdapter._run_inference,
+            pipeline, image_path, output_dir,
+            scale_factor, prompt, noise_level, num_inference_steps,
         )
 
     @staticmethod
@@ -68,6 +73,10 @@ class DirectUpscaleAdapter:
             pipeline = StableDiffusionUpscalePipeline.from_pretrained(
                 model_id, torch_dtype=dtype
             ).to(device)
+            # VAE tiling decodes in tiles to avoid OOM on large upscaled outputs.
+            # Attention slicing reduces peak VRAM during UNet forward passes.
+            pipeline.enable_vae_tiling()
+            pipeline.enable_attention_slicing()
             param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())
             return pipeline, (param_bytes * 2) // (1024 * 1024)
         except (ValueError, OSError):
@@ -80,12 +89,95 @@ class DirectUpscaleAdapter:
             )
             return None, 0
 
+    # The x4 upscaler was trained on 128×128 low-res patches → 512×512 output.
+    # Feeding larger images in one shot is OOD and causes polygon/block artifacts.
+    _TILE_SIZE = 128   # low-res tile size (model training resolution)
+    _OVERLAP = 16      # overlap in low-res pixels to blend seams away
+
     @staticmethod
+    def _blend_weights(size: int):
+        import numpy as np
+        ramp = np.minimum(np.arange(size), size - 1 - np.arange(size))
+        plateau = max(size // 4, 1)
+        ramp = np.minimum(ramp, plateau).astype(np.float32)
+        return (1.0 - np.cos(np.pi * ramp / plateau)) / 2.0 + 1e-6
+
+    @classmethod
+    def _upscale_tiled(
+        cls,
+        pipeline,
+        low_res,
+        target_w: int,
+        target_h: int,
+        prompt: str,
+        noise_level: int,
+        num_inference_steps: int,
+    ) -> "Image.Image":
+        import numpy as np
+        from PIL import Image
+
+        lr_w, lr_h = low_res.size
+        out_canvas = np.zeros((target_h, target_w, 3), dtype=np.float32)
+        weight_canvas = np.zeros((target_h, target_w), dtype=np.float32)
+
+        stride = cls._TILE_SIZE - cls._OVERLAP
+        ys = list(range(0, lr_h, stride))
+        xs = list(range(0, lr_w, stride))
+
+        for y in ys:
+            for x in xs:
+                x_end = min(x + cls._TILE_SIZE, lr_w)
+                y_end = min(y + cls._TILE_SIZE, lr_h)
+                x_start = max(0, x_end - cls._TILE_SIZE)
+                y_start = max(0, y_end - cls._TILE_SIZE)
+
+                tile = low_res.crop((x_start, y_start, x_end, y_end))
+                actual_w, actual_h = tile.size
+                if tile.size != (cls._TILE_SIZE, cls._TILE_SIZE):
+                    padded = Image.new("RGB", (cls._TILE_SIZE, cls._TILE_SIZE))
+                    padded.paste(tile, (0, 0))
+                    tile = padded
+
+                result = pipeline(
+                    prompt=prompt,
+                    image=tile,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=7.5,
+                    noise_level=noise_level,
+                )
+                upscaled_tile = result.images[0]
+
+                out_x = x_start * 4
+                out_y = y_start * 4
+                out_w = actual_w * 4
+                out_h = actual_h * 4
+
+                tile_arr = np.array(
+                    upscaled_tile.crop((0, 0, out_w, out_h)), dtype=np.float32
+                )
+                wy = cls._blend_weights(out_h)[:, np.newaxis]
+                wx = cls._blend_weights(out_w)[np.newaxis, :]
+                weight = wy * wx
+
+                out_canvas[out_y:out_y + out_h, out_x:out_x + out_w] += (
+                    tile_arr * weight[:, :, np.newaxis]
+                )
+                weight_canvas[out_y:out_y + out_h, out_x:out_x + out_w] += weight
+
+        weight_canvas = np.maximum(weight_canvas, 1e-6)[:, :, np.newaxis]
+        result_arr = np.clip(out_canvas / weight_canvas, 0, 255).astype(np.uint8)
+        return Image.fromarray(result_arr)
+
+    @classmethod
     def _run_inference(
+        cls,
         pipeline,
         image_path: Path,
         output_dir: Path,
         scale_factor: float,
+        prompt: str = "",
+        noise_level: int = 20,
+        num_inference_steps: int = 20,
     ) -> list[ArtifactReference]:
         from PIL import Image
 
@@ -94,15 +186,28 @@ class DirectUpscaleAdapter:
         target_h = int(source.height * scale_factor)
 
         if pipeline is not None:
-            result = pipeline(
-                prompt="",
-                image=source,
-                num_inference_steps=20,
-                guidance_scale=0.0,
-            )
-            upscaled = result.images[0]
-            if upscaled.size != (target_w, target_h):
-                upscaled = upscaled.resize((target_w, target_h), Image.LANCZOS)
+            # Low-res input for the 4× upscaler: target / 4.
+            lr_w = max(target_w // 4, 1)
+            lr_h = max(target_h // 4, 1)
+            low_res = source.resize((lr_w, lr_h), Image.LANCZOS)
+
+            if lr_w <= cls._TILE_SIZE and lr_h <= cls._TILE_SIZE:
+                # Small enough to process in one shot.
+                result = pipeline(
+                    prompt=prompt,
+                    image=low_res,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=7.5,
+                    noise_level=noise_level,
+                )
+                upscaled = result.images[0]
+                if upscaled.size != (target_w, target_h):
+                    upscaled = upscaled.resize((target_w, target_h), Image.LANCZOS)
+            else:
+                upscaled = cls._upscale_tiled(
+                    pipeline, low_res, target_w, target_h,
+                    prompt, noise_level, num_inference_steps,
+                )
         else:
             upscaled = source.resize((target_w, target_h), Image.LANCZOS)
 

@@ -90,11 +90,27 @@ class GenerationService:
         model_id: str,
         image_path: str,
         scale_factor: float = 2.0,
+        prompt: str = "",
+        noise_level: int = 20,
+        num_inference_steps: int = 20,
+        enhance_model_id: str | None = None,
+        enhance_strength: float = 0.4,
+        face_restore_model_id: str | None = None,
+        face_restore_fidelity: float = 0.5,
         correlation_id: str | None = None,
     ) -> UUID:
-        """Submit an upscale job."""
+        """Submit a multi-step upscale pipeline job."""
         job_id = await self._job_creator.create_upscale_job(
-            model_id, image_path, scale_factor, correlation_id
+            model_id, image_path,
+            scale_factor=scale_factor,
+            prompt=prompt,
+            noise_level=noise_level,
+            num_inference_steps=num_inference_steps,
+            enhance_model_id=enhance_model_id,
+            enhance_strength=enhance_strength,
+            face_restore_model_id=face_restore_model_id,
+            face_restore_fidelity=face_restore_fidelity,
+            correlation_id=correlation_id,
         )
         logger.info(
             "Created upscale job: %s (model_id=%s)",

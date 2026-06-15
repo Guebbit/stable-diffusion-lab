@@ -35,16 +35,9 @@ export type GenerationTask = 'text_to_image' | 'image_to_image' | 'video_generat
 export type GenerationMode =
   | 'text-to-image'
   | 'image-to-image'
-  | 'upscale-image'
   | 'describe-image'
   | 'recolor-image'
   | 'sketch-to-ink'
-
-/**
- * Preset names sent to the img2img endpoint to select generation defaults.
- * Each maps to a different (strength, steps, guidance) combination on the backend.
- */
-export type ImageWorkflowPreset = 'general' | 'recolor' | 'style-transfer' | 'upscale'
 
 /**
  * Text-to-image generation request (JSON body to /api/v1/generation/text-to-image).

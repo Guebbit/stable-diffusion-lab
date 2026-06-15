@@ -21,7 +21,6 @@ const generationMode = ref<GenerationMode>('text-to-image')
 const generationModeItems = [
   { title: 'Text to Image', value: 'text-to-image' as GenerationMode, icon: 'mdi-text-box-plus' },
   { title: 'Image to Image', value: 'image-to-image' as GenerationMode, icon: 'mdi-image-filter-center-focus' },
-  { title: 'Upscale', value: 'upscale-image' as GenerationMode, icon: 'mdi-arrow-expand-all' },
   { title: 'Describe', value: 'describe-image' as GenerationMode, icon: 'mdi-text-recognition' },
   { title: 'Recolor', value: 'recolor-image' as GenerationMode, icon: 'mdi-palette' },
   { title: 'Sketch to Ink', value: 'sketch-to-ink' as GenerationMode, icon: 'mdi-pencil' },
@@ -60,13 +59,16 @@ const defaultForm: IForm = {
 const form = ref<IForm>({ ...defaultForm })
 const dimensionOptions = [256, 512, 768, 1024, 1280, 1536, 1792, 2048]
 
-// Mode metadata: which fields each mode needs
+// Mode metadata: which fields each mode needs and its suggested defaults
 interface ModeMeta {
   needsPrompt: boolean
   needsImage: boolean
   needsNegativePrompt: boolean
   needsStrength: boolean
   needsControlnetScale: boolean
+  needsDimensions: boolean   // width/height — only meaningful when generating from scratch
+  needsNumImages: boolean    // batch count — only for text-to-image
+  needsGenerationParams: boolean  // steps/CFG/seed — hidden for pure vision tasks
   defaultSteps: number
   defaultGuidance: number
   defaultStrength: number
@@ -80,9 +82,12 @@ const modeMeta: Record<GenerationMode, ModeMeta> = {
     needsNegativePrompt: true,
     needsStrength: false,
     needsControlnetScale: false,
+    needsDimensions: true,
+    needsNumImages: true,
+    needsGenerationParams: true,
     defaultSteps: 20,
     defaultGuidance: 7.5,
-    defaultStrength: 0.6,
+    defaultStrength: 0,
     helperText: 'Generate an image from a text description.',
   },
   'image-to-image': {
@@ -91,21 +96,13 @@ const modeMeta: Record<GenerationMode, ModeMeta> = {
     needsNegativePrompt: true,
     needsStrength: true,
     needsControlnetScale: false,
-    defaultSteps: 20,
+    needsDimensions: false,
+    needsNumImages: false,
+    needsGenerationParams: true,
+    defaultSteps: 30,
     defaultGuidance: 7.5,
     defaultStrength: 0.6,
-    helperText: 'Transform an existing image using a text prompt.',
-  },
-  'upscale-image': {
-    needsPrompt: false,
-    needsImage: true,
-    needsNegativePrompt: false,
-    needsStrength: true,
-    needsControlnetScale: false,
-    defaultSteps: 18,
-    defaultGuidance: 6.5,
-    defaultStrength: 0.3,
-    helperText: 'Increase resolution and add detail to an image.',
+    helperText: 'Transform an existing image using a text prompt. Output dimensions follow the source.',
   },
   'describe-image': {
     needsPrompt: false,
@@ -113,6 +110,9 @@ const modeMeta: Record<GenerationMode, ModeMeta> = {
     needsNegativePrompt: false,
     needsStrength: false,
     needsControlnetScale: false,
+    needsDimensions: false,
+    needsNumImages: false,
+    needsGenerationParams: false,
     defaultSteps: 1,
     defaultGuidance: 1,
     defaultStrength: 0,
@@ -124,10 +124,13 @@ const modeMeta: Record<GenerationMode, ModeMeta> = {
     needsNegativePrompt: true,
     needsStrength: true,
     needsControlnetScale: false,
+    needsDimensions: false,
+    needsNumImages: false,
+    needsGenerationParams: true,
     defaultSteps: 24,
-    defaultGuidance: 7,
+    defaultGuidance: 7.0,
     defaultStrength: 0.45,
-    helperText: 'Change the colors of an image while preserving shapes.',
+    helperText: 'Change the colors of an image while preserving shapes. Output dimensions follow the source.',
   },
   'sketch-to-ink': {
     needsPrompt: true,
@@ -135,10 +138,13 @@ const modeMeta: Record<GenerationMode, ModeMeta> = {
     needsNegativePrompt: true,
     needsStrength: false,
     needsControlnetScale: true,
+    needsDimensions: false,
+    needsNumImages: false,
+    needsGenerationParams: true,
     defaultSteps: 28,
-    defaultGuidance: 8,
-    defaultStrength: 0.6,
-    helperText: 'Convert a sketch or scribble into clean ink line art.',
+    defaultGuidance: 8.0,
+    defaultStrength: 0,
+    helperText: 'Convert a sketch into clean ink line art. Output dimensions follow the source.',
   },
 }
 
@@ -188,9 +194,6 @@ function handleGenerationModeChange(mode: GenerationMode) {
     return
   }
 
-  if (mode === 'upscale-image' && !form.value.prompt.trim()) {
-    form.value.prompt = 'highly detailed upscale, sharp edges, clean textures'
-  }
   if (mode === 'image-to-image' && !form.value.prompt.trim()) {
     form.value.prompt = 'refine details, preserve composition, clean textures'
   }
@@ -218,12 +221,6 @@ function handleGenerate() {
     if (!imageFile.value) return
     return store.describe(modelId, imageFile.value)
   }
-  if (mode === 'upscale-image') {
-    if (!imageFile.value) return
-    // Use strength as scale factor (map 0.1-1.0 to 1.5-4.0)
-    const scaleFactor = form.value.strength * 4 + 0.5
-    return store.upscale(modelId, imageFile.value!, scaleFactor)
-  }
   if (mode === 'recolor-image') {
     if (!imageFile.value) return
     return store.recolor(modelId, imageFile.value, form.value.prompt, form.value.strength)
@@ -236,12 +233,10 @@ function handleGenerate() {
     const payload = {
       ...buildCommonPayload(),
       model_source: modelSourceSelection.value,
-      width: form.value.width,
-      height: form.value.height,
       num_inference_steps: form.value.numInferenceSteps,
       guidance_scale: form.value.guidanceScale,
       seed: form.value.seed ?? undefined,
-      num_images: form.value.numImages,
+      num_images: 1,
     }
     return store.imageToImage(payload)
   }
@@ -416,8 +411,8 @@ onBeforeUnmount(() => {
 
       <v-divider class="mb-4"/>
 
-      <!-- Generation Parameters -->
-      <v-row>
+      <!-- Dimensions (text-to-image only) -->
+      <v-row v-if="currentModeMeta.needsDimensions">
         <v-col cols="6">
           <v-select
               v-model="form.width"
@@ -436,82 +431,90 @@ onBeforeUnmount(() => {
               suffix="px"
           />
         </v-col>
-        <v-col cols="6">
-          <v-select
-              v-model="form.numImages"
-              :items="[1, 2, 3, 4, 6, 8]"
-              label="Images"
-              variant="outlined"
-          />
-        </v-col>
-        <v-col cols="6">
-          <v-text-field
-              v-model.number="form.seed"
-              label="Seed"
-              type="number"
-              variant="outlined"
-              placeholder="Random"
-              clearable
-          />
-        </v-col>
       </v-row>
 
-      <v-row>
-        <v-col cols="12" sm="6">
-          <div class="text-caption text-medium-emphasis mb-1">
-            Steps: {{ form.numInferenceSteps }}
-            <p><small>inference steps for drawing conclusions from evidence.</small></p>
-          </div>
-          <v-slider
-              v-model="form.numInferenceSteps"
-              :min="1"
-              :max="150"
-              :step="1"
-              thumb-label
-              color="primary"
-          />
-        </v-col>
-        <v-col cols="12" sm="6">
-          <div class="text-caption text-medium-emphasis mb-1">
-            CFG Scale: {{ form.guidanceScale }}
-            <p><small>higher = stricter prompt adherence, lower = more creative.</small></p>
-          </div>
-          <v-slider
-              v-model="form.guidanceScale"
-              :min="1"
-              :max="30"
-              :step="0.5"
-              thumb-label
-              color="primary"
-          />
-        </v-col>
-        <v-col v-if="currentModeMeta.needsStrength" cols="12" sm="6">
-          <div class="text-caption text-medium-emphasis mb-1">
-            Strength: {{ form.strength }}
-          </div>
-          <v-slider
-              v-model="form.strength"
-              :min="0.1"
-              :max="1"
-              :step="0.05"
-              thumb-label
-              color="primary"
-          />
-        </v-col>
-        <v-col v-if="currentModeMeta.needsControlnetScale" cols="12" sm="6">
-          <div class="text-caption text-medium-emphasis mb-1">
-            Sketch Guidance: {{ form.controlnetConditioningScale }}
-          </div>
-          <v-slider
-              v-model="form.controlnetConditioningScale"
-              :min="0.1"
-              :max="5"
-              :step="0.05"
-              thumb-label
-              color="primary"
-          />
-        </v-col>
-      </v-row>
+      <!-- Generation parameters (hidden for pure vision tasks like describe) -->
+      <template v-if="currentModeMeta.needsGenerationParams">
+        <v-row>
+          <v-col v-if="currentModeMeta.needsNumImages" cols="6">
+            <v-select
+                v-model="form.numImages"
+                :items="[1, 2, 3, 4, 6, 8]"
+                label="Images"
+                variant="outlined"
+            />
+          </v-col>
+          <v-col :cols="currentModeMeta.needsNumImages ? 6 : 12">
+            <v-text-field
+                v-model.number="form.seed"
+                label="Seed"
+                type="number"
+                variant="outlined"
+                placeholder="Random"
+                clearable
+            />
+          </v-col>
+        </v-row>
+
+        <v-row>
+          <v-col cols="12" sm="6">
+            <div class="text-caption text-medium-emphasis mb-1">
+              Steps: {{ form.numInferenceSteps }}
+              <span class="ml-1 opacity-60">higher = more detail, slower</span>
+            </div>
+            <v-slider
+                v-model="form.numInferenceSteps"
+                :min="1"
+                :max="150"
+                :step="1"
+                thumb-label
+                color="primary"
+            />
+          </v-col>
+          <v-col cols="12" sm="6">
+            <div class="text-caption text-medium-emphasis mb-1">
+              CFG Scale: {{ form.guidanceScale }}
+              <span class="ml-1 opacity-60">higher = stricter prompt</span>
+            </div>
+            <v-slider
+                v-model="form.guidanceScale"
+                :min="1"
+                :max="30"
+                :step="0.5"
+                thumb-label
+                color="primary"
+            />
+          </v-col>
+          <v-col v-if="currentModeMeta.needsStrength" cols="12" sm="6">
+            <div class="text-caption text-medium-emphasis mb-1">
+              Strength: {{ form.strength }}
+              <span class="ml-1 opacity-60">how much to change the source</span>
+            </div>
+            <v-slider
+                v-model="form.strength"
+                :min="0.1"
+                :max="1"
+                :step="0.05"
+                thumb-label
+                color="primary"
+            />
+          </v-col>
+          <v-col v-if="currentModeMeta.needsControlnetScale" cols="12" sm="6">
+            <div class="text-caption text-medium-emphasis mb-1">
+              Sketch Guidance: {{ form.controlnetConditioningScale }}
+              <span class="ml-1 opacity-60">how closely to follow the sketch</span>
+            </div>
+            <v-slider
+                v-model="form.controlnetConditioningScale"
+                :min="0.1"
+                :max="5"
+                :step="0.05"
+                thumb-label
+                color="primary"
+            />
+          </v-col>
+        </v-row>
+      </template>
     </v-card-text>
 
     <!-- Model Loading Status -->

@@ -32,18 +32,20 @@ from fastapi.responses import StreamingResponse
 
 from app.adapters.adapter_registry import AdapterRegistry
 from app.adapters.direct import (
+    DirectFaceRestoreAdapter,
     DirectImageToImageAdapter,
     DirectLLMAdapter,
     DirectModelManager,
     DirectSketchToInkAdapter,
     DirectTextToImageAdapter,
     DirectUpscaleAdapter,
+    UpscalePipeline,
     DirectVideoAdapter,
     DirectVisionAdapter,
     PipelineCache,
 )
 from app.adapters.resource_coordinator import ResourceCoordinator
-from app.api.routers import artifacts, generation, jobs, models, system
+from app.api.routers import artifacts, generation, jobs, models, system, upscale
 from app.api.sse.hub import sse_hub
 from app.domain.enums import InferenceBackend, JobType
 from app.infrastructure.config.settings import get_settings
@@ -75,6 +77,11 @@ def _build_adapter_registry(
     direct_img2img = DirectImageToImageAdapter(pipeline_cache)
     direct_vision = DirectVisionAdapter(pipeline_cache)
     direct_upscale = DirectUpscaleAdapter(pipeline_cache)
+    direct_face_restore = DirectFaceRestoreAdapter(pipeline_cache)
+    # UpscalePipeline composes the three upscale-related adapters.
+    # It is the registered handler for JobType.UPSCALE so the executor
+    # always gets the full pipeline (enhancement + upscale + face restore).
+    upscale_pipeline = UpscalePipeline(direct_upscale, direct_img2img, direct_face_restore)
     direct_sketch = DirectSketchToInkAdapter(pipeline_cache)
     direct_video = DirectVideoAdapter(pipeline_cache)
     direct_llm = DirectLLMAdapter(pipeline_cache)
@@ -82,7 +89,7 @@ def _build_adapter_registry(
     registry.register(JobType.TEXT_TO_IMAGE, InferenceBackend.DIRECT_PYTHON, direct_txt2img)
     registry.register(JobType.IMAGE_TO_IMAGE, InferenceBackend.DIRECT_PYTHON, direct_img2img)
     registry.register(JobType.IMAGE_ANALYSIS, InferenceBackend.DIRECT_PYTHON, direct_vision)
-    registry.register(JobType.UPSCALE, InferenceBackend.DIRECT_PYTHON, direct_upscale)
+    registry.register(JobType.UPSCALE, InferenceBackend.DIRECT_PYTHON, upscale_pipeline, validate_protocol=False)
     registry.register(JobType.RECOLOR, InferenceBackend.DIRECT_PYTHON, direct_img2img, validate_protocol=False)
     registry.register(JobType.SKETCH_TO_INK, InferenceBackend.DIRECT_PYTHON, direct_sketch, validate_protocol=False)
     registry.register(JobType.VIDEO_GENERATION, InferenceBackend.DIRECT_PYTHON, direct_video)
@@ -255,6 +262,7 @@ def create_app() -> FastAPI:
     # --- Register API routers under /api/v1 ---
     api_prefix = "/api/v1"
     app.include_router(generation.router, prefix=api_prefix)
+    app.include_router(upscale.router, prefix=api_prefix)
     app.include_router(jobs.router, prefix=api_prefix)
     app.include_router(models.router, prefix=api_prefix)
     app.include_router(artifacts.router, prefix=api_prefix)
