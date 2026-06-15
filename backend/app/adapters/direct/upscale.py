@@ -53,6 +53,14 @@ class DirectUpscaleAdapter:
         from diffusers import StableDiffusionUpscalePipeline
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        if device == "cpu":
+            from app.infrastructure.config.settings import get_settings
+            if not get_settings().allow_cpu_fallback:
+                raise RuntimeError(
+                    "CUDA not available — upscale job aborted. "
+                    "Set ALLOW_CPU_FALLBACK=true to allow CPU inference."
+                )
+            logger.warning("CUDA not available — running upscale on CPU (ALLOW_CPU_FALLBACK=true)")
         dtype = torch.float16 if device == "cuda" else torch.float32
         logger.info("Building upscale pipeline: %s → %s", model_id, device)
 

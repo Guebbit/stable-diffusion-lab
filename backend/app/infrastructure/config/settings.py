@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # --- Inference ---
     # Default device for inference ("cuda", "cpu", or "auto")
     inference_device: str = "auto"
+    # When CUDA is unavailable, allow falling back to CPU.
+    # Set to False (default) to abort the job with a warning instead of running on CPU.
+    allow_cpu_fallback: bool = False
     # Default inference backend
     inference_backend: str = "direct_python"
     # Maximum VRAM budget in MB (0 = no limit, use all available)

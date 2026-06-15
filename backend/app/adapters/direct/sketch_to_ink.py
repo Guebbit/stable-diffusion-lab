@@ -75,6 +75,14 @@ class DirectSketchToInkAdapter:
         import torch
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        if device == "cpu":
+            from app.infrastructure.config.settings import get_settings
+            if not get_settings().allow_cpu_fallback:
+                raise RuntimeError(
+                    "CUDA not available — sketch-to-ink job aborted. "
+                    "Set ALLOW_CPU_FALLBACK=true to allow CPU inference."
+                )
+            logger.warning("CUDA not available — running sketch-to-ink on CPU (ALLOW_CPU_FALLBACK=true)")
         dtype = torch.float16 if device == "cuda" else torch.float32
 
         if base_model_id:
