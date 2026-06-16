@@ -35,15 +35,13 @@ export const useModelsStore = defineStore('models', () => {
   const downloadedModels = computed(() =>
     registry.value.filter(m => m.status === 'downloaded'),
   )
-  const analysisModels = computed(() =>
-    registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('analysis')),
-  )
-  const txt2imgModels = computed(() =>
-    registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('txt2img')),
-  )
-  const img2imgModels = computed(() =>
-    registry.value.filter(m => m.status === 'downloaded' && m.capabilities?.includes('img2img')),
-  )
+  const allTags = computed(() => {
+    const tagSet = new Set<string>()
+    for (const m of registry.value) {
+      for (const t of m.tags ?? []) tagSet.add(t)
+    }
+    return [...tagSet].sort()
+  })
 
   /** Fetch the full model registry from the server. */
   function fetchRegistry() {
@@ -89,7 +87,22 @@ export const useModelsStore = defineStore('models', () => {
       })
   }
 
-  /** Remove a model from the registry. */
+  /** Delete downloaded files for a model and reset its status to not_downloaded. */
+  function deleteModelFiles(modelId: string) {
+    const notif = useNotificationStore()
+    return diffusionApi.purgeModelFiles(modelId)
+      .then(() => {
+        const entry = registry.value.find(m => m.model_id === modelId)
+        if (entry) entry.status = 'not_downloaded'
+        notif.push('success', `Files deleted for "${modelId}"`)
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Failed to delete model files'
+        notif.push('error', msg)
+      })
+  }
+
+  /** Remove a model from the registry (database + disk files). Permanent. */
   function removeModel(modelId: string) {
     const notif = useNotificationStore()
     return diffusionApi.removeModel(modelId)
@@ -219,12 +232,13 @@ export const useModelsStore = defineStore('models', () => {
       const modelId = payload.model_id as string | undefined
       if (!modelId) return
       const name = registry.value.find(m => m.model_id === modelId)?.name ?? modelId
+      const errorMsg = (payload.error as string | undefined) ?? 'Download failed'
       isDownloading.value = new Set(isDownloading.value)
       isDownloading.value.delete(modelId)
       const next = new Map(downloadProgress.value)
       next.delete(modelId)
       downloadProgress.value = next
-      useNotificationStore().push('error', `Model "${name}" download failed`)
+      useNotificationStore().push('error', `"${name}": ${errorMsg}`)
       fetchRegistry()
     }
   }
@@ -238,11 +252,10 @@ export const useModelsStore = defineStore('models', () => {
     downloadProgress,
     huggingfaceModels,
     civitaiModels,
-    analysisModels,
-    txt2imgModels,
-    img2imgModels,
+    allTags,
     fetchRegistry,
     addModel,
+    deleteModelFiles,
     removeModel,
     downloadModel,
     isModelDownloading,

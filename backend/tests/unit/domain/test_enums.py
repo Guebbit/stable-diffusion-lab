@@ -14,7 +14,7 @@ from app.domain.enums import (
 
 
 def test_enum_values_match_expected_contract() -> None:
-    assert set(ModelSource) == {ModelSource.HUGGINGFACE, ModelSource.CIVITAI, ModelSource.LOCAL}
+    assert set(ModelSource) == {ModelSource.HUGGINGFACE, ModelSource.CIVITAI, ModelSource.GITHUB, ModelSource.LOCAL}
     assert set(ModelFamily) == {
         ModelFamily.SD15,
         ModelFamily.SDXL,
@@ -48,7 +48,8 @@ def test_enum_values_match_expected_contract() -> None:
     assert set(ModelCapability) == {
         ModelCapability.TEXT_TO_IMAGE,
         ModelCapability.IMAGE_TO_IMAGE,
-        ModelCapability.UPSCALE,
+        ModelCapability.UPSCALE_IMAGE,
+        ModelCapability.FACE_RESTORE,
         ModelCapability.DESCRIBE,
         ModelCapability.RECOLOR,
         ModelCapability.SKETCH_TO_INK,
@@ -117,7 +118,16 @@ def test_model_and_backend_enum_values_do_not_overlap() -> None:
 
 
 def test_generation_mode_and_capability_are_aligned() -> None:
-    """GenerationMode and ModelCapability should have identical members."""
-    mode_values = {m.value for m in GenerationMode}
+    """Most GenerationMode values must exist verbatim in ModelCapability.
+
+    Exceptions (intentional splits):
+    - GenerationMode.UPSCALE ("upscale") maps to ModelCapability.UPSCALE_IMAGE
+      ("upscale_image") at the model level.
+    ModelCapability is a strict superset — it also includes model-specific
+    capabilities like FACE_RESTORE that have no corresponding user-facing mode.
+    """
+    _INTENTIONAL_SPLITS = {"upscale"}
+    mode_values = {m.value for m in GenerationMode} - _INTENTIONAL_SPLITS
     capability_values = {c.value for c in ModelCapability}
-    assert mode_values == capability_values
+    uncovered = mode_values - capability_values
+    assert not uncovered, f"GenerationMode values missing from ModelCapability: {uncovered}"

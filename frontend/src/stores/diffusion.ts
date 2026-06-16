@@ -185,13 +185,33 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   /**
    * Submit a sketch-to-ink job and wait for completion.
    */
-  function sketchToInk(modelId: string, imageFile: File): Promise<void> {
+  function sketchToInk(
+    modelId: string,
+    imageFile: File,
+    prompt: string = '',
+    negativePrompt: string = '',
+    numInferenceSteps: number = 28,
+    guidanceScale: number = 8.0,
+    adapterConditioningScale: number = 0.9,
+    baseModelId: string = '',
+    loraModelId: string = '',
+    loraStrength: number = 0.8,
+  ): Promise<void> {
     const notif = useNotificationStore()
     isGenerating.value = true
     error.value = null
     notif.push('info', 'Sketch-to-ink — submitting job…')
 
-    return diffusionApi.submitSketchToInk(modelId, imageFile)
+    return diffusionApi.submitSketchToInk(modelId, imageFile, {
+      prompt,
+      negativePrompt,
+      numInferenceSteps,
+      guidanceScale,
+      adapterConditioningScale,
+      baseModelId: baseModelId || undefined,
+      loraModelId: loraModelId || undefined,
+      loraStrength,
+    })
       .then((submission: JobSubmissionResponse) => {
         notif.push('info', `Job ${submission.job_id} queued`)
         return _waitForJobCompletion(submission.job_id)
@@ -265,9 +285,30 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       })
   }
 
-  /** Clear gallery state. */
-  function clearImages() {
-    generatedImages.value = []
+  /** Delete a single artifact from the backend and remove it from the gallery. */
+  function deleteImage(artifactId: string): Promise<void> {
+    const notif = useNotificationStore()
+    return diffusionApi.deleteArtifact(artifactId)
+      .then(() => {
+        generatedImages.value = generatedImages.value.filter(img => img.id !== artifactId)
+        notif.push('success', 'Image deleted')
+      })
+      .catch(() => {
+        notif.push('error', 'Failed to delete image')
+      })
+  }
+
+  /** Delete all artifacts from the backend and clear the gallery. */
+  function clearImages(): Promise<void> {
+    const notif = useNotificationStore()
+    return diffusionApi.deleteAllArtifacts()
+      .then(() => {
+        generatedImages.value = []
+        notif.push('success', 'All images deleted')
+      })
+      .catch(() => {
+        notif.push('error', 'Failed to delete all images')
+      })
   }
 
   /** Clear current UI error. */
@@ -331,6 +372,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     recolor,
     sketchToInk,
     refreshGallery,
+    deleteImage,
     clearImages,
     clearError,
     connectObservability,

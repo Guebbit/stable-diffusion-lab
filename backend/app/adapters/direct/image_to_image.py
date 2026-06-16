@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.adapters.base import build_diffusers_step_callback, save_artifacts_from_pil_images
+from app.adapters.base import build_diffusers_step_callback, hf_token, resolve_model_path, save_artifacts_from_pil_images
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams

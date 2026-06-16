@@ -96,6 +96,14 @@ async def get_artifact_file(
     return FileResponse(str(file_path), media_type=artifact.media_type)
 
 
+@router.delete("/", status_code=204, response_model=None)
+async def delete_all_artifacts(
+    service: ArtifactService = Depends(_get_artifact_service),
+) -> None:
+    """Delete all artifacts (files + records)."""
+    await service.delete_all_artifacts()
+
+
 @router.delete("/{artifact_id}", status_code=204, response_model=None)
 async def delete_artifact(
     artifact_id: UUID,

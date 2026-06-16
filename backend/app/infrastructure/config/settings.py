@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     # --- External API tokens (optional, for model downloads) ---
     huggingface_token: str = Field("", alias="HUGGINGFACE_TOKEN")
     civitai_token: str = Field("", alias="CIVITAI_TOKEN")
+    github_token: str = Field("", alias="GITHUB_TOKEN")
 
     # --- Inference ---
     # Default device for inference ("cuda", "cpu", or "auto")

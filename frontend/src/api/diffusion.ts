@@ -112,10 +112,31 @@ export const diffusionApi = {
   /**
    * Submit a sketch-to-ink job (multipart/form-data with file upload).
    */
-  submitSketchToInk(modelId: string, imageFile: File): Promise<JobSubmissionResponse> {
+  submitSketchToInk(
+    modelId: string,
+    imageFile: File,
+    options: {
+      prompt?: string
+      negativePrompt?: string
+      numInferenceSteps?: number
+      guidanceScale?: number
+      adapterConditioningScale?: number
+      baseModelId?: string
+      loraModelId?: string
+      loraStrength?: number
+    } = {},
+  ): Promise<JobSubmissionResponse> {
     const formData = new FormData()
     formData.append('model_id', modelId)
     formData.append('image', imageFile)
+    formData.append('prompt', options.prompt ?? '')
+    formData.append('negative_prompt', options.negativePrompt ?? '')
+    formData.append('num_inference_steps', String(options.numInferenceSteps ?? 28))
+    formData.append('guidance_scale', String(options.guidanceScale ?? 8.0))
+    formData.append('adapter_conditioning_scale', String(options.adapterConditioningScale ?? 0.9))
+    if (options.baseModelId) formData.append('base_model_id', options.baseModelId)
+    if (options.loraModelId) formData.append('lora_model_id', options.loraModelId)
+    if (options.loraModelId) formData.append('lora_strength', String(options.loraStrength ?? 0.8))
     return api.post<JobSubmissionResponse>('/generation/sketch-to-ink', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data)
@@ -160,6 +181,10 @@ export const diffusionApi = {
     return api.delete(`/artifacts/${encodeURIComponent(artifactId)}`).then(() => undefined)
   },
 
+  deleteAllArtifacts(): Promise<void> {
+    return api.delete('/artifacts/').then(() => undefined)
+  },
+
   // ─── Model Registry ──
 
   /**
@@ -184,10 +209,14 @@ export const diffusionApi = {
   },
 
   /**
-   * Remove a model from the registry.
+   * Remove a model from the registry (DB + disk). Permanent.
    */
   removeModel(modelId: string): Promise<void> {
     return api.delete(`/models/${encodeURIComponent(modelId)}`).then(() => undefined)
+  },
+
+  purgeModelFiles(modelId: string): Promise<void> {
+    return api.post(`/models/${encodeURIComponent(modelId)}/purge-files`).then(() => undefined)
   },
 
   /**

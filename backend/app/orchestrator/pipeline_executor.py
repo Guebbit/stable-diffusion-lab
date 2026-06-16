@@ -100,7 +100,12 @@ class PipelineExecutor:
         adapter = self._adapter_registry.get_provider(JobType.TEXT_TO_IMAGE, backend)
         gen_params = _build_gen_params(params)
         return await adapter.generate(
-            gen_params, params["model_id"], output_dir, on_progress=on_progress
+            gen_params,
+            params["model_id"],
+            output_dir,
+            lora_model_id=params.get("lora_model_id"),
+            lora_strength=float(params.get("lora_strength", 0.8)),
+            on_progress=on_progress,
         )
 
     async def _run_image_to_image(
@@ -201,6 +206,10 @@ class PipelineExecutor:
             output_dir,
             strength=0.9,
             base_model_id=params.get("base_model_id"),
+            model_type=params.get("model_type"),
+            adapter_conditioning_scale=float(params.get("adapter_conditioning_scale", 0.9)),
+            lora_model_id=params.get("lora_model_id"),
+            lora_strength=float(params.get("lora_strength", 0.8)),
             on_progress=on_progress,
         )
 

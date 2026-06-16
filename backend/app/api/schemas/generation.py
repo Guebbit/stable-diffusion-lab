@@ -18,6 +18,8 @@ class TextToImageRequest(BaseModel):
     guidance_scale: float = Field(7.5, ge=1.0, le=30.0, description="CFG scale")
     seed: int | None = Field(None, description="Random seed for reproducibility")
     num_images: int = Field(1, ge=1, le=8, description="Number of images to generate")
+    lora_model_id: str = Field("", description="Optional LoRA model ID to apply on top of the base model")
+    lora_strength: float = Field(0.8, ge=0.0, le=2.0, description="LoRA conditioning scale (0 = off, 1 = full strength)")
 
 
 class ImageToImageRequest(BaseModel):

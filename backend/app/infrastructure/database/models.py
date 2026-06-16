@@ -44,41 +44,42 @@ class ModelRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     family: Mapped[str] = mapped_column(String(50), nullable=False, default="custom")
     variant: Mapped[str] = mapped_column(String(100), default="")
 
-    # --- Metadata ---
+    # --- Classification ---
+    model_type: Mapped[str] = mapped_column(String(50), nullable=False, default="base_diffusion")
+    compatible_bases: Mapped[list] = mapped_column(JSONB, default=list)
+    base_model: Mapped[str] = mapped_column(String(255), default="")
+    precision: Mapped[str] = mapped_column(String(50), default="")
+
+    # --- Discovery metadata ---
     description: Mapped[str] = mapped_column(Text, default="")
+    short_description: Mapped[str] = mapped_column(String(200), default="")
     tags: Mapped[list] = mapped_column(JSONB, default=list)
     source_url: Mapped[str] = mapped_column(String(1024), default="")
     version: Mapped[str] = mapped_column(String(100), default="")
     capabilities: Mapped[list] = mapped_column(JSONB, default=list)
+    license: Mapped[str] = mapped_column(String(100), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    requirements: Mapped[dict] = mapped_column(JSONB, default=dict)
 
-    # --- Size and storage ---
+    # --- Size ---
+    download_size_bytes: Mapped[int | None] = mapped_column(BigInteger, default=None)
     total_size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
-    disk_size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
-    file_path: Mapped[str] = mapped_column(String(1024), default="")
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    # --- Lifecycle status ---
+    # --- Hardware requirements ---
+    recommended_vram_min_gb: Mapped[int | None] = mapped_column(Integer, default=None)
+    recommended_vram_max_gb: Mapped[int | None] = mapped_column(Integer, default=None)
+
+    # --- Lifecycle ---
     status: Mapped[str] = mapped_column(String(50), default="not_downloaded")
+    local_path: Mapped[str | None] = mapped_column(Text, default=None)
+    last_error: Mapped[str | None] = mapped_column(Text, default=None)
 
     # --- Integrity ---
-    checksum: Mapped[str] = mapped_column(String(128), default="")
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     last_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
-
-    # --- Requirements & compatibility ---
-    download_size_bytes: Mapped[int | None] = mapped_column(BigInteger, default=None)
-    recommended_vram_min_gb: Mapped[int | None] = mapped_column(Integer, default=None)
-    recommended_vram_max_gb: Mapped[int | None] = mapped_column(Integer, default=None)
-
-    # --- Metadata ---
-    license: Mapped[str] = mapped_column(String(100), default="")
-    base_model: Mapped[str] = mapped_column(String(255), default="")
-    precision: Mapped[str] = mapped_column(String(50), default="")
-    requirements: Mapped[dict] = mapped_column(JSONB, default=dict)
-    notes: Mapped[str] = mapped_column(Text, default="")
-    local_path: Mapped[str | None] = mapped_column(String(1024), default=None)
-    file_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # --- Relationships ---
     files: Mapped[list["ModelFileRecord"]] = relationship(
@@ -90,6 +91,10 @@ class ModelRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_models_source_status", "source", "status"),
         Index("ix_models_family", "family"),
         Index("ix_models_status", "status"),
+        Index("ix_models_model_type", "model_type"),
+        Index("ix_models_tags_gin", "tags", postgresql_using="gin"),
+        Index("ix_models_capabilities_gin", "capabilities", postgresql_using="gin"),
+        Index("ix_models_compatible_bases_gin", "compatible_bases", postgresql_using="gin"),
     )
 
 

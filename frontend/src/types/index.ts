@@ -53,6 +53,8 @@ export interface GenerationRequest {
   width?: number
   height?: number
   seed?: number
+  lora_model_id?: string
+  lora_strength?: number
 }
 
 /**
@@ -131,7 +133,10 @@ export interface ModelRegistryEntry {
   source: string
   family: string
   variant: string
+  model_type: string
+  compatible_bases: string[]
   description: string
+  short_description: string
   tags: string[]
   source_url: string
   capabilities: string[]

@@ -1,14 +1,14 @@
 """
-Direct sketch-to-ink adapter — converts sketches using T2I adapters or img2img fallback.
+Direct sketch-to-ink adapter — converts sketches using ControlNet, T2I adapters, or img2img.
 
-T2I adapter models (e.g. TencentARC/t2i-adapter-sketch-sdxl-1.0) are helper models
-that cannot be loaded standalone: they require a base diffusion model alongside them.
-This adapter handles both cases:
-  - T2I adapter: loads adapter weights + base model via StableDiffusionXLAdapterPipeline.
-  - Standalone model: falls back to AutoPipelineForImage2Image (standard img2img).
+Helper models cannot be loaded standalone; they require a base diffusion model alongside them.
+This adapter handles three cases based on model_type + base_model_id from job params:
+  - controlnet: ControlNetModel + StableDiffusionControlNetPipeline (SD1.5 lineart etc.)
+  - t2i_adapter: T2IAdapter + StableDiffusionXLAdapterPipeline (SDXL sketch adapters)
+  - fallback: AutoPipelineForImage2Image when no base model or loading fails
 
-The base_model_id is resolved at job-creation time from the model's requirements field
-and passed through job params so the adapter can load both models together.
+Both model_type and base_model_id are resolved at job-creation time from the model's
+requirements and model_type fields and threaded through job params.
 """
 
 from __future__ import annotations
@@ -18,15 +18,37 @@ import logging
 import time
 from pathlib import Path
 
-from app.adapters.base import build_diffusers_step_callback, save_artifacts_from_pil_images
+from app.adapters.base import (
+    build_diffusers_step_callback,
+    build_legacy_diffusers_step_callback,
+    hf_token,
+    resolve_model_path,
+    save_artifacts_from_pil_images,
+)
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams
 
 logger = logging.getLogger(__name__)
 
+
+def _apply_lora(pipeline: object, lora_model_id: str | None, lora_strength: float) -> None:
+    """Load and fuse LoRA weights into a pipeline if a LoRA model ID is provided."""
+    if not lora_model_id:
+        return
+    if not hasattr(pipeline, "load_lora_weights"):
+        logger.warning("Pipeline does not support LoRA — skipping %s", lora_model_id)
+        return
+    lora_path = resolve_model_path(lora_model_id)
+    logger.info("Loading LoRA weights: %s (strength=%.2f)", lora_path, lora_strength)
+    pipeline.load_lora_weights(lora_path)  # type: ignore[union-attr]
+    if hasattr(pipeline, "fuse_lora"):
+        pipeline.fuse_lora(lora_scale=lora_strength)  # type: ignore[union-attr]
+
+
 # Sentinel strings stored as the first element of the cached pipeline tuple
 _T2I_ADAPTER = "t2i_adapter"
+_CONTROLNET = "controlnet"
 _IMG2IMG = "img2img"
 
 
@@ -50,13 +72,17 @@ class DirectSketchToInkAdapter:
         output_dir: Path,
         strength: float = 0.9,
         base_model_id: str | None = None,
+        model_type: str | None = None,
+        adapter_conditioning_scale: float = 0.9,
+        lora_model_id: str | None = None,
+        lora_strength: float = 0.8,
         on_progress: ProgressCallback | None = None,
     ) -> list[ArtifactReference]:
-        cache_key = f"{model_id}:{base_model_id}:sketch2ink"
+        cache_key = f"{model_id}:{base_model_id}:{lora_model_id or ''}:sketch2ink"
         pipeline_tuple = await self._cache.get_or_load(
             cache_key,
             loader=lambda: asyncio.to_thread(
-                self._build_pipeline, model_id, base_model_id
+                self._build_pipeline, model_id, base_model_id, model_type, lora_model_id, lora_strength
             ),
             category="diffusion",
         )
@@ -67,11 +93,18 @@ class DirectSketchToInkAdapter:
             source_image_path,
             output_dir,
             strength,
+            adapter_conditioning_scale,
             on_progress,
         )
 
     @staticmethod
-    def _build_pipeline(model_id: str, base_model_id: str | None) -> tuple:
+    def _build_pipeline(
+        model_id: str,
+        base_model_id: str | None,
+        model_type: str | None = None,
+        lora_model_id: str | None = None,
+        lora_strength: float = 0.8,
+    ) -> tuple:
         import torch
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -85,7 +118,37 @@ class DirectSketchToInkAdapter:
             logger.warning("CUDA not available — running sketch-to-ink on CPU (ALLOW_CPU_FALLBACK=true)")
         dtype = torch.float16 if device == "cuda" else torch.float32
 
-        if base_model_id:
+        if base_model_id and model_type == "controlnet":
+            try:
+                from diffusers import ControlNetModel, StableDiffusionControlNetPipeline
+
+                logger.info(
+                    "Building ControlNet sketch pipeline: %s + %s → %s",
+                    model_id,
+                    base_model_id,
+                    device,
+                )
+                controlnet = ControlNetModel.from_pretrained(
+                    resolve_model_path(model_id), torch_dtype=dtype, token=hf_token()
+                )
+                pipeline = StableDiffusionControlNetPipeline.from_pretrained(
+                    resolve_model_path(base_model_id),
+                    controlnet=controlnet,
+                    torch_dtype=dtype,
+                    safety_checker=None,
+                    token=hf_token(),
+                ).to(device)
+                _apply_lora(pipeline, lora_model_id, lora_strength)
+                param_bytes = sum(
+                    p.numel() * p.element_size() for p in pipeline.unet.parameters()
+                )
+                return (_CONTROLNET, pipeline), (param_bytes * 2) // (1024 * 1024)
+            except Exception as exc:
+                logger.warning(
+                    "ControlNet loading failed (%s); falling back to img2img", exc
+                )
+
+        if base_model_id and model_type != "controlnet":
             try:
                 from diffusers import StableDiffusionXLAdapterPipeline, T2IAdapter
 
@@ -95,12 +158,16 @@ class DirectSketchToInkAdapter:
                     base_model_id,
                     device,
                 )
-                adapter = T2IAdapter.from_pretrained(model_id, torch_dtype=dtype)
+                adapter = T2IAdapter.from_pretrained(
+                    resolve_model_path(model_id), torch_dtype=dtype, token=hf_token()
+                )
                 pipeline = StableDiffusionXLAdapterPipeline.from_pretrained(
-                    base_model_id,
+                    resolve_model_path(base_model_id),
                     adapter=adapter,
                     torch_dtype=dtype,
+                    token=hf_token(),
                 ).to(device)
+                _apply_lora(pipeline, lora_model_id, lora_strength)
                 param_bytes = sum(
                     p.numel() * p.element_size() for p in pipeline.unet.parameters()
                 )
@@ -113,12 +180,16 @@ class DirectSketchToInkAdapter:
         # Fallback: standard img2img pipeline
         from diffusers import AutoPipelineForImage2Image
 
-        logger.info("Building img2img fallback sketch pipeline: %s → %s", model_id, device)
+        fallback_model = base_model_id or model_id
+        fallback_path = resolve_model_path(fallback_model)
+        logger.info("Building img2img fallback sketch pipeline: %s → %s", fallback_path, device)
         pipeline = AutoPipelineForImage2Image.from_pretrained(
-            model_id,
+            fallback_path,
             torch_dtype=dtype,
             safety_checker=None,
+            token=hf_token(),
         ).to(device)
+        _apply_lora(pipeline, lora_model_id, lora_strength)
         param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())
         return (_IMG2IMG, pipeline), (param_bytes * 2) // (1024 * 1024)
 
@@ -129,6 +200,7 @@ class DirectSketchToInkAdapter:
         source_image_path: Path,
         output_dir: Path,
         strength: float,
+        adapter_conditioning_scale: float,
         on_progress: ProgressCallback | None,
     ) -> list[ArtifactReference]:
         import torch
@@ -143,21 +215,38 @@ class DirectSketchToInkAdapter:
         generator = torch.Generator(device=pipeline.device).manual_seed(seed)
 
         num_steps = params.num_inference_steps
-        step_callback = build_diffusers_step_callback(on_progress, num_steps)
         prompt = params.prompt or "high quality illustration, clean linework"
 
-        if pipeline_type == _T2I_ADAPTER:
+        if pipeline_type == _CONTROLNET:
+            # StableDiffusionControlNetPipeline uses the legacy callback API
+            legacy_callback = build_legacy_diffusers_step_callback(on_progress, num_steps)
             result = pipeline(
                 prompt=prompt,
                 negative_prompt=params.negative_prompt or None,
                 image=source,
                 num_inference_steps=num_steps,
                 guidance_scale=params.guidance_scale,
-                adapter_conditioning_scale=0.8,
+                controlnet_conditioning_scale=adapter_conditioning_scale,
                 generator=generator,
-                callback_on_step_end=step_callback,
+                callback=legacy_callback,
+                callback_steps=1,
+            )
+        elif pipeline_type == _T2I_ADAPTER:
+            # StableDiffusionXLAdapterPipeline also uses the legacy callback API
+            legacy_callback = build_legacy_diffusers_step_callback(on_progress, num_steps)
+            result = pipeline(
+                prompt=prompt,
+                negative_prompt=params.negative_prompt or None,
+                image=source,
+                num_inference_steps=num_steps,
+                guidance_scale=params.guidance_scale,
+                adapter_conditioning_scale=adapter_conditioning_scale,
+                generator=generator,
+                callback=legacy_callback,
+                callback_steps=1,
             )
         else:
+            step_callback = build_diffusers_step_callback(on_progress, num_steps)
             result = pipeline(
                 prompt=prompt,
                 negative_prompt=params.negative_prompt or None,

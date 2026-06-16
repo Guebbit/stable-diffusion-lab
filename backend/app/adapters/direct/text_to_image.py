@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.adapters.base import build_diffusers_step_callback, save_artifacts_from_pil_images
+from app.adapters.base import build_diffusers_step_callback, hf_token, resolve_model_path, save_artifacts_from_pil_images
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams
@@ -44,6 +44,8 @@ class DirectTextToImageAdapter:
         params: GenerationParams,
         model_id: str,
         output_dir: Path,
+        lora_model_id: str | None = None,
+        lora_strength: float = 0.8,
         on_progress: ProgressCallback | None = None,
     ) -> list[ArtifactReference]:
         """
@@ -52,10 +54,10 @@ class DirectTextToImageAdapter:
         Loads the model via PipelineCache (lazy, LRU-managed), runs inference
         in a thread pool, saves outputs to disk, returns artifact references.
         """
-        # Get pipeline from cache (loads if not cached, evicts LRU if full)
+        cache_key = f"{model_id}:{lora_model_id or ''}"
         pipeline = await self._cache.get_or_load(
-            model_id,
-            loader=lambda: asyncio.to_thread(self._build_pipeline, model_id),
+            cache_key,
+            loader=lambda: asyncio.to_thread(self._build_pipeline, model_id, lora_model_id, lora_strength),
             category="diffusion",
         )
 
@@ -66,7 +68,7 @@ class DirectTextToImageAdapter:
         return artifacts
 
     @staticmethod
-    def _build_pipeline(model_id: str) -> tuple[Any, int]:
+    def _build_pipeline(model_id: str, lora_model_id: str | None = None, lora_strength: float = 0.8) -> tuple[Any, int]:
         """
         Build a text-to-image pipeline — called by PipelineCache on cache miss.
 
@@ -87,17 +89,26 @@ class DirectTextToImageAdapter:
             logger.warning("CUDA not available — running text-to-image on CPU (ALLOW_CPU_FALLBACK=true)")
         dtype = torch.float16 if device == "cuda" else torch.float32
 
-        logger.info("Building text-to-image pipeline: %s → %s", model_id, device)
+        model_path = resolve_model_path(model_id)
+        logger.info("Building text-to-image pipeline: %s → %s", model_path, device)
 
         pipeline = DiffusionPipeline.from_pretrained(
-            model_id,
+            model_path,
             torch_dtype=dtype,
             safety_checker=None,
+            token=hf_token(),
         ).to(device)
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
         if hasattr(pipeline, "enable_attention_slicing"):
             pipeline.enable_attention_slicing()
+
+        if lora_model_id and hasattr(pipeline, "load_lora_weights"):
+            lora_path = resolve_model_path(lora_model_id)
+            logger.info("Loading LoRA weights: %s (strength=%.2f)", lora_path, lora_strength)
+            pipeline.load_lora_weights(lora_path)
+            if hasattr(pipeline, "fuse_lora"):
+                pipeline.fuse_lora(lora_scale=lora_strength)
 
         # Estimate VRAM: count parameters × bytes per element
         param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())

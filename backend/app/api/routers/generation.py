@@ -94,6 +94,8 @@ async def submit_text_to_image(
     job_id = await service.submit_text_to_image(
         params,
         request.model_id,
+        lora_model_id=request.lora_model_id or None,
+        lora_strength=request.lora_strength,
         correlation_id=correlation_id,
     )
     _set_correlation_header(response, correlation_id)
@@ -195,6 +197,19 @@ async def submit_recolor(
 async def submit_sketch_to_ink(
     model_id: str = Form(...),
     image: UploadFile = File(...),
+    prompt: str = Form("", description="Text prompt to guide the inking style and content"),
+    negative_prompt: str = Form(""),
+    num_inference_steps: int = Form(28, ge=1, le=150),
+    guidance_scale: float = Form(8.0, ge=1.0, le=30.0),
+    adapter_conditioning_scale: float = Form(
+        0.9,
+        ge=0.1,
+        le=2.0,
+        description="How closely the output follows the sketch structure (0.5–1.2 is the typical range)",
+    ),
+    base_model_id: str = Form("", description="Override the auto-resolved base model (leave empty to use the model's default)"),
+    lora_model_id: str = Form("", description="Optional LoRA model ID to apply on top of the base model"),
+    lora_strength: float = Form(0.8, ge=0.0, le=2.0, description="LoRA conditioning scale"),
     response: Response = Response(),
     service: GenerationService = Depends(_get_generation_service),
     correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
@@ -202,8 +217,10 @@ async def submit_sketch_to_ink(
     """
     Submit a sketch-to-ink job.
 
-    Accepts a sketch image via multipart/form-data and returns a job_id.
-    The model will convert the sketch to a finished inked image.
+    Accepts a sketch image via multipart/form-data.
+    The prompt guides style/content; adapter_conditioning_scale controls
+    how faithfully the output traces the input sketch.
+    Returns 202 Accepted — poll GET /api/v1/jobs/{job_id} for status.
     """
     suffix = os.path.splitext(image.filename)[1] if image.filename else ".png"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir="/tmp") as tmp:
@@ -214,6 +231,14 @@ async def submit_sketch_to_ink(
     job_id = await service.submit_sketch_to_ink(
         model_id,
         image_path,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        adapter_conditioning_scale=adapter_conditioning_scale,
+        base_model_id_override=base_model_id or None,
+        lora_model_id=lora_model_id or None,
+        lora_strength=lora_strength,
         correlation_id=correlation_id,
     )
     _set_correlation_header(response, correlation_id)

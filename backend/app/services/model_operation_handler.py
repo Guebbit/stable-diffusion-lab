@@ -21,6 +21,7 @@ from app.infrastructure.config.settings import get_settings
 from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.orchestrator.event_bus import event_bus
 from app.services.sources.civitai import CivitaiSourceProvider
+from app.services.sources.github import GitHubSourceProvider
 from app.services.sources.huggingface import HuggingFaceSourceProvider
 
 logger = logging.getLogger(__name__)
@@ -86,9 +87,12 @@ class ModelOperationHandler:
 
         try:
             await self._do_download(job_id, model_id, source, settings)
-        except Exception:
+        except Exception as exc:
+            error_msg = str(exc)
             async with self._session_factory() as session:
-                await ModelRepository(session).update_status(model_id, "error")
+                await ModelRepository(session).update_status(
+                    model_id, "error", last_error=error_msg
+                )
                 await session.commit()
             logger.error("[download] FAILED  job=%s | model=%s", job_id, model_id)
             await event_bus.publish_event(
@@ -97,7 +101,7 @@ class ModelOperationHandler:
                     job_id=str(job_id),
                     level="error",
                     message=f"Download failed for model '{model_id}'",
-                    payload={"model_id": model_id, "source": source},
+                    payload={"model_id": model_id, "source": source, "error": error_msg},
                 )
             )
             raise
@@ -112,12 +116,16 @@ class ModelOperationHandler:
         """Core download logic — separated for clean error-handling in the caller."""
         # ── Pick source provider ─────────────────────────────────────
         if source == "huggingface":
-            provider: HuggingFaceSourceProvider | CivitaiSourceProvider = (
+            provider: HuggingFaceSourceProvider | CivitaiSourceProvider | GitHubSourceProvider = (
                 HuggingFaceSourceProvider(token=settings.huggingface_token or None)
             )
         elif source == "civitai":
             provider = CivitaiSourceProvider(
                 api_key=settings.civitai_token or None
+            )
+        elif source == "github":
+            provider = GitHubSourceProvider(
+                token=settings.github_token or None
             )
         else:
             raise ValueError(f"Unsupported model source: '{source}'")

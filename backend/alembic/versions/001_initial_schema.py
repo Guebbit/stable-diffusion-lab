@@ -24,41 +24,54 @@ def upgrade() -> None:
     # --- models ---
     op.create_table(
         "models",
+        # Identity
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("model_id", sa.String(512), unique=True, nullable=False),
         sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("preferred_name", sa.String(255), nullable=True, server_default=""),
+        sa.Column("preferred_name", sa.String(255), nullable=False, server_default=""),
         sa.Column("source", sa.String(50), nullable=False),
         sa.Column("family", sa.String(50), nullable=False, server_default="custom"),
         sa.Column("variant", sa.String(100), server_default=""),
+        # Classification
+        sa.Column("model_type", sa.String(50), nullable=False, server_default="base_diffusion"),
+        sa.Column("compatible_bases", postgresql.JSONB, server_default="[]"),
+        sa.Column("base_model", sa.String(255), server_default=""),
+        sa.Column("precision", sa.String(50), server_default=""),
+        # Discovery metadata
         sa.Column("description", sa.Text, server_default=""),
+        sa.Column("short_description", sa.String(200), server_default=""),
         sa.Column("tags", postgresql.JSONB, server_default="[]"),
         sa.Column("source_url", sa.String(1024), server_default=""),
         sa.Column("version", sa.String(100), server_default=""),
         sa.Column("capabilities", postgresql.JSONB, server_default="[]"),
-        sa.Column("total_size_bytes", sa.BigInteger, server_default="0"),
-        sa.Column("disk_size_bytes", sa.BigInteger, server_default="0"),
-        sa.Column("file_path", sa.String(1024), server_default=""),
-        sa.Column("status", sa.String(50), server_default="not_downloaded"),
-        sa.Column("local_path", sa.Text(), nullable=True),
-        sa.Column("file_count", sa.Integer(), server_default="0", nullable=True),
+        sa.Column("license", sa.String(100), server_default=""),
+        sa.Column("notes", sa.Text, server_default=""),
+        sa.Column("requirements", postgresql.JSONB, server_default="{}"),
+        # Size (estimate before download, actual after)
         sa.Column("download_size_bytes", sa.BigInteger, nullable=True),
+        sa.Column("total_size_bytes", sa.BigInteger, server_default="0"),
+        sa.Column("file_count", sa.Integer(), server_default="0"),
+        # Hardware requirements
         sa.Column("recommended_vram_min_gb", sa.Integer, nullable=True),
         sa.Column("recommended_vram_max_gb", sa.Integer, nullable=True),
-        sa.Column("license", sa.String(100), server_default=""),
-        sa.Column("base_model", sa.String(255), server_default=""),
-        sa.Column("precision", sa.String(50), server_default=""),
-        sa.Column("requirements", postgresql.JSONB, server_default="{}"),
-        sa.Column("notes", sa.Text, server_default=""),
-        sa.Column("checksum", sa.String(128), server_default=""),
+        # Lifecycle
+        sa.Column("status", sa.String(50), server_default="not_downloaded"),
+        sa.Column("local_path", sa.Text(), nullable=True),
+        sa.Column("last_error", sa.Text(), nullable=True),
+        # Integrity
         sa.Column("is_verified", sa.Boolean, server_default="false"),
         sa.Column("last_verified_at", sa.DateTime(timezone=True), nullable=True),
+        # Timestamps
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
     op.create_index("ix_models_source_status", "models", ["source", "status"])
     op.create_index("ix_models_family", "models", ["family"])
     op.create_index("ix_models_status", "models", ["status"])
+    op.create_index("ix_models_model_type", "models", ["model_type"])
+    op.create_index("ix_models_tags_gin", "models", ["tags"], postgresql_using="gin")
+    op.create_index("ix_models_capabilities_gin", "models", ["capabilities"], postgresql_using="gin")
+    op.create_index("ix_models_compatible_bases_gin", "models", ["compatible_bases"], postgresql_using="gin")
 
     # --- model_files ---
     op.create_table(
@@ -172,6 +185,13 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop all tables created in this migration."""
+    op.drop_index("ix_models_compatible_bases_gin", table_name="models")
+    op.drop_index("ix_models_capabilities_gin", table_name="models")
+    op.drop_index("ix_models_tags_gin", table_name="models")
+    op.drop_index("ix_models_model_type", table_name="models")
+    op.drop_index("ix_models_status", table_name="models")
+    op.drop_index("ix_models_family", table_name="models")
+    op.drop_index("ix_models_source_status", table_name="models")
     op.drop_table("artifacts")
     op.drop_table("job_events")
     op.drop_table("jobs")

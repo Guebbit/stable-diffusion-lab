@@ -53,14 +53,17 @@ def _model_to_response(m) -> ModelRegistryResponse:
         source=m.source,
         family=m.family,
         variant=m.variant,
+        model_type=getattr(m, "model_type", "base_diffusion") or "base_diffusion",
+        compatible_bases=getattr(m, "compatible_bases", None) or [],
         description=m.description,
+        short_description=getattr(m, "short_description", ""),
         tags=m.tags if isinstance(m.tags, list) else [],
         source_url=m.source_url,
         capabilities=m.capabilities if isinstance(m.capabilities, list) else [],
         status=m.status,
         total_size_bytes=m.total_size_bytes,
-        disk_size_bytes=m.disk_size_bytes,
         download_size_bytes=m.download_size_bytes,
+        last_error=getattr(m, "last_error", None),
         recommended_vram_min_gb=m.recommended_vram_min_gb,
         recommended_vram_max_gb=m.recommended_vram_max_gb,
         license=m.license,
@@ -70,8 +73,6 @@ def _model_to_response(m) -> ModelRegistryResponse:
         notes=m.notes,
         is_verified=m.is_verified,
         last_verified_at=m.last_verified_at,
-        local_path=m.local_path,
-        file_count=getattr(m, "file_count", 0),
         created_at=m.created_at,
         updated_at=m.updated_at,
     )
@@ -80,18 +81,33 @@ def _model_to_response(m) -> ModelRegistryResponse:
 @router.get("/", response_model=list[ModelRegistryResponse])
 async def list_models(
     source: str | None = None,
+    model_type: str | None = Query(
+        default=None,
+        description=(
+            "Filter by model category: base_diffusion | lora | controlnet | "
+            "t2i_adapter | ip_adapter | vae | upscaler | face_restore | vision_language"
+        ),
+    ),
+    compatible_base: str | None = Query(
+        default=None,
+        description="Return only models compatible with this base family (e.g. 'sdxl', 'sd1.5').",
+    ),
     capabilities: str | None = Query(
         default=None,
-        description="Comma-separated list of capabilities to filter by (OR logic). "
-        "Example: txt2img,img2img",
+        description="Comma-separated capabilities to filter by (OR logic). Example: text_to_image,image_to_image",
     ),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     service: ModelService = Depends(_get_model_service),
 ) -> list[ModelRegistryResponse]:
-    """List all registered models, optionally filtered by source and/or capabilities."""
+    """List all registered models, optionally filtered by source, model_type, compatible_base, and/or capabilities."""
     capabilities_list: list[str] | None = [c.strip() for c in capabilities.split(",")] if capabilities else None
-    models = await service.list_models(source=source, capabilities=capabilities_list)
+    models = await service.list_models(
+        source=source,
+        capabilities=capabilities_list,
+        model_type=model_type,
+        compatible_base=compatible_base,
+    )
     models = models[offset : offset + limit]
     return [_model_to_response(m) for m in models]
 
@@ -149,6 +165,18 @@ async def download_model(
     except Exception as exc:
         raise from_exception(exc)
     return JobResponse(job_id=job_id, status="pending", message="Download queued")
+
+
+@router.post("/{model_id:path}/purge-files", status_code=204, response_model=None)
+async def purge_model_files(
+    model_id: str,
+    service: ModelService = Depends(_get_model_service),
+) -> None:
+    """Delete downloaded files for a model and reset its status to not_downloaded."""
+    try:
+        await service.delete_model_files(model_id)
+    except Exception as exc:
+        raise from_exception(exc)
 
 
 @router.delete("/{model_id:path}", status_code=204, response_model=None)

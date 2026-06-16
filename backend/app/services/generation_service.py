@@ -36,11 +36,16 @@ class GenerationService:
         self,
         params: GenerationParams,
         model_id: str,
+        lora_model_id: str | None = None,
+        lora_strength: float = 0.8,
         correlation_id: str | None = None,
     ) -> UUID:
         """Submit a text-to-image generation job."""
         job_id = await self._job_creator.create_text_to_image_job(
-            params, model_id, correlation_id
+            params, model_id,
+            lora_model_id=lora_model_id,
+            lora_strength=lora_strength,
+            correlation_id=correlation_id,
         )
         logger.info(
             "Created text-to-image job: %s (model_id=%s)",
@@ -142,11 +147,29 @@ class GenerationService:
         self,
         model_id: str,
         image_path: str,
+        prompt: str = "",
+        negative_prompt: str = "",
+        num_inference_steps: int = 28,
+        guidance_scale: float = 8.0,
+        adapter_conditioning_scale: float = 0.9,
+        base_model_id_override: str | None = None,
+        lora_model_id: str | None = None,
+        lora_strength: float = 0.8,
         correlation_id: str | None = None,
     ) -> UUID:
         """Submit a sketch-to-ink job."""
         job_id = await self._job_creator.create_sketch_to_ink_job(
-            model_id, image_path, correlation_id
+            model_id,
+            image_path,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            adapter_conditioning_scale=adapter_conditioning_scale,
+            base_model_id_override=base_model_id_override,
+            lora_model_id=lora_model_id,
+            lora_strength=lora_strength,
+            correlation_id=correlation_id,
         )
         logger.info(
             "Created sketch-to-ink job: %s (model_id=%s)",

@@ -78,13 +78,30 @@ class ModelService:
         self,
         source: str | None = None,
         capabilities: list[str] | None = None,
+        model_type: str | None = None,
+        compatible_base: str | None = None,
     ) -> list[ModelRecord]:
-        """List all models in the catalog, optionally filtered by source and/or capabilities."""
-        return await self._model_repo.list_all(source=source, capabilities=capabilities)
+        """List all models in the catalog with optional filters."""
+        return await self._model_repo.list_all(
+            source=source,
+            capabilities=capabilities,
+            model_type=model_type,
+            compatible_base=compatible_base,
+        )
 
     async def get_model(self, model_id: str) -> ModelRecord | None:
         """Get detailed info about a specific model."""
         return await self._model_repo.get_by_model_id(model_id)
+
+    async def delete_model_files(self, model_id: str) -> None:
+        """Delete downloaded files for a model and reset its status to not_downloaded."""
+        model = await self._model_repo.get_by_model_id(model_id)
+        if not model:
+            raise ValueError(f"Model {model_id} not found")
+
+        self._storage.delete_model_files(model.source, model_id)
+        await self._model_repo.update_status(model_id, ModelStatus.NOT_DOWNLOADED)
+        logger.info("Purged files for model: %s", model_id)
 
     async def delete_model(self, model_id: str) -> None:
         """Remove a model from catalog and disk."""
@@ -92,9 +109,6 @@ class ModelService:
         if not model:
             raise ValueError(f"Model {model_id} not found")
 
-        # Delete files from disk
         self._storage.delete_model_files(model.source, model_id)
-
-        # Delete DB record
         await self._model_repo.delete(model.id)
         logger.info("Deleted model: %s", model_id)

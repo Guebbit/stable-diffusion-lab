@@ -7,8 +7,14 @@ Each provider implements the ModelSourceProvider protocol, handling:
 - Source-specific authentication and rate limiting
 """
 
-from app.services.sources.huggingface import HuggingFaceSourceProvider
 from app.services.sources.civitai import CivitaiSourceProvider
+from app.services.sources.github import GitHubSourceProvider
+from app.services.sources.huggingface import HuggingFaceSourceProvider
 from app.services.sources.local import LocalSourceProvider
 
-__all__ = ["CivitaiSourceProvider", "HuggingFaceSourceProvider", "LocalSourceProvider"]
+__all__ = [
+    "CivitaiSourceProvider",
+    "GitHubSourceProvider",
+    "HuggingFaceSourceProvider",
+    "LocalSourceProvider",
+]

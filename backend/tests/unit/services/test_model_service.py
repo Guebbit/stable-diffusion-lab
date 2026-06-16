@@ -49,7 +49,6 @@ def _make_model_record(
         capabilities=capabilities or ["text_to_image"],
         status=status,
         total_size_bytes=1000,
-        disk_size_bytes=1000,
         download_size_bytes=1000,
         recommended_vram_min_gb=None,
         recommended_vram_max_gb=None,
@@ -58,6 +57,7 @@ def _make_model_record(
         precision="",
         requirements={},
         notes="",
+        last_error=None,
         is_verified=False,
         last_verified_at=None,
         created_at=now,
@@ -90,10 +90,20 @@ class _ModelRepoStub:
         if model_id in self._records:
             object.__setattr__(self._records[model_id], "status", status)
 
-    async def list_all(self, source: str | None = None, capabilities: list[str] | None = None) -> list[SimpleNamespace]:
+    async def list_all(
+        self,
+        source: str | None = None,
+        capabilities: list[str] | None = None,
+        model_type: str | None = None,
+        compatible_base: str | None = None,
+    ) -> list[SimpleNamespace]:
         records = list(self._records.values())
         if source is not None:
             records = [r for r in records if r.source == source]
+        if model_type is not None:
+            records = [r for r in records if getattr(r, "model_type", None) == model_type]
+        if compatible_base is not None:
+            records = [r for r in records if compatible_base in getattr(r, "compatible_bases", [])]
         if capabilities is not None:
             records = [r for r in records if any(c in (r.capabilities or []) for c in capabilities)]
         return records

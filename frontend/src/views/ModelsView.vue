@@ -1,9 +1,4 @@
 <script setup lang="ts">
-/**
- * Models management page.
- * Shows all registered models with download status, allows adding new models
- * and triggering downloads. The backend is the source of truth for the catalog.
- */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useModelsStore } from '../stores/models'
 import type { ModelFamily, ModelRegistryAddRequest, ModelRegistryEntry, ModelSource } from '../types'
@@ -24,7 +19,23 @@ onUnmounted(() => {
 const activeSource = ref<'all' | 'huggingface' | 'civitai'>('all')
 const activeFamily = ref<'all' | 'sd15' | 'sdxl' | 'flux' | 'custom'>('all')
 const activeDownloaded = ref<'all' | 'downloaded' | 'not-downloaded'>('all')
-const activeCapability = ref<'all' | 'analysis' | 'txt2img' | 'img2img'>('all')
+const activeType = ref<string>('all')
+const activeTags = ref<string[]>([])
+
+const MODEL_TYPES = [
+  { value: 'all', label: 'All types' },
+  { value: 'base_diffusion', label: 'Base' },
+  { value: 'controlnet', label: 'ControlNet' },
+  { value: 't2i_adapter', label: 'T2I Adapter' },
+  { value: 'lora', label: 'LoRA' },
+  { value: 'ip_adapter', label: 'IP-Adapter' },
+  { value: 'vae', label: 'VAE' },
+  { value: 'upscaler', label: 'Upscaler' },
+  { value: 'face_restore', label: 'Face Restore' },
+  { value: 'vision_language', label: 'Vision LM' },
+]
+
+const allTags = computed(() => modelsStore.allTags)
 
 const filteredModels = computed(() =>
   modelsStore.registry.filter(m => {
@@ -32,7 +43,8 @@ const filteredModels = computed(() =>
     if (activeFamily.value !== 'all' && m.family !== activeFamily.value) return false
     if (activeDownloaded.value === 'downloaded' && m.status !== 'downloaded') return false
     if (activeDownloaded.value === 'not-downloaded' && m.status === 'downloaded') return false
-    if (activeCapability.value !== 'all' && !(m.capabilities?.includes(activeCapability.value))) return false
+    if (activeType.value !== 'all' && m.model_type !== activeType.value) return false
+    if (activeTags.value.length > 0 && !activeTags.value.every(t => m.tags?.includes(t))) return false
     return true
   }),
 )
@@ -67,7 +79,6 @@ function resetAddForm() {
 }
 
 function handleAddModel() {
-  // Parse comma-separated tags
   if (tagInput.value.trim()) {
     addForm.value.tags = tagInput.value.split(',').map(t => t.trim()).filter(Boolean)
   }
@@ -85,8 +96,52 @@ function handleDownload(modelId: string) {
   modelsStore.downloadModel(modelId)
 }
 
-function handleRemove(modelId: string) {
-  modelsStore.removeModel(modelId)
+// ─── Confirmation dialog ───────────────────────────────────────────────────
+
+type ConfirmAction = 'delete_files' | 'remove'
+
+const confirmDialog = ref(false)
+const confirmTarget = ref<ModelRegistryEntry | null>(null)
+const confirmAction = ref<ConfirmAction>('delete_files')
+
+const confirmConfig = {
+  delete_files: {
+    title: 'Delete downloaded files?',
+    icon: 'mdi-folder-remove',
+    iconColor: 'warning',
+    confirmColor: 'warning',
+    confirmLabel: 'Delete files',
+    body: 'This deletes all downloaded files for this model from disk.',
+    detail: 'The registry entry is kept. You can re-download the model at any time.',
+  },
+  remove: {
+    title: 'Remove from registry?',
+    icon: 'mdi-delete-alert',
+    iconColor: 'error',
+    confirmColor: 'error',
+    confirmLabel: 'Remove permanently',
+    body: 'This permanently deletes the model from the registry and from disk.',
+    detail: 'All downloaded files will be lost. You will need to re-add and re-download the model to use it. This cannot be undone.',
+  },
+} as const
+
+function openConfirm(model: ModelRegistryEntry, action: ConfirmAction) {
+  confirmTarget.value = model
+  confirmAction.value = action
+  confirmDialog.value = true
+}
+
+function handleConfirm() {
+  const model = confirmTarget.value
+  if (!model) return
+  confirmDialog.value = false
+
+  if (confirmAction.value === 'delete_files') {
+    modelsStore.deleteModelFiles(model.model_id)
+  } else {
+    modelsStore.removeModel(model.model_id)
+  }
+  confirmTarget.value = null
 }
 
 // ─── UI helpers ───────────────────────────────────────────────────────────
@@ -99,6 +154,51 @@ function familyColor(family: string): string {
     custom: 'grey',
   }
   return colors[family] || 'grey'
+}
+
+function modelTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    base_diffusion: 'Base Model',
+    controlnet: 'ControlNet',
+    t2i_adapter: 'T2I Adapter',
+    lora: 'LoRA',
+    ip_adapter: 'IP-Adapter',
+    vae: 'VAE',
+    upscaler: 'Upscaler',
+    face_restore: 'Face Restore',
+    vision_language: 'Vision LM',
+  }
+  return labels[type] ?? type
+}
+
+function modelTypeColor(type: string): string {
+  const colors: Record<string, string> = {
+    base_diffusion: 'primary',
+    controlnet: 'cyan',
+    t2i_adapter: 'teal',
+    lora: 'green',
+    ip_adapter: 'indigo',
+    vae: 'blue-grey',
+    upscaler: 'deep-orange',
+    face_restore: 'pink',
+    vision_language: 'deep-purple',
+  }
+  return colors[type] ?? 'grey'
+}
+
+function modelTypeIcon(type: string): string {
+  const icons: Record<string, string> = {
+    base_diffusion: 'mdi-image-auto-adjust',
+    controlnet: 'mdi-tune',
+    t2i_adapter: 'mdi-pencil-ruler',
+    lora: 'mdi-layers-plus',
+    ip_adapter: 'mdi-image-frame',
+    vae: 'mdi-vector-combine',
+    upscaler: 'mdi-arrow-expand-all',
+    face_restore: 'mdi-face-recognition',
+    vision_language: 'mdi-eye-outline',
+  }
+  return icons[type] ?? 'mdi-cube-outline'
 }
 
 function statusChipColor(model: ModelRegistryEntry): string {
@@ -141,12 +241,11 @@ function statusChipLabel(model: ModelRegistryEntry): string {
       </v-btn>
     </div>
     <p class="text-body-2 text-medium-emphasis mb-6">
-      Manage your model catalog — download models to make them available for generation.
-      Only downloaded models appear in the generation form.
+      Manage your model catalog — download models to use them in generation. Not-downloaded models appear in generation selects as disabled options.
     </p>
 
     <!-- ─── Filter bar ──────────────────────────────────────────────── -->
-    <v-row class="mb-4" align="center">
+    <v-row class="mb-2" align="center">
       <!-- Source filter -->
       <v-col cols="12" sm="auto">
         <v-btn-toggle
@@ -168,21 +267,21 @@ function statusChipLabel(model: ModelRegistryEntry): string {
         </v-btn-toggle>
       </v-col>
 
-       <!-- Family filter -->
-       <v-col cols="12" sm="auto">
-         <v-btn-toggle
-           v-model="activeFamily"
-           mandatory
-           variant="outlined"
-           density="compact"
-           divided
-         >
-           <v-btn value="all">All families</v-btn>
-           <v-btn value="sd15">SD 1.x</v-btn>
-           <v-btn value="sdxl">SDXL</v-btn>
-           <v-btn value="flux">Flux</v-btn>
-         </v-btn-toggle>
-       </v-col>
+      <!-- Family filter -->
+      <v-col cols="12" sm="auto">
+        <v-btn-toggle
+          v-model="activeFamily"
+          mandatory
+          variant="outlined"
+          density="compact"
+          divided
+        >
+          <v-btn value="all">All families</v-btn>
+          <v-btn value="sd15">SD 1.x</v-btn>
+          <v-btn value="sdxl">SDXL</v-btn>
+          <v-btn value="flux">Flux</v-btn>
+        </v-btn-toggle>
+      </v-col>
 
       <!-- Download status filter -->
       <v-col cols="12" sm="auto">
@@ -204,30 +303,50 @@ function statusChipLabel(model: ModelRegistryEntry): string {
           </v-btn>
         </v-btn-toggle>
       </v-col>
+    </v-row>
 
-      <!-- Capability filter -->
-      <v-col cols="12" sm="auto">
+    <!-- Model type filter (full row) -->
+    <v-row class="mb-2" align="center">
+      <v-col cols="12">
         <v-btn-toggle
-          v-model="activeCapability"
+          v-model="activeType"
           mandatory
           variant="outlined"
           density="compact"
           divided
         >
-          <v-btn value="all">All caps</v-btn>
-          <v-btn value="analysis">
-            <v-icon icon="mdi-eye" class="mr-1" size="16" />
-            Analysis
-          </v-btn>
-          <v-btn value="txt2img">
-            <v-icon icon="mdi-text-box" class="mr-1" size="16" />
-            Txt2Img
-          </v-btn>
-          <v-btn value="img2img">
-            <v-icon icon="mdi-image-edit" class="mr-1" size="16" />
-            Img2Img
+          <v-btn
+            v-for="t in MODEL_TYPES"
+            :key="t.value"
+            :value="t.value"
+          >
+            <v-icon
+              v-if="t.value !== 'all'"
+              :icon="modelTypeIcon(t.value)"
+              class="mr-1"
+              size="14"
+            />
+            {{ t.label }}
           </v-btn>
         </v-btn-toggle>
+      </v-col>
+    </v-row>
+
+    <!-- Tag multi-select filter -->
+    <v-row class="mb-4" align="center">
+      <v-col cols="12" sm="6" md="4">
+        <v-select
+          v-model="activeTags"
+          :items="allTags"
+          label="Filter by tags"
+          multiple
+          chips
+          closable-chips
+          clearable
+          variant="outlined"
+          density="compact"
+          hide-details
+        />
       </v-col>
     </v-row>
 
@@ -251,29 +370,50 @@ function statusChipLabel(model: ModelRegistryEntry): string {
         xl="4"
       >
         <v-card height="100%" variant="outlined">
+          <!-- Title row: name + status -->
           <v-card-title class="text-body-1 font-weight-bold pt-4 pb-1 d-flex align-center">
             {{ model.preferred_name || model.name }}
             <v-spacer />
-             <!-- Download status badge -->
-             <v-chip
-               :color="statusChipColor(model)"
-               size="x-small"
-               :prepend-icon="statusChipIcon(model)"
-             >
-               {{ statusChipLabel(model) }}
-             </v-chip>
+            <v-chip
+              :color="statusChipColor(model)"
+              size="x-small"
+              :prepend-icon="statusChipIcon(model)"
+            >
+              {{ statusChipLabel(model) }}
+            </v-chip>
           </v-card-title>
 
           <v-card-subtitle class="pb-2">
-            <!-- Architecture family badge -->
-            <v-chip
-              :color="familyColor(model.family)"
-              size="x-small"
-              class="mr-1"
-              label
-            >
-              {{ model.id }}
-            </v-chip>
+            <!-- Model type + base model (privileged row) -->
+            <div class="d-flex align-center flex-wrap gap-2 mb-3">
+              <v-chip
+                :color="modelTypeColor(model.model_type)"
+                size="small"
+                :prepend-icon="modelTypeIcon(model.model_type)"
+                label
+              >
+                {{ modelTypeLabel(model.model_type) }}
+              </v-chip>
+              <v-chip
+                v-if="model.base_model"
+                size="small"
+                variant="tonal"
+                prepend-icon="mdi-link-variant"
+                label
+              >
+                {{ model.base_model }}
+              </v-chip>
+              <v-chip
+                v-for="base in model.compatible_bases"
+                :key="base"
+                :color="familyColor(base)"
+                size="x-small"
+                variant="tonal"
+                label
+              >
+                {{ base }}
+              </v-chip>
+            </div>
 
             <!-- VRAM requirements -->
             <div v-if="model.recommended_vram_min_gb || model.recommended_vram_max_gb" class="d-flex align-center flex-wrap gap-2 mb-3">
@@ -295,10 +435,22 @@ function statusChipLabel(model: ModelRegistryEntry): string {
               </v-chip>
             </div>
 
-            <!-- Description -->
+            <!-- Short description -->
             <p class="text-body-2 text-medium-emphasis mb-2">
-              {{ model.description || 'No description available.' }}
+              {{ model.short_description || model.description || 'No description available.' }}
             </p>
+
+            <!-- Full description (collapsible) -->
+            <v-expansion-panels v-if="model.description" variant="accordion" elevation="0" class="mb-2">
+              <v-expansion-panel>
+                <v-expansion-panel-title class="text-caption text-medium-emphasis px-0 py-1" style="min-height: 28px">
+                  Details
+                </v-expansion-panel-title>
+                <v-expansion-panel-text class="text-body-2 text-medium-emphasis px-0">
+                  {{ model.description }}
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
 
             <!-- Size + source link row -->
             <div class="d-flex align-center flex-wrap gap-2 mb-3">
@@ -333,19 +485,6 @@ function statusChipLabel(model: ModelRegistryEntry): string {
                 class="mr-1 mb-1"
               >
                 {{ tag }}
-              </v-chip>
-            </div>
-
-            <!-- Capabilities -->
-            <div v-if="model.capabilities?.length" class="mb-1">
-              <v-chip
-                v-for="cap in model.capabilities"
-                :key="cap"
-                size="x-small"
-                :color="cap === 'analysis' ? 'cyan' : cap === 'txt2img' ? 'purple' : 'teal'"
-                class="mr-1 mb-1"
-              >
-                {{ cap }}
               </v-chip>
             </div>
           </v-card-subtitle>
@@ -402,14 +541,34 @@ function statusChipLabel(model: ModelRegistryEntry): string {
 
             <v-spacer />
 
-            <!-- Remove from registry -->
-            <v-btn
-              color="error"
-              variant="text"
-              size="small"
-              icon="mdi-delete-outline"
-              @click="handleRemove(model.model_id)"
-            />
+            <!-- Delete files only (only shown when files are present) -->
+            <v-tooltip location="top" text="Delete downloaded files — keeps registry entry">
+              <template #activator="{ props: tooltipProps }">
+                <v-btn
+                  v-if="model.status === 'downloaded'"
+                  v-bind="tooltipProps"
+                  color="warning"
+                  variant="text"
+                  size="small"
+                  icon="mdi-folder-remove"
+                  @click="openConfirm(model, 'delete_files')"
+                />
+              </template>
+            </v-tooltip>
+
+            <!-- Remove from registry + delete files (permanent) -->
+            <v-tooltip location="top" text="Remove from registry and delete files">
+              <template #activator="{ props: tooltipProps }">
+                <v-btn
+                  v-bind="tooltipProps"
+                  color="error"
+                  variant="text"
+                  size="small"
+                  icon="mdi-delete-outline"
+                  @click="openConfirm(model, 'remove')"
+                />
+              </template>
+            </v-tooltip>
           </v-card-actions>
         </v-card>
       </v-col>
@@ -424,6 +583,48 @@ function statusChipLabel(model: ModelRegistryEntry): string {
     >
       No models match the current filters.
     </v-alert>
+
+    <!-- ─── Confirm dialog (unload / remove) ─────────────────────── -->
+    <v-dialog v-model="confirmDialog" max-width="480" persistent>
+      <v-card v-if="confirmTarget">
+        <v-card-title class="d-flex align-center gap-2 pt-4 pb-1">
+          <v-icon
+            :icon="confirmConfig[confirmAction].icon"
+            :color="confirmConfig[confirmAction].iconColor"
+          />
+          {{ confirmConfig[confirmAction].title }}
+        </v-card-title>
+
+        <v-card-text class="pb-2">
+          <p class="text-body-1 font-weight-medium mb-2">
+            {{ confirmTarget.preferred_name || confirmTarget.name }}
+          </p>
+          <p class="text-body-2 mb-2">{{ confirmConfig[confirmAction].body }}</p>
+          <v-alert
+            :type="confirmAction === 'remove' ? 'error' : 'warning'"
+            variant="tonal"
+            density="compact"
+            class="text-body-2"
+          >
+            {{ confirmConfig[confirmAction].detail }}
+          </v-alert>
+        </v-card-text>
+
+        <v-card-actions class="pa-4 pt-2">
+          <v-spacer />
+          <v-btn variant="text" @click="confirmDialog = false; confirmTarget = null">
+            Cancel
+          </v-btn>
+          <v-btn
+            :color="confirmConfig[confirmAction].confirmColor"
+            variant="elevated"
+            @click="handleConfirm"
+          >
+            {{ confirmConfig[confirmAction].confirmLabel }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- ─── Add Model Dialog ────────────────────────────────────────── -->
     <v-dialog v-model="showAddDialog" max-width="600" persistent>
@@ -508,8 +709,8 @@ function statusChipLabel(model: ModelRegistryEntry): string {
 
           <v-text-field
             v-model="tagInput"
-            label="Tags (comma-separated)"
-            placeholder="e.g. photorealistic, portraits, fast"
+            label="Tags (comma-separated, snake_case)"
+            placeholder="e.g. photorealistic, portrait, fast"
             variant="outlined"
           />
         </v-card-text>

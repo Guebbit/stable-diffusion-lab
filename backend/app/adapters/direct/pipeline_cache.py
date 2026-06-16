@@ -168,6 +168,25 @@ class PipelineCache:
                 self._evict_entry(model_id)
                 logger.info("Evicted on request: %s", model_id)
 
+    async def evict_by_model_prefix(self, model_id: str) -> list[str]:
+        """
+        Evict all cached pipelines whose key is or starts with model_id.
+
+        Cache keys are compound (e.g. "model_id:lora_id:sketch2ink"), so this
+        finds and removes every variant of a given model that may be in cache.
+        Returns the list of evicted keys.
+        """
+        async with self._lock:
+            to_evict = [
+                key for key in self._cache
+                if key == model_id or key.startswith(model_id + ":")
+            ]
+            for key in to_evict:
+                self._evict_entry(key)
+            if to_evict:
+                logger.info("Evicted %d entries for model prefix: %s", len(to_evict), model_id)
+            return to_evict
+
     async def evict_all(self) -> None:
         """Remove all pipelines from cache — used during shutdown."""
         async with self._lock:

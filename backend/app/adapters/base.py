@@ -12,6 +12,35 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+
+def resolve_model_path(model_id: str) -> str:
+    """
+    Return the local filesystem path for a downloaded model, or model_id as-is.
+
+    Download jobs store files at:
+      settings.models_path / <source> / <model_id parts>
+    e.g. /app/storage/models/huggingface/black-forest-labs/FLUX.1-dev
+
+    Returning the local path lets from_pretrained() load entirely from disk,
+    which avoids HuggingFace network calls — critical for gated models where
+    a 401 would be raised even when files are already present locally.
+    """
+    from app.infrastructure.config.settings import get_settings
+    models_path = get_settings().models_path
+    parts = [p for p in model_id.replace("\\", "/").split("/") if p]
+    for source in ("huggingface", "civitai", "github", "local"):
+        candidate = models_path.joinpath(source, *parts)
+        if candidate.is_dir() and any(candidate.iterdir()):
+            return str(candidate)
+    return model_id
+
+
+def hf_token() -> str | None:
+    """Return the HuggingFace API token from settings (None if not configured)."""
+    from app.infrastructure.config.settings import get_settings
+    token = get_settings().huggingface_token
+    return token or None
+
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams, JobProgress
 
@@ -44,6 +73,33 @@ def build_diffusers_step_callback(
             )
         )
         return kwargs
+
+    return _callback
+
+
+def build_legacy_diffusers_step_callback(
+    on_progress: ProgressCallback | None,
+    total_steps: int,
+) -> Callable[..., None]:
+    """
+    Return an old-style diffusers step callback: (step, timestep, latents) -> None.
+
+    Use this for pipelines that pre-date callback_on_step_end, such as
+    StableDiffusionXLAdapterPipeline. Pass as callback=..., callback_steps=1.
+    """
+
+    def _callback(step: int, timestep: Any, latents: Any) -> None:
+        if on_progress is None:
+            return
+        on_progress(
+            JobProgress(
+                job_id=uuid.UUID(int=0),
+                status="running",
+                progress_percent=int((step / max(total_steps, 1)) * 100),
+                current_step=step,
+                total_steps=total_steps,
+            )
+        )
 
     return _callback
 

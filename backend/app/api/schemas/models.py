@@ -22,10 +22,25 @@ class ModelRegisterRequest(BaseModel):
         ..., min_length=1, description="Unique model identifier (e.g., HF repo ID)"
     )
     name: str = Field(..., min_length=1, description="Human-readable display name")
-    source: str = Field(..., description="Origin: huggingface, civitai, or local")
+    source: str = Field(..., description="Origin: huggingface, civitai, github, or local")
     family: str = Field("custom", description="Architecture family: sd15, sdxl, flux, custom")
     variant: str = Field("", description="Model variant: fp16, fp32, gguf-q4, etc.")
-    description: str = Field("", description="Brief description of the model")
+    model_type: str = Field(
+        "base_diffusion",
+        description=(
+            "Coarse category for FE filtering: base_diffusion | lora | controlnet | "
+            "t2i_adapter | ip_adapter | vae | upscaler | face_restore | vision_language"
+        ),
+    )
+    compatible_bases: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Base model families this model requires, e.g. ['sdxl'] or ['sd1.5','sdxl']. "
+            "Empty for base_diffusion models."
+        ),
+    )
+    description: str = Field("", description="Full description of the model")
+    short_description: str = Field("", description="One-line summary for compact UI contexts (max 200 chars)")
     tags: list[str] = Field(default_factory=list, description="Searchable tags")
     source_url: str = Field("", description="URL where the model can be downloaded from")
     preferred_name: str = Field("", description="Display name override for frontend")
@@ -56,14 +71,17 @@ class ModelRegistryResponse(BaseModel):
     source: str
     family: str
     variant: str = ""
+    model_type: str = "base_diffusion"
+    compatible_bases: list[str] = Field(default_factory=list)
     description: str
+    short_description: str = ""
     tags: list[str]
     source_url: str
     capabilities: list[str] = []
     status: str
     total_size_bytes: int = 0
-    disk_size_bytes: int = 0
     download_size_bytes: int | None = None
+    last_error: str | None = None
     recommended_vram_min_gb: int | None = None
     recommended_vram_max_gb: int | None = None
     license: str = ""

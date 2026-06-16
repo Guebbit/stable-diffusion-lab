@@ -78,6 +78,25 @@ class ArtifactService:
 
         return artifact
 
+    async def delete_all_artifacts(self) -> int:
+        """Delete every artifact — remove all files from disk and all DB records."""
+        artifacts, _ = await self._artifact_repo.list_filtered(limit=10_000, offset=0)
+
+        deleted_count = 0
+        for artifact in artifacts:
+            file_path = Path(artifact.file_path)
+            if file_path.exists():
+                file_path.unlink()
+            if artifact.thumbnail_path:
+                thumb_path = Path(artifact.thumbnail_path)
+                if thumb_path.exists():
+                    thumb_path.unlink()
+            deleted_count += 1
+
+        await self._artifact_repo.delete_all()
+        logger.info("Deleted all %d artifacts", deleted_count)
+        return deleted_count
+
     async def delete_artifact(self, artifact_id: UUID) -> bool:
         """Delete an artifact — remove file from disk and DB record."""
         artifact = await self._artifact_repo.get_by_id(artifact_id)

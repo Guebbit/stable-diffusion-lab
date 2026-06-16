@@ -42,6 +42,8 @@ class JobCreator:
         self,
         params: GenerationParams,
         model_id: str,
+        lora_model_id: str | None = None,
+        lora_strength: float = 0.8,
         correlation_id: str | None = None,
     ) -> UUID:
         """Create a PENDING text-to-image job."""
@@ -49,6 +51,9 @@ class JobCreator:
 
         job_params = self._build_params(params, resolved_model, correlation_id)
         job_params["original_model_id"] = model_id
+        if lora_model_id:
+            job_params["lora_model_id"] = lora_model_id
+            job_params["lora_strength"] = lora_strength
 
         job = JobRecord(
             job_type=JobType.TEXT_TO_IMAGE,
@@ -256,6 +261,14 @@ class JobCreator:
         self,
         model_id: str,
         image_path: str,
+        prompt: str = "",
+        negative_prompt: str = "",
+        num_inference_steps: int = 28,
+        guidance_scale: float = 8.0,
+        adapter_conditioning_scale: float = 0.9,
+        base_model_id_override: str | None = None,
+        lora_model_id: str | None = None,
+        lora_strength: float = 0.8,
         correlation_id: str | None = None,
     ) -> UUID:
         """Create a PENDING sketch-to-ink job."""
@@ -265,16 +278,33 @@ class JobCreator:
             "model_id": resolved_model,
             "original_model_id": model_id,
             "image_path": image_path,
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "num_inference_steps": num_inference_steps,
+            "guidance_scale": guidance_scale,
+            "adapter_conditioning_scale": adapter_conditioning_scale,
         }
 
-        # Adapter/ControlNet models (e.g. T2I adapters) require a base diffusion model.
-        # Resolve it from the registry so the executor can load both together.
+        if lora_model_id:
+            job_params["lora_model_id"] = lora_model_id
+            job_params["lora_strength"] = lora_strength
+
+        # Resolve model_type and (unless overridden) base_model_id from the registry.
+        # An explicit base_model_id_override from the request takes precedence over
+        # the requires_base_model from the model's requirements field.
         if self._model_repo is not None:
             record = await self._model_repo.get_by_model_id(resolved_model)
-            if record and record.requirements:
-                base = record.requirements.get("requires_base_model")
-                if base:
-                    job_params["base_model_id"] = base
+            if record:
+                if record.model_type:
+                    job_params["model_type"] = record.model_type
+                if base_model_id_override:
+                    job_params["base_model_id"] = base_model_id_override
+                elif record.requirements:
+                    base = record.requirements.get("requires_base_model")
+                    if base:
+                        job_params["base_model_id"] = base
+        elif base_model_id_override:
+            job_params["base_model_id"] = base_model_id_override
 
         if correlation_id is not None:
             job_params["correlation_id"] = correlation_id

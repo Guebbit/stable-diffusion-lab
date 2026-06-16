@@ -13,6 +13,7 @@ class ModelSource(StrEnum):
 
     HUGGINGFACE = "huggingface"
     CIVITAI = "civitai"
+    GITHUB = "github"
     LOCAL = "local"
 
 

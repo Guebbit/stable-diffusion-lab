@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select, update
+import json
+
+from sqlalchemy import cast, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.models import ModelRecord
@@ -35,21 +38,30 @@ class ModelRepository:
         self,
         source: str | None = None,
         capabilities: list[str] | None = None,
+        model_type: str | None = None,
+        compatible_base: str | None = None,
     ) -> list[ModelRecord]:
-        """List all registered models, optionally filtered by source and/or capabilities.
+        """List all registered models with optional filters.
 
-        When multiple capabilities are provided, models matching ANY of them are returned (OR logic).
+        compatible_base: return only models whose compatible_bases array contains
+        this value (e.g. 'sdxl', 'sd1.5'). Multiple capabilities use OR logic.
         """
         stmt = select(ModelRecord).order_by(ModelRecord.name)
         if source:
             stmt = stmt.where(ModelRecord.source == source)
+        if model_type:
+            stmt = stmt.where(ModelRecord.model_type == model_type)
+        if compatible_base:
+            stmt = stmt.where(
+                ModelRecord.compatible_bases.op("@>")(
+                    cast(json.dumps([compatible_base]), JSONB)
+                )
+            )
         if capabilities:
             from sqlalchemy import or_
-
-            capability_conditions = [
-                ModelRecord.capabilities.contains([cap]) for cap in capabilities
-            ]
-            stmt = stmt.where(or_(*capability_conditions))
+            stmt = stmt.where(
+                or_(*[ModelRecord.capabilities.contains([c]) for c in capabilities])
+            )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

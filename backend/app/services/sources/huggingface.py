@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from huggingface_hub import HfApi, hf_hub_download
-from huggingface_hub.utils import get_token as hf_get_token
+from huggingface_hub.utils import GatedRepoError, RepositoryNotFoundError, get_token as hf_get_token
 
 from app.services.sources.utils import compute_file_sha256
 
@@ -65,6 +65,15 @@ class HuggingFaceSourceProvider:
             repo_info = await loop.run_in_executor(
                 None, lambda: self._api.repo_info(model_id, repo_type="model")
             )
+        except GatedRepoError as e:
+            raise RuntimeError(
+                f"Model '{model_id}' is gated — accept the terms at "
+                f"https://huggingface.co/{model_id} then set HF_TOKEN."
+            ) from e
+        except RepositoryNotFoundError as e:
+            raise RuntimeError(
+                f"Model '{model_id}' not found on HuggingFace Hub."
+            ) from e
         except Exception as e:
             raise RuntimeError(
                 f"Failed to fetch repo info for '{model_id}': {e}"
@@ -189,6 +198,11 @@ class HuggingFaceSourceProvider:
 
             return {"sha256": sha256, "size_bytes": final_size}
 
+        except GatedRepoError as e:
+            raise RuntimeError(
+                f"Model '{model_id}' is gated — accept the terms at "
+                f"https://huggingface.co/{model_id} then set HF_TOKEN."
+            ) from e
         except Exception as e:
             raise RuntimeError(
                 f"Failed to download '{file_path}' from '{model_id}': {e}"

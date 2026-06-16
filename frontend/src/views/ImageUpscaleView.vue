@@ -23,29 +23,25 @@ onMounted(() => modelsStore.fetchRegistry())
 
 // ─── Model lists (filtered by capability) ─────────────────────────────────
 
-/** Only downloaded img2img models — used for step 1 */
+// Capabilities that mark a model as specialized (not suitable for general enhancement)
+const SPECIALIZED_CAPS = ['sketch_to_ink', 'recolor', 'recolor_image', 'upscale_image', 'face_restore', 'describe']
+
+/** All general-purpose img2img models; not-downloaded shown as disabled options */
 const img2imgModels = computed<ModelRegistryEntry[]>(() =>
-  modelsStore.registry.filter(
-    (m) => m.capabilities?.includes('image_to_image') && m.status === 'downloaded',
-  ),
+  modelsStore.registry.filter((m) => {
+    const caps = m.capabilities ?? []
+    return caps.includes('image_to_image') && !caps.some((c) => SPECIALIZED_CAPS.includes(c))
+  }),
 )
 
-/** All upscale models (downloaded or not) — for the download-reminder alert */
-const allUpscaleModels = computed<ModelRegistryEntry[]>(() =>
+/** All upscale models; not-downloaded shown as disabled options */
+const upscaleModels = computed<ModelRegistryEntry[]>(() =>
   modelsStore.registry.filter((m) => m.capabilities?.includes('upscale_image')),
 )
-/** Only downloaded upscale models — used for step 2 select */
-const upscaleModels = computed<ModelRegistryEntry[]>(() =>
-  allUpscaleModels.value.filter((m) => m.status === 'downloaded'),
-)
 
-/** All face_restore models — for the download-reminder alert */
-const allFaceRestoreModels = computed<ModelRegistryEntry[]>(() =>
-  modelsStore.registry.filter((m) => m.capabilities?.includes('face_restore')),
-)
-/** Only downloaded face_restore models — used for step 3 select */
+/** All face_restore models; not-downloaded shown as disabled options */
 const faceRestoreModels = computed<ModelRegistryEntry[]>(() =>
-  allFaceRestoreModels.value.filter((m) => m.status === 'downloaded'),
+  modelsStore.registry.filter((m) => m.capabilities?.includes('face_restore')),
 )
 
 // ─── Step enable/disable ───────────────────────────────────────────────────
@@ -190,10 +186,6 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`
 }
 
-/** Short label for a missing-model alert. */
-function missingModelLabel(available: number, all: number, capability: string) {
-  return `${all} ${capability} model(s) available — go to Model Library to download.`
-}
 </script>
 
 <template>
@@ -249,9 +241,20 @@ function missingModelLabel(available: number, all: number, capability: string) {
           label="Enhancement model"
           density="compact"
           variant="outlined"
-          no-data-text="No img2img models downloaded"
+          no-data-text="No img2img models in registry"
           :disabled="!step1Enabled"
-        />
+          :item-props="(item: any) => ({ disabled: item.status !== 'downloaded' })"
+        >
+          <template #item="{ item, props: itemProps }">
+            <v-list-item v-bind="itemProps" :subtitle="item.raw.short_description">
+              <template #append>
+                <v-chip v-if="item.raw.status !== 'downloaded'" size="x-small" color="warning" variant="tonal">
+                  Not downloaded
+                </v-chip>
+              </template>
+            </v-list-item>
+          </template>
+        </v-select>
 
         <div class="d-flex justify-space-between mb-1 mt-2">
           <span class="text-caption text-medium-emphasis">Strength</span>
@@ -288,18 +291,19 @@ function missingModelLabel(available: number, all: number, capability: string) {
           label="Upscale model"
           density="compact"
           variant="outlined"
-          no-data-text="No upscale models downloaded"
-        />
-        <v-alert
-          v-if="upscaleModels.length === 0 && allUpscaleModels.length > 0"
-          type="info"
-          density="compact"
-          variant="tonal"
-          class="mt-1 mb-3"
+          no-data-text="No upscale models in registry"
+          :item-props="(item: any) => ({ disabled: item.status !== 'downloaded' })"
         >
-          {{ missingModelLabel(upscaleModels.length, allUpscaleModels.length, 'upscale') }}
-          <router-link to="/models">Model Library</router-link>
-        </v-alert>
+          <template #item="{ item, props: itemProps }">
+            <v-list-item v-bind="itemProps" :subtitle="item.raw.short_description">
+              <template #append>
+                <v-chip v-if="item.raw.status !== 'downloaded'" size="x-small" color="warning" variant="tonal">
+                  Not downloaded
+                </v-chip>
+              </template>
+            </v-list-item>
+          </template>
+        </v-select>
 
         <!-- Scale factor -->
         <div class="d-flex justify-space-between mb-1 mt-2">
@@ -316,22 +320,8 @@ function missingModelLabel(available: number, all: number, capability: string) {
           thumb-label
         />
 
-        <!-- Prompt -->
-        <v-textarea
-          v-model="prompt"
-          label="Prompt (optional)"
-          placeholder="Describe the image to guide detail synthesis…"
-          density="compact"
-          variant="outlined"
-          rows="2"
-          auto-grow
-          class="mt-2"
-          hint="Helps the model synthesise plausible high-frequency detail"
-          persistent-hint
-        />
-
         <!-- Noise level -->
-        <div class="d-flex justify-space-between mb-1 mt-3">
+        <div class="d-flex justify-space-between mb-1 mt-2">
           <span class="text-caption text-medium-emphasis">Noise level</span>
           <span class="text-caption font-weight-bold">{{ noiseLevel }}</span>
         </div>
@@ -361,6 +351,28 @@ function missingModelLabel(available: number, all: number, capability: string) {
           color="deep-purple"
           thumb-label
         />
+
+        <!-- Advanced: prompt (rarely needed) -->
+        <v-expansion-panels variant="accordion" class="mt-3" elevation="0">
+          <v-expansion-panel>
+            <v-expansion-panel-title class="text-caption text-medium-emphasis px-0 py-1" style="min-height: 32px">
+              Advanced
+            </v-expansion-panel-title>
+            <v-expansion-panel-text class="px-0">
+              <v-textarea
+                v-model="prompt"
+                label="Prompt"
+                placeholder="e.g. portrait, sharp focus, realistic skin"
+                density="compact"
+                variant="outlined"
+                rows="2"
+                auto-grow
+                hint="Only useful on very degraded images — tells the upscaler what kind of content to expect so it hallucinates better detail. Leave empty for normal use."
+                persistent-hint
+              />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
       </PipelineStepCard>
 
       <!-- ── Step 3: Face Restore (optional) ── -->
@@ -386,19 +398,20 @@ function missingModelLabel(available: number, all: number, capability: string) {
           label="Face restore model"
           density="compact"
           variant="outlined"
-          no-data-text="No face restore models downloaded"
+          no-data-text="No face restore models in registry"
           :disabled="!step3Enabled"
-        />
-        <v-alert
-          v-if="step3Enabled && faceRestoreModels.length === 0 && allFaceRestoreModels.length > 0"
-          type="info"
-          density="compact"
-          variant="tonal"
-          class="mt-1 mb-3"
+          :item-props="(item: any) => ({ disabled: item.status !== 'downloaded' })"
         >
-          {{ missingModelLabel(faceRestoreModels.length, allFaceRestoreModels.length, 'face restore') }}
-          <router-link to="/models">Model Library</router-link>
-        </v-alert>
+          <template #item="{ item, props: itemProps }">
+            <v-list-item v-bind="itemProps" :subtitle="item.raw.short_description">
+              <template #append>
+                <v-chip v-if="item.raw.status !== 'downloaded'" size="x-small" color="warning" variant="tonal">
+                  Not downloaded
+                </v-chip>
+              </template>
+            </v-list-item>
+          </template>
+        </v-select>
 
         <!-- Fidelity slider -->
         <div class="d-flex justify-space-between mb-1 mt-2">

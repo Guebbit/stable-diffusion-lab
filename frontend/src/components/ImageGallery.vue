@@ -24,6 +24,14 @@ function openDetail(image: ArtifactEntry) {
   detailImage.value = image
   showDetail.value = true
 }
+
+async function deleteImage(image: ArtifactEntry) {
+  await store.deleteImage(image.id)
+  if (detailImage.value?.id === image.id) {
+    showDetail.value = false
+    detailImage.value = null
+  }
+}
 </script>
 
 <template>
@@ -122,6 +130,14 @@ function openDetail(image: ArtifactEntry) {
               >
                 Download
               </v-btn>
+              <v-spacer />
+              <v-btn
+                icon="mdi-delete"
+                size="small"
+                variant="text"
+                color="error"
+                @click.stop="deleteImage(image)"
+              />
             </v-card-actions>
           </v-card>
         </v-col>
@@ -148,7 +164,7 @@ function openDetail(image: ArtifactEntry) {
               :aspect-ratio="detailImage.width / detailImage.height || 1"
               class="rounded bg-grey-darken-3"
             />
-            <div class="mt-2 text-center">
+            <div class="mt-2 d-flex justify-center gap-2">
               <v-btn
                 :href="detailImage.file_path"
                 target="_blank"
@@ -159,6 +175,15 @@ function openDetail(image: ArtifactEntry) {
                 prepend-icon="mdi-download"
               >
                 Download Full Image
+              </v-btn>
+              <v-btn
+                size="small"
+                variant="tonal"
+                color="error"
+                prepend-icon="mdi-delete"
+                @click="deleteImage(detailImage)"
+              >
+                Delete
               </v-btn>
             </div>
           </v-col>
