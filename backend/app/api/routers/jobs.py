@@ -20,6 +20,7 @@ from app.api.schemas.jobs import (
     JobEventResponse,
 )
 from app.api.schemas.system import JobTimelineResponse, TypedEventResponse
+from app.domain.enums import JobStatus
 from app.infrastructure.database.repositories import JobEventRepository, JobRepository
 from app.infrastructure.database.session import get_async_session
 from app.services.job_service import JobService
@@ -137,6 +138,36 @@ async def get_job_events(
         )
         for e in events
     ]
+
+
+@router.delete("/", status_code=204, response_model=None)
+async def delete_all_finished_jobs(
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    """Delete all completed, failed, and cancelled job records.
+    Associated artifacts are preserved — their job_id is set to NULL."""
+    job_repo = JobRepository(session)
+    for job in await job_repo.list_finished():
+        await session.delete(job)
+
+
+@router.delete("/{job_id}", status_code=204, response_model=None)
+async def delete_job(
+    job_id: UUID,
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    """Delete a single finished job record. Active jobs must be cancelled first.
+    Associated artifacts are preserved — their job_id is set to NULL."""
+    job_repo = JobRepository(session)
+    job = await job_repo.get_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status in (JobStatus.PENDING, JobStatus.RUNNING):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete a job in '{job.status}' state — cancel it first",
+        )
+    await session.delete(job)
 
 
 @router.get("/{job_id}/timeline", response_model=JobTimelineResponse)

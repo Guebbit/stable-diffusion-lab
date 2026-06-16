@@ -112,3 +112,24 @@ class ModelService:
         self._storage.delete_model_files(model.source, model_id)
         await self._model_repo.delete(model.id)
         logger.info("Deleted model: %s", model_id)
+
+    async def purge_all_model_files(self) -> int:
+        """Delete downloaded files for every model and reset all statuses to not_downloaded."""
+        models = await self._model_repo.list_all()
+        count = 0
+        for model in models:
+            if model.status == ModelStatus.DOWNLOADED:
+                self._storage.delete_model_files(model.source, model.model_id)
+                await self._model_repo.update_status(model.model_id, ModelStatus.NOT_DOWNLOADED)
+                count += 1
+        logger.info("Purged files for %d models", count)
+        return count
+
+    async def delete_all_models(self) -> int:
+        """Delete all models from the registry and from disk."""
+        models = await self._model_repo.list_all()
+        for model in models:
+            self._storage.delete_model_files(model.source, model.model_id)
+        count = await self._model_repo.delete_all()
+        logger.info("Deleted all %d models from registry", count)
+        return count

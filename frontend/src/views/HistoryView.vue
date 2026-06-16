@@ -14,6 +14,9 @@ const store = useHistoryStore()
 const detailImage = ref<ArtifactEntry | null>(null)
 const showDetail = ref(false)
 
+// Confirm "Clear All" dialog
+const showClearConfirm = ref(false)
+
 /** Open the detail dialog for the selected image. */
 function openDetail(image: ArtifactEntry) {
   detailImage.value = image
@@ -49,7 +52,6 @@ onMounted(() => {
         </v-chip>
       </span>
       <div class="d-flex gap-2">
-        <!-- Refresh button — re-fetches from disk (useful if backend added images elsewhere) -->
         <v-btn
           variant="text"
           size="small"
@@ -58,6 +60,16 @@ onMounted(() => {
           @click="store.fetchHistory()"
         >
           Refresh
+        </v-btn>
+        <v-btn
+          v-if="store.images.length"
+          variant="text"
+          color="error"
+          size="small"
+          prepend-icon="mdi-delete-sweep"
+          @click="showClearConfirm = true"
+        >
+          Clear All
         </v-btn>
       </div>
     </v-card-title>
@@ -143,6 +155,32 @@ onMounted(() => {
       </v-row>
     </v-card-text>
   </v-card>
+
+  <!-- ─── Clear All Confirmation ──────────────────────────────────────── -->
+  <v-dialog v-model="showClearConfirm" max-width="420" persistent>
+    <v-card>
+      <v-card-title class="d-flex align-center gap-2 pt-4 pb-1">
+        <v-icon icon="mdi-delete-sweep" color="error" />
+        Clear all history?
+      </v-card-title>
+      <v-card-text class="pb-2">
+        <v-alert type="error" variant="tonal" density="compact" class="text-body-2">
+          This permanently deletes all {{ store.images.length }} history entries from disk and database. This cannot be undone.
+        </v-alert>
+      </v-card-text>
+      <v-card-actions class="pa-4 pt-2">
+        <v-spacer />
+        <v-btn variant="text" @click="showClearConfirm = false">Cancel</v-btn>
+        <v-btn
+          color="error"
+          variant="elevated"
+          @click="showClearConfirm = false; store.clearHistory()"
+        >
+          Delete all
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 
   <!-- ─── Image Detail Dialog ─────────────────────────────────────────── -->
   <v-dialog v-model="showDetail" max-width="900">

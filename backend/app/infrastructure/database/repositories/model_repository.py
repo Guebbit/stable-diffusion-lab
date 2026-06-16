@@ -11,7 +11,7 @@ from uuid import UUID
 
 import json
 
-from sqlalchemy import cast, select, update
+from sqlalchemy import cast, delete as sa_delete, func as sa_func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,3 +86,9 @@ class ModelRepository:
         record = await self.get_by_id(record_id)
         if record:
             await self._session.delete(record)
+
+    async def delete_all(self) -> int:
+        """Delete all model records and return the count."""
+        count = (await self._session.execute(select(sa_func.count()).select_from(ModelRecord))).scalar_one()
+        await self._session.execute(sa_delete(ModelRecord))
+        return count

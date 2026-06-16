@@ -116,6 +116,34 @@ export const useModelsStore = defineStore('models', () => {
       })
   }
 
+  /** Remove ALL models from the registry and disk. Permanent. */
+  function removeAllModels() {
+    const notif = useNotificationStore()
+    return diffusionApi.removeAllModels()
+      .then(() => {
+        registry.value = []
+        notif.push('success', 'All models removed from registry')
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Failed to remove all models'
+        notif.push('error', msg)
+      })
+  }
+
+  /** Purge downloaded files for all models, resetting their status to not_downloaded. */
+  function purgeAllModelFiles() {
+    const notif = useNotificationStore()
+    return diffusionApi.purgeAllModelFiles()
+      .then(() => {
+        registry.value = registry.value.map(m => ({ ...m, status: 'not_downloaded' as const }))
+        notif.push('success', 'All model files purged')
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Failed to purge all model files'
+        notif.push('error', msg)
+      })
+  }
+
   /** Trigger a background download for a model. Progress arrives via SSE. */
   function downloadModel(modelId: string) {
     const notif = useNotificationStore()
@@ -257,6 +285,8 @@ export const useModelsStore = defineStore('models', () => {
     addModel,
     deleteModelFiles,
     removeModel,
+    removeAllModels,
+    purgeAllModelFiles,
     downloadModel,
     isModelDownloading,
     connectSSE,

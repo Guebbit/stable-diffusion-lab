@@ -99,6 +99,7 @@ function handleDownload(modelId: string) {
 // ─── Confirmation dialog ───────────────────────────────────────────────────
 
 type ConfirmAction = 'delete_files' | 'remove'
+type BulkConfirmAction = 'purge_all_files' | 'remove_all'
 
 const confirmDialog = ref(false)
 const confirmTarget = ref<ModelRegistryEntry | null>(null)
@@ -142,6 +143,46 @@ function handleConfirm() {
     modelsStore.removeModel(model.model_id)
   }
   confirmTarget.value = null
+}
+
+// ─── Bulk confirmation dialog ──────────────────────────────────────────────
+
+const bulkConfirmDialog = ref(false)
+const bulkAction = ref<BulkConfirmAction>('purge_all_files')
+
+const bulkConfirmConfig = {
+  purge_all_files: {
+    title: 'Purge all model files?',
+    icon: 'mdi-folder-remove',
+    iconColor: 'warning',
+    confirmColor: 'warning',
+    confirmLabel: 'Purge all files',
+    body: 'This deletes downloaded files for every model from disk and resets all statuses to "Not downloaded".',
+    detail: 'Registry entries are kept. You can re-download any model at any time.',
+  },
+  remove_all: {
+    title: 'Remove all models?',
+    icon: 'mdi-delete-alert',
+    iconColor: 'error',
+    confirmColor: 'error',
+    confirmLabel: 'Remove all permanently',
+    body: 'This permanently removes every model from the registry and deletes all files from disk.',
+    detail: 'You will need to re-add and re-download every model. This cannot be undone.',
+  },
+} as const
+
+function openBulkConfirm(action: BulkConfirmAction) {
+  bulkAction.value = action
+  bulkConfirmDialog.value = true
+}
+
+function handleBulkConfirm() {
+  bulkConfirmDialog.value = false
+  if (bulkAction.value === 'purge_all_files') {
+    modelsStore.purgeAllModelFiles()
+  } else {
+    modelsStore.removeAllModels()
+  }
 }
 
 // ─── UI helpers ───────────────────────────────────────────────────────────
@@ -232,13 +273,43 @@ function statusChipLabel(model: ModelRegistryEntry): string {
         Model Manager
       </div>
       <v-spacer />
-      <v-btn
-        color="primary"
-        prepend-icon="mdi-plus"
-        @click="showAddDialog = true"
-      >
-        Add Model
-      </v-btn>
+      <div class="d-flex gap-2">
+        <v-tooltip location="bottom" text="Delete all downloaded files, keep registry entries">
+          <template #activator="{ props: tooltipProps }">
+            <v-btn
+              v-if="modelsStore.registry.length"
+              v-bind="tooltipProps"
+              variant="outlined"
+              color="warning"
+              prepend-icon="mdi-folder-remove"
+              @click="openBulkConfirm('purge_all_files')"
+            >
+              Purge all files
+            </v-btn>
+          </template>
+        </v-tooltip>
+        <v-tooltip location="bottom" text="Remove all models from registry and disk">
+          <template #activator="{ props: tooltipProps }">
+            <v-btn
+              v-if="modelsStore.registry.length"
+              v-bind="tooltipProps"
+              variant="outlined"
+              color="error"
+              prepend-icon="mdi-delete-sweep"
+              @click="openBulkConfirm('remove_all')"
+            >
+              Remove all
+            </v-btn>
+          </template>
+        </v-tooltip>
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-plus"
+          @click="showAddDialog = true"
+        >
+          Add Model
+        </v-btn>
+      </div>
     </div>
     <p class="text-body-2 text-medium-emphasis mb-6">
       Manage your model catalog — download models to use them in generation. Not-downloaded models appear in generation selects as disabled options.
@@ -621,6 +692,43 @@ function statusChipLabel(model: ModelRegistryEntry): string {
             @click="handleConfirm"
           >
             {{ confirmConfig[confirmAction].confirmLabel }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- ─── Bulk Confirm dialog (purge all / remove all) ───────────── -->
+    <v-dialog v-model="bulkConfirmDialog" max-width="480" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center gap-2 pt-4 pb-1">
+          <v-icon
+            :icon="bulkConfirmConfig[bulkAction].icon"
+            :color="bulkConfirmConfig[bulkAction].iconColor"
+          />
+          {{ bulkConfirmConfig[bulkAction].title }}
+        </v-card-title>
+
+        <v-card-text class="pb-2">
+          <p class="text-body-2 mb-2">{{ bulkConfirmConfig[bulkAction].body }}</p>
+          <v-alert
+            :type="bulkAction === 'remove_all' ? 'error' : 'warning'"
+            variant="tonal"
+            density="compact"
+            class="text-body-2"
+          >
+            {{ bulkConfirmConfig[bulkAction].detail }}
+          </v-alert>
+        </v-card-text>
+
+        <v-card-actions class="pa-4 pt-2">
+          <v-spacer />
+          <v-btn variant="text" @click="bulkConfirmDialog = false">Cancel</v-btn>
+          <v-btn
+            :color="bulkConfirmConfig[bulkAction].confirmColor"
+            variant="elevated"
+            @click="handleBulkConfirm"
+          >
+            {{ bulkConfirmConfig[bulkAction].confirmLabel }}
           </v-btn>
         </v-card-actions>
       </v-card>

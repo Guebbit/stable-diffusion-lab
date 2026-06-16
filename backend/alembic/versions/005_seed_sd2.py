@@ -1,7 +1,7 @@
-"""Seed FLUX base models.
+"""Seed SD 2.x family — base models.
 
-Revision ID: 002_seed_flux
-Revises: 001_initial_schema
+Revision ID: 005_seed_sd2
+Revises: 004_seed_sd15
 Create Date: 2026-06-15
 """
 
@@ -11,12 +11,11 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-import sqlalchemy as sa
 from sqlalchemy import text
 from alembic import op
 
-revision = "002_seed_flux"
-down_revision = "001_initial_schema"
+revision = "005_seed_sd2"
+down_revision = "004_seed_sd15"
 branch_labels = None
 depends_on = None
 
@@ -86,53 +85,41 @@ def _prep(m: dict, now) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# FLUX base models
+# SD 2.x base models
 # ---------------------------------------------------------------------------
 MODELS = [
     {
-        "id": uuid.UUID("a0000000-0000-0000-0000-000000000017"),
-        "model_id": "black-forest-labs/FLUX.1-dev",
-        "name": "FLUX.1-dev",
-        "preferred_name": "FLUX.1 Dev",
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000002"),
+        "model_id": "stabilityai/stable-diffusion-2-1",
+        "name": "SD 2.1",
+        "preferred_name": "SD 2.1",
         "source": "huggingface",
-        "family": "flux",
-        "variant": "dev",
+        "family": "stable_diffusion_2",
+        "variant": "2.1",
         "model_type": "base_diffusion",
         "compatible_bases": [],
         "description": (
-            "Best for: flagship text-to-image generation and high-quality image-to-image work. "
-            "Strengths: state-of-the-art prompt understanding via the T5-XXL text encoder, "
-            "excellent coherence, fine detail, strong text rendering, and a significant step up "
-            "from SDXL in following complex or long prompts. Use it when quality is the priority "
-            "and VRAM budget allows. "
-            "Note: negative prompts have very limited effect with this architecture — "
-            "leave them empty or omit them. Not a helper model."
+            "Best for: generic image-to-image and lighter general generation. Strengths: "
+            "decent structure, lower resource needs than SDXL, and flexible use in broad "
+            "workflows. Not a helper model."
         ),
-        "short_description": "Best quality text-to-image, excellent prompt fidelity — 12+ GB VRAM",
+        "short_description": "Lightweight generic model for img2img and general experiments",
         "tags": [
-            "flux", "diffusion", "all_arounder", "flagship", "high_quality",
-            "transformer_architecture", "general_purpose",
+            "diffusion", "general_purpose", "generic_transform", "balanced",
         ],
-        "source_url": "https://huggingface.co/black-forest-labs/FLUX.1-dev",
-        "version": "1.0",
+        "source_url": "https://huggingface.co/stabilityai/stable-diffusion-2-1",
+        "version": "2.1",
         "capabilities": ["text_to_image", "image_to_image"],
         "total_size_bytes": 0,
-        "download_size_bytes": 33800000000,
+        "download_size_bytes": 5510000000,
         "status": "not_downloaded",
-        "recommended_vram_min_gb": 12,
-        "recommended_vram_max_gb": 24,
-        "license": "flux-1-dev-non-commercial",
-        "base_model": "flux",
-        "precision": "bf16",
-        "requirements": {
-            "recommended_resolution": "1024x1024",
-            "huggingface_gated": True,
-        },
-        "notes": (
-            "Gated on HuggingFace — accept the FLUX.1-dev terms at the model page before "
-            "downloading. Uses bf16 and a DiT transformer (no UNet); negative prompts have "
-            "minimal effect and can be left empty. Minimum 12 GB VRAM; 16 GB+ recommended."
-        ),
+        "recommended_vram_min_gb": 6,
+        "recommended_vram_max_gb": 12,
+        "license": "openrail++",
+        "base_model": "sd2.1",
+        "precision": "fp16",
+        "requirements": {"recommended_resolution": "768x768"},
+        "notes": "Useful generic model for transformations and experiments.",
     },
 ]
 

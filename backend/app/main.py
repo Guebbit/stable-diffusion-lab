@@ -11,6 +11,7 @@ This is the composition root where all layers are wired together:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
@@ -45,7 +46,7 @@ from app.adapters.direct import (
     PipelineCache,
 )
 from app.adapters.resource_coordinator import ResourceCoordinator
-from app.api.routers import artifacts, generation, jobs, models, system, upscale
+from app.api.routers import artifacts, generation, jobs, model_data, models, system, upscale
 from app.api.sse.hub import sse_hub
 from app.domain.enums import InferenceBackend, JobType
 from app.infrastructure.config.settings import get_settings
@@ -53,6 +54,7 @@ from app.orchestrator.event_bus import event_bus
 from app.orchestrator.metrics import MetricsRegistry
 from app.orchestrator.observability import ObservabilityService
 from app.orchestrator.worker import JobWorker
+from app.services.reconciliation import reconcile_models
 
 
 logger = logging.getLogger(__name__)
@@ -215,6 +217,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     await worker.start()
 
+    # Reconcile model DB status against files on disk (non-blocking background task).
+    asyncio.create_task(reconcile_models(session_factory))
+
     # Store references on app.state for access in route handlers
     app.state.pipeline_cache = pipeline_cache
     app.state.resource_coordinator = resource_coordinator
@@ -265,6 +270,7 @@ def create_app() -> FastAPI:
     app.include_router(upscale.router, prefix=api_prefix)
     app.include_router(jobs.router, prefix=api_prefix)
     app.include_router(models.router, prefix=api_prefix)
+    app.include_router(model_data.router, prefix=api_prefix)
     app.include_router(artifacts.router, prefix=api_prefix)
     app.include_router(system.router, prefix=api_prefix)
 

@@ -156,8 +156,8 @@ def upgrade() -> None:
         sa.Column(
             "job_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("jobs.id", ondelete="CASCADE"),
-            nullable=False,
+            sa.ForeignKey("jobs.id", ondelete="SET NULL"),
+            nullable=True,
         ),
         sa.Column("file_path", sa.String(1024), nullable=False),
         sa.Column("thumbnail_path", sa.String(1024), server_default=""),

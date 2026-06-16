@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import func as sa_func
 from sqlalchemy import select, update
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.models import JobEventRecord, JobRecord
@@ -231,6 +232,25 @@ class JobRepository:
         counts.setdefault("cancelled", 0)
         counts["queue_depth"] = counts["pending"] + counts["running"]
         return counts
+
+    async def list_finished(self) -> list[JobRecord]:
+        """Return all completed, failed, or cancelled jobs with their artifacts pre-loaded."""
+        stmt = (
+            select(JobRecord)
+            .where(JobRecord.status.in_(["completed", "failed", "cancelled"]))
+            .options(selectinload(JobRecord.artifacts))
+            .order_by(JobRecord.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def delete_by_id(self, job_id: UUID) -> bool:
+        """Delete a job by ID. Returns True if found and deleted."""
+        record = await self.get_by_id(job_id)
+        if not record:
+            return False
+        await self._session.delete(record)
+        return True
 
     async def get_oldest_pending_age_seconds(self) -> float | None:
         """Return age of the oldest pending job in seconds, if any exist."""

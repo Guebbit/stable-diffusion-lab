@@ -90,7 +90,7 @@ export interface JobStatusResponse {
  */
 export interface ArtifactEntry {
   id: string
-  job_id: string
+  job_id: string | null
   file_path: string
   thumbnail_path: string
   media_type: string

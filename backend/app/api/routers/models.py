@@ -179,6 +179,17 @@ async def purge_model_files(
         raise from_exception(exc)
 
 
+@router.delete("/", status_code=204, response_model=None)
+async def delete_all_models(
+    service: ModelService = Depends(_get_model_service),
+) -> None:
+    """Delete all models from catalog and disk."""
+    try:
+        await service.delete_all_models()
+    except Exception as exc:
+        raise from_exception(exc)
+
+
 @router.delete("/{model_id:path}", status_code=204, response_model=None)
 async def delete_model(
     model_id: str,

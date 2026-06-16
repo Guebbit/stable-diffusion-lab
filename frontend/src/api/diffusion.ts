@@ -215,8 +215,28 @@ export const diffusionApi = {
     return api.delete(`/models/${encodeURIComponent(modelId)}`).then(() => undefined)
   },
 
+  removeAllModels(): Promise<void> {
+    return api.delete('/models/').then(() => undefined)
+  },
+
   purgeModelFiles(modelId: string): Promise<void> {
     return api.post(`/models/${encodeURIComponent(modelId)}/purge-files`).then(() => undefined)
+  },
+
+  removeModelData(modelId: string): Promise<void> {
+    return api.delete(`/models-data/${encodeURIComponent(modelId)}`).then(() => undefined)
+  },
+
+  purgeAllModelFiles(): Promise<void> {
+    return api.delete('/models-data/').then(() => undefined)
+  },
+
+  deleteJob(jobId: string): Promise<void> {
+    return api.delete(`/jobs/${encodeURIComponent(jobId)}`).then(() => undefined)
+  },
+
+  deleteAllFinishedJobs(): Promise<void> {
+    return api.delete('/jobs/').then(() => undefined)
   },
 
   /**

@@ -32,7 +32,7 @@ class ArtifactResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     id: UUID
-    job_id: UUID
+    job_id: UUID | None = None
     file_path: str
     thumbnail_path: str = ""
     media_type: str = "image/png"

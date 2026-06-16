@@ -22,7 +22,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      - /home/${LINUX_USERNAME}/.stable-diffusion-lab:/app/storage:z,rw
+      - ${STORAGE_PATH}:/app/storage:z,rw
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://ailab:ailab_local@db:5432/ailab}
       STORAGE_ROOT: ${STORAGE_ROOT:-/app/storage}

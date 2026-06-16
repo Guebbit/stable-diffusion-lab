@@ -258,10 +258,10 @@ class ArtifactRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     generation_params: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     # --- Relations ---
-    job_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )
-    job: Mapped["JobRecord"] = relationship(back_populates="artifacts")
+    job: Mapped["JobRecord | None"] = relationship(back_populates="artifacts")
 
     # --- Gallery organization ---
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)

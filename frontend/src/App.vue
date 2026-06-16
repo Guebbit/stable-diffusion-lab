@@ -1,54 +1,128 @@
 <script setup lang="ts">
 /**
  * Root layout component.
- * - Top bar: shows backend connection status + navigation links
+ * - Top bar: backend connection status + navigation links
  * - Router view: renders the active page
- * - Error banner: displays API errors from the store
+ * - Error banner: API errors from the store
  * - Toast snackbar: brief auto-dismissing notification
- * - Activity log panel: collapsible list of all past notifications
+ * - Activity log panel: live job queue / history from the backend
  */
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useDiffusionStore } from './stores/diffusion'
 import { useHistoryStore } from './stores/history'
 import { useModelsStore } from './stores/models'
 import { useNotificationStore, LEVEL_COLOR, LEVEL_ICON } from './stores/notifications'
 import { diffusionApi } from './api/diffusion'
+import type { JobStatusResponse } from './types'
 
 const store = useDiffusionStore()
 const historyStore = useHistoryStore()
 const modelsStore = useModelsStore()
 const notif = useNotificationStore()
 
-// Initialize all stores on app mount so data survives page refresh
+// ── Job queue / activity log ───────────────────────────────────────────────
+
+const jobs = ref<JobStatusResponse[]>([])
+
+async function fetchJobs() {
+  try {
+    const res = await diffusionApi.getJobs({ limit: 100 })
+    jobs.value = res.items
+  } catch { /* backend offline — keep previous list */ }
+}
+
+async function clearFinishedJobs() {
+  await diffusionApi.deleteAllFinishedJobs().catch(() => {})
+  await fetchJobs()
+}
+
+async function cancelJob(jobId: string) {
+  await diffusionApi.cancelJob(jobId).catch(() => {})
+  await fetchJobs()
+}
+
+async function deleteJob(jobId: string) {
+  await diffusionApi.deleteJob(jobId).catch(() => {})
+  jobs.value = jobs.value.filter(j => j.id !== jobId)
+}
+
+// Re-fetch when a generation finishes or download completes
+watch(() => store.isGenerating, (val) => { if (!val) fetchJobs() })
+watch(() => modelsStore.isDownloading.size, (size) => { if (size === 0) fetchJobs() })
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+const JOB_LABEL: Record<string, string> = {
+  text_to_image:   'Text to Image',
+  image_to_image:  'Image to Image',
+  model_download:  'Model Download',
+  upscale:         'Upscale',
+  image_analysis:  'Image Analysis',
+  describe:        'Describe',
+  recolor:         'Recolor',
+  sketch_to_ink:   'Sketch to Ink',
+  video_generation:'Video Generation',
+  llm_inference:   'LLM Inference',
+}
+
+const STATUS_COLOR: Record<string, string> = {
+  pending:   'default',
+  running:   'info',
+  completed: 'success',
+  failed:    'error',
+  cancelled: 'warning',
+}
+
+const STATUS_ICON: Record<string, string> = {
+  pending:   'mdi-clock-outline',
+  running:   'mdi-loading mdi-spin',
+  completed: 'mdi-check-circle-outline',
+  failed:    'mdi-close-circle-outline',
+  cancelled: 'mdi-cancel',
+}
+
+function jobLabel(job: JobStatusResponse): string {
+  return JOB_LABEL[job.job_type] ?? job.job_type.replace(/_/g, ' ')
+}
+
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString([], {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+const hasFinished = computed(() =>
+  jobs.value.some(j => ['completed', 'failed', 'cancelled'].includes(j.status))
+)
+
+const activeJobCount = computed(() =>
+  jobs.value.filter(j => j.status === 'pending' || j.status === 'running').length
+)
+
+// ── App bootstrap ──────────────────────────────────────────────────────────
+
 onMounted(() => {
   store.fetchStatus()
   store.connectObservability()
   store.init()
   historyStore.init()
   modelsStore.init()
-  // Hydrate the activity log from persisted job history in the database
-  diffusionApi.getJobs({ limit: 100 }).then((response) => {
-    notif.loadFromJobs(response.items)
-  }).catch(() => {})
+  fetchJobs()
 })
 
-// v-model for v-snackbar
 const showToast = computed({
   get: () => notif.current !== null,
   set: (val) => { if (!val) notif.dismiss() },
 })
 
-// Navigation items for the app bar
 const navItems = [
-  { title: 'Image', icon: 'mdi-creation', to: '/image' },
+  { title: 'Image',   icon: 'mdi-creation',              to: '/image' },
   { title: 'Upscale', icon: 'mdi-image-size-select-large', to: '/image-upscale' },
-  { title: 'Models', icon: 'mdi-brain', to: '/models' },
-  { title: 'History', icon: 'mdi-history', to: '/history' },
+  { title: 'Models',  icon: 'mdi-brain',                  to: '/models' },
+  { title: 'History', icon: 'mdi-history',                to: '/history' },
 ]
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
 </script>
 
 <template>
@@ -114,58 +188,107 @@ function formatTime(date: Date): string {
         <!-- Active route renders here -->
         <router-view />
 
-        <!-- Activity log -->
+        <!-- Activity log (job queue) -->
         <v-row class="mt-4">
           <v-col cols="12">
             <v-expansion-panels variant="accordion">
-              <v-expansion-panel>
+              <v-expansion-panel @group:selected="fetchJobs()">
                 <v-expansion-panel-title>
                   <v-icon icon="mdi-format-list-bulleted" class="mr-2" />
                   Activity Log
                   <v-chip
-                    v-if="notif.logs.length"
+                    v-if="activeJobCount"
                     size="x-small"
                     class="ml-2"
-                    color="primary"
+                    color="info"
                   >
-                    {{ notif.logs.length }}
+                    {{ activeJobCount }} active
+                  </v-chip>
+                  <v-chip
+                    v-else-if="jobs.length"
+                    size="x-small"
+                    class="ml-2"
+                    color="default"
+                  >
+                    {{ jobs.length }}
                   </v-chip>
                 </v-expansion-panel-title>
 
                 <v-expansion-panel-text>
-                  <div v-if="!notif.logs.length" class="text-medium-emphasis text-body-2 py-2">
-                    No activity yet — log entries appear here as you interact with the app.
+                  <div v-if="!jobs.length" class="text-medium-emphasis text-body-2 py-2">
+                    No jobs yet — activity appears here when you generate images or download models.
                   </div>
 
                   <v-list v-else density="compact" class="pa-0">
                     <v-list-item
-                      v-for="entry in notif.logs"
-                      :key="entry.id"
-                      :prepend-icon="LEVEL_ICON[entry.level]"
-                      :base-color="LEVEL_COLOR[entry.level]"
+                      v-for="job in jobs"
+                      :key="job.id"
+                      :prepend-icon="STATUS_ICON[job.status]"
+                      :base-color="STATUS_COLOR[job.status]"
                     >
-                      <v-list-item-title class="text-body-2">
-                        {{ entry.message }}
+                      <v-list-item-title class="text-body-2 font-weight-medium">
+                        {{ jobLabel(job) }}
                       </v-list-item-title>
+                      <v-list-item-subtitle v-if="job.status === 'running' && job.message" class="text-caption">
+                        {{ job.message }}
+                      </v-list-item-subtitle>
+                      <v-list-item-subtitle v-else-if="job.status === 'failed' && job.error" class="text-caption text-error">
+                        {{ job.error }}
+                      </v-list-item-subtitle>
+
+                      <!-- Progress bar for running jobs -->
+                      <v-progress-linear
+                        v-if="job.status === 'running'"
+                        :model-value="job.progress_percent"
+                        :indeterminate="job.progress_percent === 0"
+                        color="info"
+                        height="2"
+                        class="mt-1"
+                        rounded
+                      />
+
                       <template #append>
-                        <span class="text-caption text-medium-emphasis">
-                          {{ formatTime(entry.timestamp) }}
-                        </span>
+                        <div class="d-flex align-center gap-2">
+                          <span class="text-caption text-medium-emphasis">
+                            {{ formatTimestamp(job.completed_at ?? job.created_at) }}
+                          </span>
+                          <!-- Cancel active jobs -->
+                          <v-tooltip v-if="job.status === 'pending' || job.status === 'running'" location="top" text="Cancel">
+                            <template #activator="{ props: tp }">
+                              <v-btn v-bind="tp" icon="mdi-close" size="x-small" variant="text" color="warning" @click.stop="cancelJob(job.id)" />
+                            </template>
+                          </v-tooltip>
+                          <!-- Delete finished jobs -->
+                          <v-tooltip v-else location="top" text="Remove from history">
+                            <template #activator="{ props: tp }">
+                              <v-btn v-bind="tp" icon="mdi-delete-outline" size="x-small" variant="text" color="error" @click.stop="deleteJob(job.id)" />
+                            </template>
+                          </v-tooltip>
+                        </div>
                       </template>
                     </v-list-item>
                   </v-list>
 
-                  <v-btn
-                    v-if="notif.logs.length"
-                    size="small"
-                    variant="text"
-                    color="error"
-                    prepend-icon="mdi-delete-outline"
-                    class="mt-2"
-                    @click="notif.clearLogs()"
-                  >
-                    Clear log
-                  </v-btn>
+                  <div class="d-flex gap-2 mt-2">
+                    <v-btn
+                      size="small"
+                      variant="text"
+                      prepend-icon="mdi-refresh"
+                      @click="fetchJobs()"
+                    >
+                      Refresh
+                    </v-btn>
+                    <v-btn
+                      v-if="hasFinished"
+                      size="small"
+                      variant="text"
+                      color="error"
+                      prepend-icon="mdi-delete-sweep"
+                      @click="clearFinishedJobs()"
+                    >
+                      Clear finished
+                    </v-btn>
+                  </div>
                 </v-expansion-panel-text>
               </v-expansion-panel>
             </v-expansion-panels>

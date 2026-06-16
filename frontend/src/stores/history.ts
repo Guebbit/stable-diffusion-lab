@@ -37,6 +37,18 @@ export const useHistoryStore = defineStore('history', () => {
       })
   }
 
+  /** Delete all artifacts (files + DB records). */
+  function clearHistory() {
+    return diffusionApi.deleteAllArtifacts()
+      .then(() => {
+        images.value = []
+        useNotificationStore().push('success', 'History cleared')
+      })
+      .catch(() => {
+        useNotificationStore().push('error', 'Failed to clear history')
+      })
+  }
+
   /** Initialize store by fetching history from the backend. */
   function init() {
     fetchHistory()
@@ -47,6 +59,7 @@ export const useHistoryStore = defineStore('history', () => {
     isLoading,
     fetchHistory,
     deleteEntry,
+    clearHistory,
     init,
   }
 })

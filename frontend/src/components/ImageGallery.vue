@@ -20,6 +20,9 @@ onMounted(() => {
 const detailImage = ref<ArtifactEntry | null>(null)
 const showDetail = ref(false)
 
+// Confirm dialog for "Clear All"
+const showClearConfirm = ref(false)
+
 function openDetail(image: ArtifactEntry) {
   detailImage.value = image
   showDetail.value = true
@@ -55,7 +58,7 @@ async function deleteImage(image: ArtifactEntry) {
         color="error"
         size="small"
         prepend-icon="mdi-delete-sweep"
-        @click="store.clearImages()"
+        @click="showClearConfirm = true"
       >
         Clear All
       </v-btn>
@@ -144,6 +147,28 @@ async function deleteImage(image: ArtifactEntry) {
       </v-row>
     </v-card-text>
   </v-card>
+
+  <!-- ─── Clear All Confirmation ───────────────────────────────────── -->
+  <v-dialog v-model="showClearConfirm" max-width="420" persistent>
+    <v-card>
+      <v-card-title class="d-flex align-center gap-2 pt-4 pb-1">
+        <v-icon icon="mdi-delete-sweep" color="error" />
+        Clear all images?
+      </v-card-title>
+      <v-card-text class="pb-2">
+        <v-alert type="error" variant="tonal" density="compact" class="text-body-2">
+          This permanently deletes all {{ store.generatedImages.length }} generated images from disk and database. This cannot be undone.
+        </v-alert>
+      </v-card-text>
+      <v-card-actions class="pa-4 pt-2">
+        <v-spacer />
+        <v-btn variant="text" @click="showClearConfirm = false">Cancel</v-btn>
+        <v-btn color="error" variant="elevated" @click="showClearConfirm = false; store.clearImages()">
+          Delete all
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 
   <!-- ─── Image Detail Dialog (metrics panel) ──────────────────────── -->
   <v-dialog v-model="showDetail" max-width="900">
