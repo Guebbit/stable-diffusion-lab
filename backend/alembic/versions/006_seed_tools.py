@@ -1,4 +1,4 @@
-"""Seed cross-family tools — upscalers, vision-language, face restore, IP-Adapter.
+"""Seed cross-family tools — upscalers, vision-language, face restore, IP-Adapter, ESRGAN.
 
 Revision ID: 006_seed_tools
 Revises: 005_seed_sd2
@@ -7,86 +7,15 @@ Create Date: 2026-06-15
 
 from __future__ import annotations
 
-import json
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import text
-from alembic import op
+from seed_helpers import seed_models, unseed_models
 
 revision = "006_seed_tools"
 down_revision = "005_seed_sd2"
 branch_labels = None
 depends_on = None
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-_DEFAULTS = {
-    "preferred_name": "",
-    "variant": "",
-    "compatible_bases": [],
-    "description": "",
-    "short_description": "",
-    "tags": [],
-    "source_url": "",
-    "version": "",
-    "capabilities": [],
-    "total_size_bytes": 0,
-    "download_size_bytes": None,
-    "status": "not_downloaded",
-    "recommended_vram_min_gb": None,
-    "recommended_vram_max_gb": None,
-    "license": "",
-    "base_model": "",
-    "precision": "",
-    "requirements": {},
-    "notes": "",
-}
-
-_INSERT_SQL = text("""
-    INSERT INTO models (
-        id, model_id, name, preferred_name, source, family, variant,
-        model_type, compatible_bases,
-        description, short_description, tags, source_url, version, capabilities,
-        total_size_bytes, download_size_bytes,
-        status,
-        recommended_vram_min_gb, recommended_vram_max_gb,
-        license, base_model, precision, requirements, notes,
-        created_at, updated_at
-    ) VALUES (
-        :id, :model_id, :name, :preferred_name, :source, :family, :variant,
-        :model_type, CAST(:compatible_bases AS jsonb),
-        :description, :short_description, CAST(:tags AS jsonb), :source_url, :version,
-        CAST(:capabilities AS jsonb),
-        :total_size_bytes, :download_size_bytes,
-        :status,
-        :recommended_vram_min_gb, :recommended_vram_max_gb,
-        :license, :base_model, :precision,
-        CAST(:requirements AS jsonb), :notes,
-        :created_at, :updated_at
-    ) ON CONFLICT (model_id) DO NOTHING
-""")
-
-
-def _prep(m: dict, now) -> dict:
-    rec = {**_DEFAULTS, **m}
-    if "recommended_strength" in rec:
-        req = dict(rec.get("requirements") or {})
-        req["recommended_strength"] = rec.pop("recommended_strength")
-        rec["requirements"] = req
-    rec["created_at"] = now
-    rec["updated_at"] = now
-    rec["tags"] = json.dumps(rec["tags"])
-    rec["capabilities"] = json.dumps(rec["capabilities"])
-    rec["requirements"] = json.dumps(rec["requirements"])
-    rec["compatible_bases"] = json.dumps(rec["compatible_bases"])
-    return rec
-
-
-# ---------------------------------------------------------------------------
-# Cross-family tools
-# ---------------------------------------------------------------------------
 MODELS = [
     # ── Upscaler ──────────────────────────────────────────────────────────
     {
@@ -100,15 +29,18 @@ MODELS = [
         "model_type": "upscaler",
         "compatible_bases": ["sd2"],
         "description": (
-            "Dedicated 4× upscaler based on SD 2.0. Takes a small low-res image and "
-            "generates a high-resolution output with recovered texture and sharpness. "
-            "Accepts an optional prompt to guide the detail synthesis. "
-            "Appears only on the /image-upscale page — not a general generation model."
+            "Dedicated diffusion upscaler for 4× enlargement. Best for cases where you want not just bigger images "
+            "but also synthetic detail recovery, texture synthesis, and polished upscale output."
         ),
-        "short_description": "Diffusion 4× upscaler with texture and detail synthesis",
+        "short_description": "4× diffusion upscaler for synthetic detail recovery and polished enlargements",
         "tags": [
-            "dedicated_upscaler", "diffusion_upscaler", "resolution_enhancement",
-            "detail_synthesis", "texture_recovery",
+            "upscaler",
+            "diffusion_upscaler",
+            "upscale",
+            "enhancement",
+            "detail",
+            "restoration",
+            "image",
         ],
         "source_url": "https://huggingface.co/stabilityai/stable-diffusion-x4-upscaler",
         "version": "x4",
@@ -125,7 +57,7 @@ MODELS = [
             "input_type": "image",
             "pipeline": "StableDiffusionUpscalePipeline",
         },
-        "notes": "Primary dedicated upscaler. Supports tiled processing for large inputs.",
+        "notes": "Best when you want generative upscale detail rather than strictly faithful restoration.",
     },
 
     # ── Vision-language ───────────────────────────────────────────────────
@@ -140,13 +72,17 @@ MODELS = [
         "model_type": "vision_language",
         "compatible_bases": [],
         "description": (
-            "Best for: describing what is in an image in plain language. Strengths: solid "
-            "caption quality and easy use for alt text, summaries, and scene descriptions. "
-            "Not a helper model."
+            "Vision-language captioning model for describing the content of an image in natural language. "
+            "Useful for alt text, prompt bootstrapping, reverse prompting, and building image summaries."
         ),
-        "short_description": "Generates a natural-language description of an image",
+        "short_description": "Image captioning model for alt text, reverse prompting, and image summaries",
         "tags": [
-            "vision_language", "captioning", "image_description", "scene_summary",
+            "vision_language",
+            "caption",
+            "describe",
+            "reverse_prompt",
+            "alt_text",
+            "image_understanding",
         ],
         "source_url": "https://huggingface.co/Salesforce/blip-image-captioning-large",
         "version": "large",
@@ -160,7 +96,7 @@ MODELS = [
         "base_model": "blip",
         "precision": "fp16",
         "requirements": {"input_type": "image"},
-        "notes": "Primary describe_image model.",
+        "notes": "Primary image description model.",
     },
 
     # ── Face restore ──────────────────────────────────────────────────────
@@ -175,14 +111,18 @@ MODELS = [
         "model_type": "face_restore",
         "compatible_bases": [],
         "description": (
-            "GAN-based face restoration model from Tencent ARC. "
-            "Detects all faces in the image, runs each through a generative prior "
-            "trained on high-quality faces, then blends the result back. "
-            "Fast and reliable. Best for: general face sharpening after upscaling."
+            "Face restoration model for repairing blurry, damaged, low-resolution, or degraded faces in old photos "
+            "and noisy images. Best used after general upscaling when human faces need targeted cleanup."
         ),
-        "short_description": "GAN model — detects and restores all faces in an image",
+        "short_description": "Face restoration model for old, blurry, noisy, or low-resolution faces",
         "tags": [
-            "face_restore", "face_restoration", "face_enhancement", "gfpgan",
+            "face_restore",
+            "face",
+            "restoration",
+            "old_photo",
+            "noise",
+            "portrait",
+            "repair",
         ],
         "source_url": "https://github.com/TencentARC/GFPGAN",
         "version": "1.4",
@@ -199,7 +139,7 @@ MODELS = [
             "pip_packages": ["gfpgan", "facexlib", "basicsr"],
             "input_type": "image",
         },
-        "notes": "Weights downloaded from GitHub release TencentARC/GFPGAN v1.3.4.",
+        "notes": "Excellent as a second-stage face repair tool after upscaling.",
     },
 
     # ── IP-Adapter — SD 1.5 / SDXL ───────────────────────────────────────
@@ -214,15 +154,17 @@ MODELS = [
         "model_type": "ip_adapter",
         "compatible_bases": ["sd1.5", "sdxl"],
         "description": (
-            "Conditions generation on a reference image instead of (or alongside) a text prompt. "
-            "The reference image drives composition, style, and color. "
-            "Repo contains variants for both SD1.5 and SDXL. "
-            "Use it when you want to 'paint in the style of' a reference."
+            "Reference-image adapter that lets generation follow a source image's style, color palette, mood, "
+            "and composition more closely than text prompting alone. Works across SD1.5 and SDXL variants."
         ),
-        "short_description": "Conditions generation on a reference image rather than text",
+        "short_description": "Reference-image adapter for style transfer and reference-driven generation",
         "tags": [
-            "ip_adapter", "adapter", "helper",
-            "image_prompt", "style_transfer", "reference_image",
+            "ip_adapter",
+            "reference",
+            "style_transfer",
+            "consistency",
+            "image_prompt",
+            "helper",
         ],
         "source_url": "https://huggingface.co/h94/IP-Adapter",
         "version": "1.0",
@@ -244,22 +186,74 @@ MODELS = [
                 "sdxl_vit_h": "sdxl_models/ip-adapter_sdxl_vit-h.bin",
             },
         },
-        "notes": "Load the correct variant file for the active base model family.",
+        "notes": "Use the variant matching the active base family.",
+    },
+
+    # ── ESRGAN upscalers (universal) ──────────────────────────────────────
+    {
+        "id": uuid.UUID("b0000000-0000-0000-0000-000000000030"),
+        "model_id": "esrgan-4x-ultrasharp",
+        "name": "ESRGAN 4x UltraSharp",
+        "preferred_name": "UltraSharp Upscaler",
+        "source": "huggingface",
+        "family": "upscaler",
+        "variant": "esrgan-4x",
+        "model_type": "upscaler",
+        "compatible_bases": ["flux", "sdxl", "sd1.5"],
+        "description": (
+            "High-detail ESRGAN upscaler focused on sharpness, edge definition, and visual punch. "
+            "Best for anime, illustration, clean renders, and situations where crispness matters more than strict fidelity."
+        ),
+        "short_description": "Sharp 4× ESRGAN upscaler for detail-heavy anime, illustration, and clean renders",
+        "tags": [
+            "upscaler",
+            "esrgan",
+            "upscale",
+            "sharp",
+            "detail",
+            "anime",
+            "illustration",
+            "enhancement",
+        ],
+        "source_url": "https://huggingface.co/Kim2091/UltraSharp",
+        "capabilities": ["upscale_image"],
+        "notes": "Excellent for detail-rich upscale output and stylized renders.",
+    },
+    {
+        "id": uuid.UUID("b0000000-0000-0000-0000-000000000031"),
+        "model_id": "real-esrgan-general-x4plus",
+        "name": "RealESRGAN 4x+",
+        "preferred_name": "RealESRGAN General",
+        "source": "huggingface",
+        "family": "upscaler",
+        "variant": "realesrgan-x4",
+        "model_type": "upscaler",
+        "compatible_bases": ["flux", "sdxl", "sd1.5"],
+        "description": (
+            "General-purpose restoration and upscaling model for old, noisy, compressed, or degraded images. "
+            "Best first-stage tool for faithful cleanup before more aggressive enhancement or face repair."
+        ),
+        "short_description": "General-purpose restoration upscaler for old, noisy, or degraded images",
+        "tags": [
+            "upscaler",
+            "realesrgan",
+            "upscale",
+            "restoration",
+            "old_photo",
+            "noise",
+            "degraded",
+            "repair",
+        ],
+        "source_url": "https://github.com/xinntao/Real-ESRGAN",
+        "capabilities": ["upscale_image"],
+        "notes": "Best default first-stage upscaler for damaged or noisy images.",
     },
 ]
 
 
 def upgrade() -> None:
-    conn = op.get_bind()
-    now = datetime.now(timezone.utc)
-    for m in MODELS:
-        conn.execute(_INSERT_SQL, _prep(m, now))
+    seed_models(MODELS)
 
 
 def downgrade() -> None:
-    conn = op.get_bind()
-    for m in MODELS:
-        conn.execute(
-            text("DELETE FROM models WHERE model_id = :id"),
-            {"id": m["model_id"]},
-        )
+    unseed_models(MODELS)

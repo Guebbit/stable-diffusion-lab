@@ -7,87 +7,17 @@ Create Date: 2026-06-15
 
 from __future__ import annotations
 
-import json
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import text
-from alembic import op
+from seed_helpers import seed_models, unseed_models
 
 revision = "003_seed_sdxl"
 down_revision = "002_seed_flux"
 branch_labels = None
 depends_on = None
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-_DEFAULTS = {
-    "preferred_name": "",
-    "variant": "",
-    "compatible_bases": [],
-    "description": "",
-    "short_description": "",
-    "tags": [],
-    "source_url": "",
-    "version": "",
-    "capabilities": [],
-    "total_size_bytes": 0,
-    "download_size_bytes": None,
-    "status": "not_downloaded",
-    "recommended_vram_min_gb": None,
-    "recommended_vram_max_gb": None,
-    "license": "",
-    "base_model": "",
-    "precision": "",
-    "requirements": {},
-    "notes": "",
-}
-
-_INSERT_SQL = text("""
-    INSERT INTO models (
-        id, model_id, name, preferred_name, source, family, variant,
-        model_type, compatible_bases,
-        description, short_description, tags, source_url, version, capabilities,
-        total_size_bytes, download_size_bytes,
-        status,
-        recommended_vram_min_gb, recommended_vram_max_gb,
-        license, base_model, precision, requirements, notes,
-        created_at, updated_at
-    ) VALUES (
-        :id, :model_id, :name, :preferred_name, :source, :family, :variant,
-        :model_type, CAST(:compatible_bases AS jsonb),
-        :description, :short_description, CAST(:tags AS jsonb), :source_url, :version,
-        CAST(:capabilities AS jsonb),
-        :total_size_bytes, :download_size_bytes,
-        :status,
-        :recommended_vram_min_gb, :recommended_vram_max_gb,
-        :license, :base_model, :precision,
-        CAST(:requirements AS jsonb), :notes,
-        :created_at, :updated_at
-    ) ON CONFLICT (model_id) DO NOTHING
-""")
-
-
-def _prep(m: dict, now) -> dict:
-    rec = {**_DEFAULTS, **m}
-    if "recommended_strength" in rec:
-        req = dict(rec.get("requirements") or {})
-        req["recommended_strength"] = rec.pop("recommended_strength")
-        rec["requirements"] = req
-    rec["created_at"] = now
-    rec["updated_at"] = now
-    rec["tags"] = json.dumps(rec["tags"])
-    rec["capabilities"] = json.dumps(rec["capabilities"])
-    rec["requirements"] = json.dumps(rec["requirements"])
-    rec["compatible_bases"] = json.dumps(rec["compatible_bases"])
-    return rec
-
-
-# ---------------------------------------------------------------------------
-# SDXL base checkpoints
-# ---------------------------------------------------------------------------
 MODELS = [
+    # ── SDXL base checkpoints ─────────────────────────────────────────────
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000001"),
         "model_id": "stabilityai/stable-diffusion-xl-base-1.0",
@@ -99,13 +29,20 @@ MODELS = [
         "model_type": "base_diffusion",
         "compatible_bases": [],
         "description": (
-            "Best for: general text-to-image and generic image-to-image work. Strengths: "
-            "balanced quality, good prompt following, and strong composition at 1024 resolution. "
-            "Use it when you want one neutral all-around model. Not a helper model."
+            "General-purpose SDXL base checkpoint for high-quality text-to-image and image-to-image generation. "
+            "A strong neutral foundation for many workflows including prompting, sketch guidance, control adapters, "
+            "LoRAs, and production-balanced pipelines."
         ),
-        "short_description": "General-purpose text-to-image and img2img all-arounder at 1024px",
+        "short_description": "General-purpose SDXL base model for balanced quality and broad compatibility",
         "tags": [
-            "diffusion", "all_arounder", "general_purpose", "neutral_style",
+            "sdxl",
+            "base",
+            "general",
+            "text",
+            "img2img",
+            "balanced",
+            "all_rounder",
+            "production",
         ],
         "source_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0",
         "version": "1.0",
@@ -119,7 +56,7 @@ MODELS = [
         "base_model": "sdxl",
         "precision": "fp16",
         "requirements": {"recommended_resolution": "1024x1024"},
-        "notes": "Base SDXL model; best default all-arounder.",
+        "notes": "Main SDXL base model for broad workflows.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000004"),
@@ -132,17 +69,26 @@ MODELS = [
         "model_type": "base_diffusion",
         "compatible_bases": [],
         "description": (
-            "Best for: realistic portraits, fashion shots, product images, and polished "
-            "photorealistic scenes. Strengths: camera-like lighting, cleaner skin and texture, "
-            "and strong realism without much prompt tuning. Not a helper model."
+            "Realistic SDXL checkpoint specialized for portraits, fashion, cinematic lighting, "
+            "product-style imagery, and polished photorealistic scenes. Best SDXL option in this "
+            "catalog for realism-focused prompt generation."
         ),
-        "short_description": "Photorealistic portraits, fashion, and product shots (SDXL)",
+        "short_description": "Realistic SDXL specialist for portraits, fashion, product, and photo scenes",
         "tags": [
-            "diffusion", "realistic", "photorealistic", "portrait", "product_style",
+            "sdxl",
+            "base",
+            "realism",
+            "photoreal",
+            "portrait",
+            "fashion",
+            "product",
+            "cinematic",
+            "text",
+            "img2img",
         ],
         "source_url": "https://huggingface.co/huggingshu/realvisxl-v5",
         "version": "5.0",
-        "capabilities": ["text_to_image"],
+        "capabilities": ["text_to_image", "image_to_image"],
         "total_size_bytes": 0,
         "download_size_bytes": 6900000000,
         "status": "not_downloaded",
@@ -152,7 +98,7 @@ MODELS = [
         "base_model": "sdxl",
         "precision": "fp16",
         "requirements": {"recommended_resolution": "1024x1024"},
-        "notes": "Main realistic specialist for text-to-image.",
+        "notes": "Primary realistic SDXL checkpoint.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000005"),
@@ -165,13 +111,21 @@ MODELS = [
         "model_type": "base_diffusion",
         "compatible_bases": [],
         "description": (
-            "Best for: anime characters, fantasy scenes, and colorful stylized illustrations. "
-            "Strengths: strong illustrative bias, expressive character rendering, and vibrant "
-            "color without much prompt tuning. Not a helper model."
+            "Stylized SDXL checkpoint specialized for anime, manga, fantasy scenes, vibrant color, "
+            "illustration, and expressive character rendering. Best SDXL anime / stylized base in this catalog."
         ),
-        "short_description": "Anime characters and vivid stylized illustration (SDXL)",
+        "short_description": "Anime / manga / stylized SDXL specialist for vivid illustration and characters",
         "tags": [
-            "diffusion", "anime", "illustration", "anime_style", "stylized", "character_art",
+            "sdxl",
+            "base",
+            "anime",
+            "manga",
+            "stylized",
+            "illustration",
+            "fantasy",
+            "character",
+            "text",
+            "img2img",
         ],
         "source_url": "https://huggingface.co/multimodalart/super-novelai-4.0-xl",
         "version": "4.0",
@@ -185,7 +139,89 @@ MODELS = [
         "base_model": "sdxl",
         "precision": "fp16",
         "requirements": {"recommended_resolution": "1024x1024"},
-        "notes": "Main anime and stylized specialist.",
+        "notes": "Primary SDXL anime / manga / stylized checkpoint.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000006"),
+        "model_id": "RunDiffusion/Juggernaut-XL-v9",
+        "name": "Juggernaut XL v9",
+        "preferred_name": "Juggernaut XL",
+        "source": "huggingface",
+        "family": "custom",
+        "variant": "juggernaut-xl-v9",
+        "model_type": "base_diffusion",
+        "compatible_bases": [],
+        "description": (
+            "Photorealistic SDXL checkpoint tuned for high-detail portraits, skin texture, natural "
+            "lighting, and cinematic composition. One of the strongest community SDXL models for "
+            "realistic human subjects, fashion, lifestyle, and editorial imagery. "
+            "Handles complex prompts well and produces polished results with 20–30 steps."
+        ),
+        "short_description": "Top-tier realistic SDXL model for portraits, fashion, and cinematic shots",
+        "tags": [
+            "sdxl",
+            "base",
+            "realism",
+            "photoreal",
+            "portrait",
+            "fashion",
+            "cinematic",
+            "lighting",
+            "skin_detail",
+            "general",
+            "text",
+            "img2img",
+        ],
+        "source_url": "https://huggingface.co/RunDiffusion/Juggernaut-XL-v9",
+        "version": "9.0",
+        "capabilities": ["text_to_image", "image_to_image"],
+        "total_size_bytes": 0,
+        "download_size_bytes": 6900000000,
+        "status": "not_downloaded",
+        "recommended_vram_min_gb": 8,
+        "recommended_vram_max_gb": 16,
+        "license": "creativeml-openrail-m",
+        "base_model": "sdxl",
+        "precision": "fp16",
+        "requirements": {
+            "recommended_resolution": "1024x1024",
+            "recommended_steps": "20-30",
+            "recommended_guidance_scale": "7.0",
+        },
+        "notes": "Pair with negative prompts for best realism. Excellent for portrait and character work.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000028"),
+        "model_id": "sdxl-nsfw-specialist",
+        "name": "SDXL NSFW Specialist",
+        "preferred_name": "SDXL NSFW Specialist",
+        "source": "huggingface",
+        "family": "custom",
+        "variant": "nsfw-sdxl",
+        "model_type": "base_diffusion",
+        "compatible_bases": [],
+        "description": (
+            "NSFW-oriented SDXL placeholder entry for adult-content workflows. Use this slot for a "
+            "dedicated SDXL adult checkpoint if NSFW generation is important in your library. "
+            "Intended for erotic, lingerie, nude, boudoir, or adult illustration prompting."
+        ),
+        "short_description": "Dedicated SDXL adult / NSFW model slot for erotic and mature prompting",
+        "tags": [
+            "sdxl",
+            "base",
+            "nsfw",
+            "adult",
+            "erotic",
+            "lingerie",
+            "nude",
+            "mature",
+            "text",
+            "img2img",
+        ],
+        "source_url": "https://huggingface.co/search?q=sdxl+nsfw",
+        "version": "1.0",
+        "capabilities": ["text_to_image", "image_to_image"],
+        "notes": "Catalog placeholder for a dedicated SDXL NSFW checkpoint.",
     },
 
     # ── ControlNet — SDXL ────────────────────────────────────────────────
@@ -200,14 +236,19 @@ MODELS = [
         "model_type": "controlnet",
         "compatible_bases": ["sdxl"],
         "description": (
-            "Best for: edge-guided and structure-preserving generation at SDXL quality. "
-            "This is a helper model — pair it with SDXL 1.0 or a compatible SDXL checkpoint. "
-            "Strengths: tight edge adherence and strong composition lock."
+            "SDXL-native Canny ControlNet for structure-preserving image editing. Use it for edge-guided "
+            "generation, composition lock, redraw workflows, and consistent shape preservation."
         ),
-        "short_description": "Edge-guided structure-preserving control for SDXL (helper)",
+        "short_description": "Canny / edge-guided SDXL control model for structure-preserving edits",
         "tags": [
-            "controlnet", "adapter", "helper",
-            "edge_guided", "structure_preserving", "layout_control", "canny",
+            "sdxl",
+            "controlnet",
+            "canny",
+            "edge",
+            "structure",
+            "composition",
+            "img2img",
+            "helper",
         ],
         "source_url": "https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0",
         "version": "1.0",
@@ -221,7 +262,38 @@ MODELS = [
         "base_model": "sdxl",
         "precision": "fp16",
         "requirements": {"requires_base_model": "stabilityai/stable-diffusion-xl-base-1.0"},
-        "notes": "SDXL-native Canny ControlNet; best paired with SDXL 1.0.",
+        "notes": "Primary SDXL edge-guided control model.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000029"),
+        "model_id": "diffusers/controlnet-depth-sdxl-1.0",
+        "name": "ControlNet Depth SDXL",
+        "preferred_name": "Depth ControlNet SDXL",
+        "source": "huggingface",
+        "family": "controlnet",
+        "variant": "depth-sdxl",
+        "model_type": "controlnet",
+        "compatible_bases": ["sdxl"],
+        "description": (
+            "Depth-guided SDXL ControlNet for preserving geometry, perspective, and spatial layout. "
+            "Useful for architecture, interiors, landscapes, and structure-aware image editing."
+        ),
+        "short_description": "Depth-guided SDXL control model for geometry and perspective preservation",
+        "tags": [
+            "sdxl",
+            "controlnet",
+            "depth",
+            "spatial",
+            "perspective",
+            "structure",
+            "architecture",
+            "landscape",
+            "img2img",
+            "helper",
+        ],
+        "source_url": "https://huggingface.co/search?q=controlnet+depth+sdxl",
+        "capabilities": ["image_to_image"],
+        "notes": "Useful for spatially coherent SDXL editing.",
     },
 
     # ── T2I Adapters — SDXL ──────────────────────────────────────────────
@@ -236,14 +308,19 @@ MODELS = [
         "model_type": "t2i_adapter",
         "compatible_bases": ["sdxl"],
         "description": (
-            "Best for: turning rough sketches into cleaner rendered images while keeping the "
-            "sketch structure. This is a helper model. Strengths: strong sketch guidance and "
-            "better shape retention than generic image-to-image. Best paired with SDXL 1.0."
+            "Sketch-guided SDXL adapter for turning rough sketches into more polished rendered imagery "
+            "while preserving the original structure. Best for sketch-to-image and sketch-to-ink workflows."
         ),
-        "short_description": "Converts rough sketches into rendered images — SDXL helper",
+        "short_description": "Sketch-guided SDXL adapter for sketch-to-image and sketch-to-ink workflows",
         "tags": [
-            "adapter", "helper",
-            "sketch_guided", "shape_preserving", "illustration_control", "render_from_sketch",
+            "sdxl",
+            "adapter",
+            "sketch",
+            "sketch_to_image",
+            "sketch_to_ink",
+            "lineart",
+            "img2img",
+            "helper",
         ],
         "source_url": "https://huggingface.co/TencentARC/t2i-adapter-sketch-sdxl-1.0",
         "version": "1.0",
@@ -260,7 +337,7 @@ MODELS = [
             "requires_base_model": "stabilityai/stable-diffusion-xl-base-1.0",
             "input_type": "sketch",
         },
-        "notes": "Primary SDXL helper for sketch-guided workflows.",
+        "notes": "Primary SDXL sketch-guidance helper.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000015"),
@@ -273,14 +350,19 @@ MODELS = [
         "model_type": "t2i_adapter",
         "compatible_bases": ["sdxl"],
         "description": (
-            "Best for: controlled generation from edge maps and strong shape guidance. "
-            "This is a helper model. Strengths: follows object boundaries and layout closely. "
-            "Best paired with SDXL 1.0."
+            "Canny-guided SDXL adapter for controlled generation from edge maps. Good when you want "
+            "lighter-weight shape guidance than a full ControlNet pipeline."
         ),
-        "short_description": "Edge-map guided controlled generation — SDXL helper",
+        "short_description": "Canny-guided SDXL adapter for edge-map controlled generation",
         "tags": [
-            "adapter", "helper",
-            "edge_guided", "structure_preserving", "layout_control", "canny",
+            "sdxl",
+            "adapter",
+            "canny",
+            "edge",
+            "structure",
+            "composition",
+            "img2img",
+            "helper",
         ],
         "source_url": "https://huggingface.co/TencentARC/t2i-adapter-canny-sdxl-1.0",
         "version": "1.0",
@@ -297,7 +379,7 @@ MODELS = [
             "requires_base_model": "stabilityai/stable-diffusion-xl-base-1.0",
             "input_type": "edge-map",
         },
-        "notes": "Primary SDXL helper for edge-guided controlled edits.",
+        "notes": "Primary SDXL canny / edge adapter.",
     },
 
     # ── LoRA — SDXL ──────────────────────────────────────────────────────
@@ -312,15 +394,20 @@ MODELS = [
         "model_type": "lora",
         "compatible_bases": ["sdxl"],
         "description": (
-            "SDXL LoRA that steers output toward pixel-art aesthetics: chunky pixels, "
-            "limited palette, retro-game look. Load on top of SDXL 1.0 with strength 0.6–1.0. "
-            "Lower strength blends pixel style with photorealism; higher goes full retro. "
-            "No effect without a compatible base loaded."
+            "Pixel-art LoRA for SDXL. Use it to push output toward retro-game aesthetics, visible pixel blocks, "
+            "reduced color palettes, sprite-like rendering, and nostalgic 2D game visuals."
         ),
-        "short_description": "Style LoRA — steers SDXL output toward pixel-art aesthetics",
+        "short_description": "Pixel-art LoRA for SDXL retro-game, sprite, and low-resolution aesthetics",
         "tags": [
-            "lora", "adapter", "helper",
-            "style_pixel_art", "style_retro", "style_gaming",
+            "sdxl",
+            "lora",
+            "pixel",
+            "pixel_art",
+            "retro",
+            "game",
+            "sprite",
+            "stylized",
+            "style",
         ],
         "source_url": "https://huggingface.co/nerijs/pixel-art-xl",
         "version": "1.0",
@@ -339,7 +426,7 @@ MODELS = [
             "lora_strength_min": 0.0,
             "lora_strength_max": 1.5,
         },
-        "notes": "Style LoRA. Works best at strength 0.7–1.0. Trigger word: pixel art.",
+        "notes": "Primary pixel-art style LoRA for SDXL.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000023"),
@@ -352,14 +439,19 @@ MODELS = [
         "model_type": "lora",
         "compatible_bases": ["sdxl"],
         "description": (
-            "Speed LoRA for SDXL: 4–8 steps instead of 25–50 with the LCM scheduler. "
-            "Does NOT change visual style — only inference speed. Use CFG 1–2. "
-            "No effect without a compatible SDXL base loaded."
+            "Speed LoRA for SDXL that allows low-step previews using the LCM scheduler. "
+            "Ideal for fast iteration, rapid prompt testing, and quicker UI / pipeline validation."
         ),
-        "short_description": "Speed LoRA — reduces SDXL inference to 4–8 steps",
+        "short_description": "Speed LoRA for SDXL fast previews with low-step inference",
         "tags": [
-            "lora", "adapter", "helper",
-            "speed", "lcm", "few_step",
+            "sdxl",
+            "lora",
+            "speed",
+            "lcm",
+            "fast",
+            "preview",
+            "iteration",
+            "helper",
         ],
         "source_url": "https://huggingface.co/latent-consistency/lcm-lora-sdxl",
         "version": "1.0",
@@ -379,7 +471,37 @@ MODELS = [
             "recommended_guidance_scale": "1.0-2.0",
             "lora_strength_default": 1.0,
         },
-        "notes": "Speed LoRA — use with LCMScheduler, CFG 1–2, 4–8 steps.",
+        "notes": "Speed helper for SDXL low-step generation.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000030"),
+        "model_id": "sdxl-anime-detail-lora",
+        "name": "SDXL Anime Detail LoRA",
+        "preferred_name": "SDXL Anime Detail LoRA",
+        "source": "huggingface",
+        "family": "lora",
+        "variant": "anime-detail-sdxl",
+        "model_type": "lora",
+        "compatible_bases": ["sdxl"],
+        "description": (
+            "Anime detail LoRA for SDXL to enhance expressive faces, cel-shaded surfaces, cleaner outlines, "
+            "and stylized character rendering. Best paired with anime-oriented SDXL checkpoints."
+        ),
+        "short_description": "Anime detail LoRA for SDXL stylized character and manga illustration work",
+        "tags": [
+            "sdxl",
+            "lora",
+            "anime",
+            "manga",
+            "character",
+            "stylized",
+            "lineart",
+            "illustration",
+            "style",
+        ],
+        "source_url": "https://huggingface.co/search?q=sdxl+anime+lora",
+        "capabilities": ["text_to_image", "image_to_image"],
+        "notes": "Catalog placeholder for stronger SDXL anime styling.",
     },
 
     # ── VAE — SDXL ───────────────────────────────────────────────────────
@@ -394,13 +516,18 @@ MODELS = [
         "model_type": "vae",
         "compatible_bases": ["sdxl"],
         "description": (
-            "Drop-in SDXL VAE that runs correctly in fp16 without producing NaN/black images. "
-            "The official SDXL VAE requires fp32 to avoid numerical instability; this version "
-            "has been fine-tuned to be fp16-safe, halving VAE VRAM usage."
+            "FP16-safe SDXL VAE that prevents NaN / black-image issues and reduces VAE memory pressure. "
+            "Recommended companion VAE for SDXL inference in fp16 pipelines."
         ),
-        "short_description": "fp16-safe SDXL VAE — prevents NaN errors and black frames",
+        "short_description": "FP16-safe SDXL VAE that avoids NaN / black-frame problems",
         "tags": [
-            "vae", "helper", "fp16", "nan_fix", "quality",
+            "sdxl",
+            "vae",
+            "fp16",
+            "stability",
+            "nan_fix",
+            "helper",
+            "quality",
         ],
         "source_url": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix",
         "version": "fp16-fix",
@@ -414,22 +541,14 @@ MODELS = [
         "base_model": "sdxl",
         "precision": "fp16",
         "requirements": {"requires_base_family": "sdxl"},
-        "notes": "Must-have for fp16 SDXL — prevents NaN / black-frame output.",
+        "notes": "Recommended VAE for SDXL fp16 pipelines.",
     },
 ]
 
 
 def upgrade() -> None:
-    conn = op.get_bind()
-    now = datetime.now(timezone.utc)
-    for m in MODELS:
-        conn.execute(_INSERT_SQL, _prep(m, now))
+    seed_models(MODELS)
 
 
 def downgrade() -> None:
-    conn = op.get_bind()
-    for m in MODELS:
-        conn.execute(
-            text("DELETE FROM models WHERE model_id = :id"),
-            {"id": m["model_id"]},
-        )
+    unseed_models(MODELS)

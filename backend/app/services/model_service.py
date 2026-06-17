@@ -93,6 +93,17 @@ class ModelService:
         """Get detailed info about a specific model."""
         return await self._model_repo.get_by_model_id(model_id)
 
+    async def update_model(self, model_id: str, fields: dict[str, object]) -> ModelRecord:
+        """Update editable metadata fields for an existing model."""
+        model = await self._model_repo.get_by_model_id(model_id)
+        if not model:
+            raise ValueError(f"Model {model_id} not found")
+        updated = await self._model_repo.update_metadata(model_id, fields)
+        if not updated:
+            raise ValueError(f"Model {model_id} not found after update")
+        logger.info("Updated model metadata: %s (fields: %s)", model_id, list(fields.keys()))
+        return updated
+
     async def delete_model_files(self, model_id: str) -> None:
         """Delete downloaded files for a model and reset its status to not_downloaded."""
         model = await self._model_repo.get_by_model_id(model_id)

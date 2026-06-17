@@ -30,6 +30,7 @@ from app.api.schemas.models import (
     ModelDownloadRequest,
     ModelRegistryResponse,
     ModelRegisterRequest,
+    ModelUpdateRequest,
 )
 from app.api.schemas.system import (
     GPUStatus,

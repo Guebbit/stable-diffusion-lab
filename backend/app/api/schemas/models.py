@@ -50,6 +50,26 @@ class ModelRegisterRequest(BaseModel):
     )
 
 
+class ModelUpdateRequest(BaseModel):
+    """Partial update for an existing model (PATCH — all fields optional)."""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    name: str | None = None
+    preferred_name: str | None = None
+    source: str | None = None
+    family: str | None = None
+    variant: str | None = None
+    model_type: str | None = None
+    compatible_bases: list[str] | None = None
+    description: str | None = None
+    short_description: str | None = None
+    tags: list[str] | None = None
+    source_url: str | None = None
+    capabilities: list[str] | None = None
+    notes: str | None = None
+
+
 class ModelDownloadRequest(BaseModel):
     """Request to start downloading a registered model."""
 

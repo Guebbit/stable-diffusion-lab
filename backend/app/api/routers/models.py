@@ -15,6 +15,7 @@ from app.api.schemas import (
     JobResponse,
     ModelRegisterRequest,
     ModelRegistryResponse,
+    ModelUpdateRequest,
 )
 from app.infrastructure.database.repositories import JobRepository, ModelRepository
 from app.infrastructure.database.session import get_async_session
@@ -142,6 +143,25 @@ async def register_model(
         capabilities=request.capabilities,
         preferred_name=request.preferred_name,
     )
+    return _model_to_response(model)
+
+
+@router.patch("/{model_id:path}", response_model=ModelRegistryResponse)
+async def update_model(
+    model_id: str,
+    request: ModelUpdateRequest,
+    service: ModelService = Depends(_get_model_service),
+) -> ModelRegistryResponse:
+    """Partially update editable metadata for a registered model."""
+    fields = request.model_dump(exclude_none=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+    try:
+        model = await service.update_model(model_id, fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise from_exception(exc)
     return _model_to_response(model)
 
 

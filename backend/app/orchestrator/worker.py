@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import traceback
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -293,7 +292,7 @@ class JobWorker:
             await session.commit()
 
     async def _mark_failed(self, job_id: UUID, exc: Exception) -> None:
-        error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+        error_msg = f"{type(exc).__name__}: {exc}"
         async with self._session_factory() as session:
             job_repo = JobRepository(session)
             await job_repo.mark_failed(job_id, error_msg)

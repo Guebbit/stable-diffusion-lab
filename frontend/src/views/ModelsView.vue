@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useModelsStore } from '../stores/models'
-import type { ModelFamily, ModelRegistryAddRequest, ModelRegistryEntry, ModelSource } from '../types'
+import type { ModelFamily, ModelRegistryAddRequest, ModelRegistryEntry, ModelRegistryUpdateRequest, ModelSource } from '../types'
 
 const modelsStore = useModelsStore()
 
@@ -37,10 +37,30 @@ const MODEL_TYPES = [
 
 const allTags = computed(() => modelsStore.allTags)
 
+// Maps each UI family key to the family values and compatible_bases values stored in the DB
+const FAMILY_NAMES: Record<string, string[]> = {
+  sd15: ['sd15', 'stable_diffusion_1', 'stable_diffusion_2', 'stable_diffusion_edit'],
+  sdxl: ['sdxl', 'stable_diffusion_xl'],
+  flux: ['flux'],
+  custom: ['custom'],
+}
+const FAMILY_COMPAT_BASES: Record<string, string[]> = {
+  sd15: ['sd15', 'sd1.5', 'sd1', 'sd2'],
+  sdxl: ['sdxl'],
+  flux: ['flux'],
+}
+
 const filteredModels = computed(() =>
   modelsStore.registry.filter(m => {
     if (activeSource.value !== 'all' && m.source !== activeSource.value) return false
-    if (activeFamily.value !== 'all' && m.family !== activeFamily.value) return false
+    if (activeFamily.value !== 'all') {
+      const fam = activeFamily.value
+      const validFamilies = FAMILY_NAMES[fam] ?? [fam]
+      const validBases = FAMILY_COMPAT_BASES[fam] ?? []
+      const matchesFamily = validFamilies.includes(m.family)
+      const matchesBases = validBases.length > 0 && m.compatible_bases?.some(b => validBases.includes(b))
+      if (!matchesFamily && !matchesBases) return false
+    }
     if (activeDownloaded.value === 'downloaded' && m.status !== 'downloaded') return false
     if (activeDownloaded.value === 'not-downloaded' && m.status === 'downloaded') return false
     if (activeType.value !== 'all' && m.model_type !== activeType.value) return false
@@ -86,6 +106,42 @@ function handleAddModel() {
     .then(() => {
       showAddDialog.value = false
       resetAddForm()
+    })
+    .catch(() => { /* error handled by store */ })
+}
+
+// ─── Edit Model dialog ────────────────────────────────────────────────────
+
+const showEditDialog = ref(false)
+const editingModelId = ref('')
+const editForm = ref<ModelRegistryUpdateRequest>({})
+const editTagInput = ref('')
+
+function openEditDialog(model: ModelRegistryEntry) {
+  editingModelId.value = model.model_id
+  editForm.value = {
+    name: model.name,
+    preferred_name: model.preferred_name ?? '',
+    source: model.source as ModelSource,
+    family: model.family as ModelFamily,
+    variant: model.variant ?? '',
+    description: model.description ?? '',
+    source_url: model.source_url ?? '',
+    tags: [...(model.tags ?? [])],
+    notes: model.notes ?? '',
+  }
+  editTagInput.value = (model.tags ?? []).join(', ')
+  showEditDialog.value = true
+}
+
+function handleEditModel() {
+  const payload: ModelRegistryUpdateRequest = { ...editForm.value }
+  if (editTagInput.value.trim()) {
+    payload.tags = editTagInput.value.split(',').map(t => t.trim()).filter(Boolean)
+  }
+  modelsStore.updateModel(editingModelId.value, payload)
+    .then(() => {
+      showEditDialog.value = false
     })
     .catch(() => { /* error handled by store */ })
 }
@@ -454,9 +510,9 @@ function statusChipLabel(model: ModelRegistryEntry): string {
             </v-chip>
           </v-card-title>
 
-          <v-card-subtitle class="pb-2">
-            <!-- Model type + base model (privileged row) -->
-            <div class="d-flex align-center flex-wrap gap-2 mb-3">
+          <!-- Type + architecture row -->
+          <v-card-subtitle class="pt-0 pb-2">
+            <div class="d-flex align-center flex-wrap gap-2">
               <v-chip
                 :color="modelTypeColor(model.model_type)"
                 size="small"
@@ -465,27 +521,23 @@ function statusChipLabel(model: ModelRegistryEntry): string {
               >
                 {{ modelTypeLabel(model.model_type) }}
               </v-chip>
-              <v-chip
-                v-if="model.base_model"
-                size="small"
-                variant="tonal"
-                prepend-icon="mdi-link-variant"
-                label
-              >
-                {{ model.base_model }}
-              </v-chip>
-              <v-chip
-                v-for="base in model.compatible_bases"
-                :key="base"
-                :color="familyColor(base)"
-                size="x-small"
-                variant="tonal"
-                label
-              >
-                {{ base }}
-              </v-chip>
+              <template v-if="model.compatible_bases?.length">
+                <v-divider vertical class="mx-1" />
+                <v-chip
+                  v-for="base in model.compatible_bases"
+                  :key="base"
+                  :color="familyColor(base)"
+                  size="x-small"
+                  variant="tonal"
+                  label
+                >
+                  {{ base }}
+                </v-chip>
+              </template>
             </div>
+          </v-card-subtitle>
 
+          <v-card-text class="pt-0 pb-2">
             <!-- VRAM requirements -->
             <div v-if="model.recommended_vram_min_gb || model.recommended_vram_max_gb" class="d-flex align-center flex-wrap gap-2 mb-3">
               <v-chip
@@ -494,7 +546,7 @@ function statusChipLabel(model: ModelRegistryEntry): string {
                 variant="tonal"
                 prepend-icon="mdi-memory"
               >
-                Min VRAM: {{ model.recommended_vram_min_gb }} GB
+                Min {{ model.recommended_vram_min_gb }} GB
               </v-chip>
               <v-chip
                 v-if="model.recommended_vram_max_gb"
@@ -502,7 +554,7 @@ function statusChipLabel(model: ModelRegistryEntry): string {
                 variant="tonal"
                 prepend-icon="mdi-memory"
               >
-                Max VRAM: {{ model.recommended_vram_max_gb }} GB
+                Max {{ model.recommended_vram_max_gb }} GB
               </v-chip>
             </div>
 
@@ -511,20 +563,10 @@ function statusChipLabel(model: ModelRegistryEntry): string {
               {{ model.short_description || model.description || 'No description available.' }}
             </p>
 
-            <!-- Full description (collapsible) -->
-            <v-expansion-panels v-if="model.description" variant="accordion" elevation="0" class="mb-2">
-              <v-expansion-panel>
-                <v-expansion-panel-title class="text-caption text-medium-emphasis px-0 py-1" style="min-height: 28px">
-                  Details
-                </v-expansion-panel-title>
-                <v-expansion-panel-text class="text-body-2 text-medium-emphasis px-0">
-                  {{ model.description }}
-                </v-expansion-panel-text>
-              </v-expansion-panel>
-            </v-expansion-panels>
+            <p class="mt-2 mb-5">{{ model.description }}</p>
 
             <!-- Size + source link row -->
-            <div class="d-flex align-center flex-wrap gap-2 mb-3">
+            <div class="d-flex align-center flex-wrap gap-2 mb-2">
               <v-chip
                 v-if="model.total_size_bytes"
                 size="x-small"
@@ -547,7 +589,7 @@ function statusChipLabel(model: ModelRegistryEntry): string {
             </div>
 
             <!-- Tags -->
-            <div v-if="model.tags?.length" class="mb-1">
+            <div v-if="model.tags?.length">
               <v-chip
                 v-for="tag in model.tags"
                 :key="tag"
@@ -558,7 +600,7 @@ function statusChipLabel(model: ModelRegistryEntry): string {
                 {{ tag }}
               </v-chip>
             </div>
-          </v-card-subtitle>
+          </v-card-text>
 
           <v-card-actions class="px-4 pb-4">
             <!-- Download button (only if not yet downloaded) -->
@@ -596,21 +638,23 @@ function statusChipLabel(model: ModelRegistryEntry): string {
               >
                 Download
               </v-btn>
-
-              <v-btn
-                v-if="modelsStore.isModelDownloading(model.model_id)"
-                color="primary"
-                variant="tonal"
-                size="small"
-                prepend-icon="mdi-download"
-                :loading="true"
-                :disabled="true"
-              >
-                Downloading...
-              </v-btn>
             </div>
 
             <v-spacer />
+
+            <!-- Edit model metadata -->
+            <v-tooltip location="top" text="Edit model metadata">
+              <template #activator="{ props: tooltipProps }">
+                <v-btn
+                  v-bind="tooltipProps"
+                  color="primary"
+                  variant="text"
+                  size="small"
+                  icon="mdi-pencil-outline"
+                  @click="openEditDialog(model)"
+                />
+              </template>
+            </v-tooltip>
 
             <!-- Delete files only (only shown when files are present) -->
             <v-tooltip location="top" text="Delete downloaded files — keeps registry entry">
@@ -729,6 +773,126 @@ function statusChipLabel(model: ModelRegistryEntry): string {
             @click="handleBulkConfirm"
           >
             {{ bulkConfirmConfig[bulkAction].confirmLabel }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- ─── Edit Model Dialog ───────────────────────────────────────── -->
+    <v-dialog v-model="showEditDialog" max-width="600" persistent>
+      <v-card>
+        <v-card-title class="text-h6">
+          <v-icon icon="mdi-pencil" class="mr-2" />
+          Edit Model
+        </v-card-title>
+
+        <v-card-text>
+          <v-text-field
+            :model-value="editingModelId"
+            label="Model ID"
+            variant="outlined"
+            readonly
+            class="mb-3"
+            hint="Model ID cannot be changed"
+            persistent-hint
+          />
+
+          <v-text-field
+            v-model="editForm.name"
+            label="Display Name"
+            variant="outlined"
+            class="mb-3"
+          />
+
+          <v-text-field
+            v-model="editForm.preferred_name"
+            label="Preferred Name (optional override)"
+            variant="outlined"
+            class="mb-3"
+          />
+
+          <v-row>
+            <v-col cols="6">
+              <v-select
+                v-model="editForm.source"
+                :items="[
+                  { title: 'HuggingFace', value: 'huggingface' as ModelSource },
+                  { title: 'CivitAI', value: 'civitai' as ModelSource },
+                ]"
+                label="Source"
+                variant="outlined"
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-select
+                v-model="editForm.family"
+                :items="[
+                  { title: 'SD 1.x / 2.x', value: 'sd15' as ModelFamily },
+                  { title: 'SDXL', value: 'sdxl' as ModelFamily },
+                  { title: 'Flux', value: 'flux' as ModelFamily },
+                  { title: 'Custom', value: 'custom' as ModelFamily },
+                ]"
+                label="Architecture"
+                variant="outlined"
+              />
+            </v-col>
+          </v-row>
+
+          <v-textarea
+            v-model="editForm.description"
+            label="Description (optional)"
+            variant="outlined"
+            rows="3"
+            class="mb-3"
+          />
+
+          <v-row>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="editForm.source_url"
+                label="Source URL"
+                placeholder="https://huggingface.co/..."
+                variant="outlined"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="editForm.variant"
+                label="Variant (optional)"
+                placeholder="e.g. fp16"
+                variant="outlined"
+              />
+            </v-col>
+          </v-row>
+
+          <v-text-field
+            v-model="editTagInput"
+            label="Tags (comma-separated)"
+            placeholder="e.g. photorealistic, portrait, fast"
+            variant="outlined"
+            class="mb-3"
+          />
+
+          <v-textarea
+            v-model="editForm.notes"
+            label="Notes (optional)"
+            variant="outlined"
+            rows="2"
+          />
+        </v-card-text>
+
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showEditDialog = false">
+            Cancel
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="elevated"
+            :disabled="!editForm.name?.trim()"
+            @click="handleEditModel"
+          >
+            Save Changes
           </v-btn>
         </v-card-actions>
       </v-card>

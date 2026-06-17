@@ -15,6 +15,8 @@ from logging.config import fileConfig
 
 # Ensure the backend directory is on sys.path so that `app` is importable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Expose alembic/ itself so migration scripts can import seed_helpers
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine

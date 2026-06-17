@@ -11,7 +11,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { diffusionApi } from '../api/diffusion'
 import { useNotificationStore } from './notifications'
-import type { ModelRegistryEntry, ModelRegistryAddRequest } from '../types'
+import type { ModelRegistryEntry, ModelRegistryAddRequest, ModelRegistryUpdateRequest } from '../types'
 
 export const useModelsStore = defineStore('models', () => {
   const registry = ref<ModelRegistryEntry[]>([])
@@ -82,6 +82,21 @@ export const useModelsStore = defineStore('models', () => {
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : 'Failed to add model'
+        notif.push('error', msg)
+        throw err
+      })
+  }
+
+  /** Update editable metadata for a registered model. */
+  function updateModel(modelId: string, payload: ModelRegistryUpdateRequest) {
+    const notif = useNotificationStore()
+    return diffusionApi.updateModel(modelId, payload)
+      .then((entry) => {
+        registry.value = registry.value.map(m => m.model_id === modelId ? entry : m)
+        notif.push('success', `Model "${entry.name}" updated`)
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Failed to update model'
         notif.push('error', msg)
         throw err
       })
@@ -283,6 +298,7 @@ export const useModelsStore = defineStore('models', () => {
     allTags,
     fetchRegistry,
     addModel,
+    updateModel,
     deleteModelFiles,
     removeModel,
     removeAllModels,

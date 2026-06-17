@@ -81,6 +81,17 @@ class ModelRepository:
         )
         await self._session.execute(stmt)
 
+    async def update_metadata(self, model_id: str, fields: dict[str, object]) -> ModelRecord | None:
+        """Update arbitrary metadata fields for a model by external model_id."""
+        stmt = (
+            update(ModelRecord)
+            .where(ModelRecord.model_id == model_id)
+            .values(**fields)
+            .returning(ModelRecord)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def delete(self, record_id: UUID) -> None:
         """Delete a model record by internal UUID."""
         record = await self.get_by_id(record_id)

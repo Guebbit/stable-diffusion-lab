@@ -7,87 +7,17 @@ Create Date: 2026-06-15
 
 from __future__ import annotations
 
-import json
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import text
-from alembic import op
+from seed_helpers import seed_models, unseed_models
 
 revision = "004_seed_sd15"
 down_revision = "003_seed_sdxl"
 branch_labels = None
 depends_on = None
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-_DEFAULTS = {
-    "preferred_name": "",
-    "variant": "",
-    "compatible_bases": [],
-    "description": "",
-    "short_description": "",
-    "tags": [],
-    "source_url": "",
-    "version": "",
-    "capabilities": [],
-    "total_size_bytes": 0,
-    "download_size_bytes": None,
-    "status": "not_downloaded",
-    "recommended_vram_min_gb": None,
-    "recommended_vram_max_gb": None,
-    "license": "",
-    "base_model": "",
-    "precision": "",
-    "requirements": {},
-    "notes": "",
-}
-
-_INSERT_SQL = text("""
-    INSERT INTO models (
-        id, model_id, name, preferred_name, source, family, variant,
-        model_type, compatible_bases,
-        description, short_description, tags, source_url, version, capabilities,
-        total_size_bytes, download_size_bytes,
-        status,
-        recommended_vram_min_gb, recommended_vram_max_gb,
-        license, base_model, precision, requirements, notes,
-        created_at, updated_at
-    ) VALUES (
-        :id, :model_id, :name, :preferred_name, :source, :family, :variant,
-        :model_type, CAST(:compatible_bases AS jsonb),
-        :description, :short_description, CAST(:tags AS jsonb), :source_url, :version,
-        CAST(:capabilities AS jsonb),
-        :total_size_bytes, :download_size_bytes,
-        :status,
-        :recommended_vram_min_gb, :recommended_vram_max_gb,
-        :license, :base_model, :precision,
-        CAST(:requirements AS jsonb), :notes,
-        :created_at, :updated_at
-    ) ON CONFLICT (model_id) DO NOTHING
-""")
-
-
-def _prep(m: dict, now) -> dict:
-    rec = {**_DEFAULTS, **m}
-    if "recommended_strength" in rec:
-        req = dict(rec.get("requirements") or {})
-        req["recommended_strength"] = rec.pop("recommended_strength")
-        rec["requirements"] = req
-    rec["created_at"] = now
-    rec["updated_at"] = now
-    rec["tags"] = json.dumps(rec["tags"])
-    rec["capabilities"] = json.dumps(rec["capabilities"])
-    rec["requirements"] = json.dumps(rec["requirements"])
-    rec["compatible_bases"] = json.dumps(rec["compatible_bases"])
-    return rec
-
-
-# ---------------------------------------------------------------------------
-# SD 1.5 base checkpoints
-# ---------------------------------------------------------------------------
 MODELS = [
+    # ── SD 1.5 base checkpoints ───────────────────────────────────────────
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000003"),
         "model_id": "runwayml/stable-diffusion-v1-5",
@@ -99,13 +29,21 @@ MODELS = [
         "model_type": "base_diffusion",
         "compatible_bases": [],
         "description": (
-            "Best for: testing your platform, not final quality. Strengths: lighter weight, "
-            "broad compatibility, and fast checks for routes, queues, prompts, and UI behavior. "
-            "Not a helper model."
+            "Fast, lightweight SD 1.5 base model for development, testing, previews, integration checks, "
+            "and low-cost pipeline validation. Use it to test text-to-image, image-to-image, masking, "
+            "ControlNet, LoRAs, and end-to-end queue / API behavior before switching to heavier models."
         ),
-        "short_description": "Lightweight test model — for dev and integration checks only",
+        "short_description": "Lightweight SD1.5 base for fast dev, testing, previews, and pipeline validation",
         "tags": [
-            "diffusion", "test_model", "lightweight", "dev_testing",
+            "sd15",
+            "base",
+            "fast",
+            "test",
+            "development",
+            "preview",
+            "text",
+            "img2img",
+            "all_rounder",
         ],
         "source_url": "https://huggingface.co/runwayml/stable-diffusion-v1-5",
         "version": "1.5",
@@ -119,7 +57,7 @@ MODELS = [
         "base_model": "sd1.5",
         "precision": "fp16",
         "requirements": {"recommended_resolution": "512x512"},
-        "notes": "Designated test model only.",
+        "notes": "Primary fast testing model.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000006"),
@@ -132,13 +70,18 @@ MODELS = [
         "model_type": "base_diffusion",
         "compatible_bases": [],
         "description": (
-            "Best for: making alternate versions of an existing image. Strengths: keeps the "
-            "overall idea and identity better than generic image-to-image while still producing "
-            "new outputs. Not a helper model."
+            "Specialized SD 1.5-family model for generating alternate variations of an input image. "
+            "Best for identity-preserving image variation, concept variation, and iterative visual exploration."
         ),
-        "short_description": "Creates alternate variations of an existing image",
+        "short_description": "Variation model for generating alternate versions of an existing image",
         "tags": [
-            "diffusion", "variation", "identity_preserving", "concept_variation",
+            "sd15",
+            "base",
+            "variation",
+            "image_variation",
+            "identity",
+            "img2img",
+            "exploration",
         ],
         "source_url": "https://huggingface.co/lambdalabs/sd-image-variations-diffusers",
         "version": "2.0",
@@ -152,7 +95,7 @@ MODELS = [
         "base_model": "sd1.5",
         "precision": "fp16",
         "requirements": {"input_type": "image"},
-        "notes": "Best for variation-style image-to-image behavior.",
+        "notes": "Use for visual variation workflows.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000007"),
@@ -165,12 +108,19 @@ MODELS = [
         "model_type": "base_diffusion",
         "compatible_bases": [],
         "description": (
-            "Best for: prompt-based image edits like recoloring, style changes, mood changes, "
-            "and object tweaks. Strengths: follows edit instructions directly. Not a helper model."
+            "Instruction-based image editing model for prompt-driven modifications such as recoloring, "
+            "style changes, scene mood changes, and object-level editing. Good for direct edit-by-text workflows."
         ),
-        "short_description": "Edits images by text instructions — recolor, style transfer, mood",
+        "short_description": "Prompt-based image editor for recolor, style transfer, and guided edits",
         "tags": [
-            "diffusion", "instruction_editing", "edit_by_text", "style_transfer", "global_edit",
+            "sd15",
+            "base",
+            "edit",
+            "pix2pix",
+            "recolor",
+            "style_transfer",
+            "instruction",
+            "img2img",
         ],
         "source_url": "https://huggingface.co/timbrooks/instruct-pix2pix",
         "version": "1.0",
@@ -184,7 +134,68 @@ MODELS = [
         "base_model": "sd1.5",
         "precision": "fp16",
         "requirements": {"input_type": "image"},
-        "notes": "Primary recolor and instruction-based editing model.",
+        "notes": "Primary edit-by-text SD1.5 model.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000031"),
+        "model_id": "sd15-anime-specialist",
+        "name": "SD1.5 Anime Specialist",
+        "preferred_name": "SD1.5 Anime Specialist",
+        "source": "huggingface",
+        "family": "custom",
+        "variant": "anime-sd15",
+        "model_type": "base_diffusion",
+        "compatible_bases": [],
+        "description": (
+            "Anime / manga-oriented SD1.5 placeholder entry for fast stylized testing, character prompting, "
+            "and low-cost anime pipeline validation. Intended for users who want a lightweight anime checkpoint."
+        ),
+        "short_description": "Lightweight SD1.5 anime / manga base for fast stylized testing",
+        "tags": [
+            "sd15",
+            "base",
+            "anime",
+            "manga",
+            "stylized",
+            "character",
+            "illustration",
+            "text",
+            "img2img",
+            "fast",
+        ],
+        "source_url": "https://huggingface.co/search?q=sd15+anime",
+        "capabilities": ["text_to_image", "image_to_image"],
+        "notes": "Catalog placeholder for a lightweight SD1.5 anime checkpoint.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000032"),
+        "model_id": "sd15-nsfw-specialist",
+        "name": "SD1.5 NSFW Specialist",
+        "preferred_name": "SD1.5 NSFW Specialist",
+        "source": "huggingface",
+        "family": "custom",
+        "variant": "nsfw-sd15",
+        "model_type": "base_diffusion",
+        "compatible_bases": [],
+        "description": (
+            "Adult-oriented SD1.5 placeholder entry for fast NSFW pipeline testing and low-cost mature-content workflows. "
+            "Useful if you want a cheap checkpoint for adult prompt validation before switching to larger models."
+        ),
+        "short_description": "Lightweight SD1.5 adult / NSFW base for fast testing workflows",
+        "tags": [
+            "sd15",
+            "base",
+            "nsfw",
+            "adult",
+            "erotic",
+            "mature",
+            "text",
+            "img2img",
+            "fast",
+        ],
+        "source_url": "https://huggingface.co/search?q=sd15+nsfw",
+        "capabilities": ["text_to_image", "image_to_image"],
+        "notes": "Catalog placeholder for a lightweight SD1.5 NSFW checkpoint.",
     },
 
     # ── ControlNet — SD 1.5 ───────────────────────────────────────────────
@@ -199,14 +210,19 @@ MODELS = [
         "model_type": "controlnet",
         "compatible_bases": ["sd1.5"],
         "description": (
-            "Best for: structure-aware edits where depth and spatial layout matter. "
-            "This is a helper model. Strengths: preserves foreground-background relationships "
-            "and scene geometry. Best paired with SD 1.5 Test Model."
+            "Depth-guided ControlNet for SD1.5. Best for structure-aware image editing where perspective, "
+            "spatial arrangement, and foreground / background relationships must be preserved."
         ),
-        "short_description": "Depth-guided structural control for SD1.5 pipelines (helper)",
+        "short_description": "Depth-guided SD1.5 control model for spatially coherent image editing",
         "tags": [
-            "controlnet", "adapter", "helper",
-            "depth_guided", "spatial_control", "structure_preserving",
+            "sd15",
+            "controlnet",
+            "depth",
+            "spatial",
+            "perspective",
+            "structure",
+            "img2img",
+            "helper",
         ],
         "source_url": "https://huggingface.co/lllyasviel/control_v11f1p_sd15_depth",
         "version": "1.1",
@@ -220,7 +236,7 @@ MODELS = [
         "base_model": "sd1.5",
         "precision": "fp16",
         "requirements": {"requires_base_model": "runwayml/stable-diffusion-v1-5"},
-        "notes": "Helper model; best paired with an SD1.5 base pipeline.",
+        "notes": "Good for scene geometry preservation.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000011"),
@@ -233,14 +249,20 @@ MODELS = [
         "model_type": "controlnet",
         "compatible_bases": ["sd1.5"],
         "description": (
-            "Best for: sketch-based and line-based workflows. This is a helper model. "
-            "Strengths: follows outlines well and keeps drawing structure. "
-            "Best paired with SD 1.5 Test Model for sketch_to_ink workflows."
+            "Lineart / sketch ControlNet for SD1.5. Best for sketch-to-image, sketch-to-ink, comic workflows, "
+            "and preserving drawing structure from line-based inputs."
         ),
-        "short_description": "Lineart and sketch-guided control for SD1.5 pipelines (helper)",
+        "short_description": "Lineart / sketch SD1.5 control model for sketch-to-image and inking workflows",
         "tags": [
-            "controlnet", "adapter", "helper",
-            "lineart_guided", "illustration_control", "structure_preserving",
+            "sd15",
+            "controlnet",
+            "lineart",
+            "sketch",
+            "sketch_to_image",
+            "sketch_to_ink",
+            "comic",
+            "img2img",
+            "helper",
         ],
         "source_url": "https://huggingface.co/lllyasviel/control_v11p_sd15_lineart",
         "version": "1.0",
@@ -254,7 +276,7 @@ MODELS = [
         "base_model": "sd1.5",
         "precision": "fp16",
         "requirements": {"requires_base_model": "runwayml/stable-diffusion-v1-5"},
-        "notes": "Helper model; primary SD1.5 lineart/sketch ControlNet.",
+        "notes": "Primary SD1.5 sketch and lineart helper.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000012"),
@@ -267,14 +289,20 @@ MODELS = [
         "model_type": "controlnet",
         "compatible_bases": ["sd1.5"],
         "description": (
-            "Best for: masked edits where only part of the image should change. "
-            "This is a helper model. Strengths: localized control and safer partial recoloring. "
-            "Best paired with SD 1.5 Test Model."
+            "Masked-edit ControlNet for SD1.5. Use it for localized modifications, inpainting, partial recoloring, "
+            "object replacement, face-region edits, and controlled edits where only part of the image should change."
         ),
-        "short_description": "Masked partial editing control for SD1.5 pipelines (helper)",
+        "short_description": "Masked-edit SD1.5 control model for inpainting and localized image edits",
         "tags": [
-            "controlnet", "adapter", "helper",
-            "inpainting", "masked_edit", "localized_edit", "partial_recolor",
+            "sd15",
+            "controlnet",
+            "inpaint",
+            "mask",
+            "masked_edit",
+            "localized_edit",
+            "recolor",
+            "img2img",
+            "helper",
         ],
         "source_url": "https://huggingface.co/lllyasviel/control_v11p_sd15_inpaint",
         "version": "1.1",
@@ -291,7 +319,7 @@ MODELS = [
             "requires_base_model": "runwayml/stable-diffusion-v1-5",
             "input_type": "image+mask",
         },
-        "notes": "Helper model for localized edits and partial recoloring.",
+        "notes": "Primary SD1.5 inpainting / local editing helper.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000013"),
@@ -304,18 +332,25 @@ MODELS = [
         "model_type": "controlnet",
         "compatible_bases": ["sd1.5"],
         "description": (
-            "Best for: detail enhancement and tiled restoration workflows. "
-            "This is a helper model. Strengths: helps recover texture and local detail "
-            "while keeping the overall image recognizable."
+            "Tile / detail-restoration ControlNet for SD1.5. Best for enhancement, recovery of local detail, "
+            "upscale follow-up passes, and diffusion-based restoration of noisy or degraded images."
         ),
-        "short_description": "Tile-based detail and texture restoration for SD1.5 (helper)",
+        "short_description": "Tile/detail SD1.5 control model for restoration, enhancement, and upscale follow-up",
         "tags": [
-            "controlnet", "adapter", "helper",
-            "detail_restoration", "texture_enhancement", "tile_control",
+            "sd15",
+            "controlnet",
+            "tile",
+            "detail",
+            "restoration",
+            "enhancement",
+            "upscale",
+            "noise",
+            "img2img",
+            "helper",
         ],
         "source_url": "https://huggingface.co/lllyasviel/control_v11f1e_sd15_tile",
         "version": "1.1",
-        "capabilities": ["image_to_image"],
+        "capabilities": ["image_to_image", "upscale_image"],
         "total_size_bytes": 0,
         "download_size_bytes": 1450000000,
         "status": "not_downloaded",
@@ -325,7 +360,7 @@ MODELS = [
         "base_model": "sd1.5",
         "precision": "fp16",
         "requirements": {"requires_base_model": "runwayml/stable-diffusion-v1-5"},
-        "notes": "Helper model for enhancement and restoration-style upscale flows.",
+        "notes": "Strong helper for restoration and detail-recovery workflows.",
     },
     {
         "id": uuid.UUID("a0000000-0000-0000-0000-000000000021"),
@@ -338,14 +373,20 @@ MODELS = [
         "model_type": "controlnet",
         "compatible_bases": ["sd1.5"],
         "description": (
-            "Best for: human pose transfer and character posing workflows. "
-            "This is a helper model. Strengths: extracts skeleton/joint positions from a "
-            "reference image and forces the output to match. Best paired with SD 1.5 Test Model."
+            "OpenPose / skeleton-guided ControlNet for SD1.5. Use it for human pose transfer, character posing, "
+            "animation pose matching, and keeping body posture consistent across outputs."
         ),
-        "short_description": "Human pose-transfer control for SD1.5 pipelines (helper)",
+        "short_description": "Pose-guided SD1.5 control model for human pose transfer and character posing",
         "tags": [
-            "controlnet", "adapter", "helper",
-            "pose_guided", "character_posing", "structure_preserving",
+            "sd15",
+            "controlnet",
+            "openpose",
+            "pose",
+            "character",
+            "human",
+            "body",
+            "img2img",
+            "helper",
         ],
         "source_url": "https://huggingface.co/lllyasviel/control_v11p_sd15_openpose",
         "version": "1.1",
@@ -359,7 +400,36 @@ MODELS = [
         "base_model": "sd1.5",
         "precision": "fp16",
         "requirements": {"requires_base_model": "runwayml/stable-diffusion-v1-5"},
-        "notes": "Primary SD1.5 pose-guidance ControlNet.",
+        "notes": "Primary SD1.5 pose-guidance helper.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000033"),
+        "model_id": "lllyasviel/control_v11p_sd15_canny",
+        "name": "ControlNet Canny SD1.5",
+        "preferred_name": "ControlNet Canny SD1.5",
+        "source": "huggingface",
+        "family": "controlnet",
+        "variant": "canny-sd15",
+        "model_type": "controlnet",
+        "compatible_bases": ["sd1.5"],
+        "description": (
+            "Canny / edge-guided ControlNet for SD1.5. Best for structure-preserving editing, redraw passes, "
+            "layout lock, silhouette retention, and controlled image transformations from edge maps."
+        ),
+        "short_description": "Canny / edge SD1.5 control model for structure-preserving image editing",
+        "tags": [
+            "sd15",
+            "controlnet",
+            "canny",
+            "edge",
+            "structure",
+            "composition",
+            "img2img",
+            "helper",
+        ],
+        "source_url": "https://huggingface.co/search?q=controlnet+canny+sd15",
+        "capabilities": ["image_to_image"],
+        "notes": "Useful for edge-driven SD1.5 edits.",
     },
 
     # ── LoRA — SD 1.5 ────────────────────────────────────────────────────
@@ -374,14 +444,19 @@ MODELS = [
         "model_type": "lora",
         "compatible_bases": ["sd1.5"],
         "description": (
-            "Speed LoRA for SD 1.5: 4–8 steps with the LCM scheduler and CFG 1–2. "
-            "Great for fast previews before committing to a slower full-quality render. "
-            "No effect without a compatible SD1.5 base loaded."
+            "Speed LoRA for SD1.5. Use it for very fast low-step previews, UI testing, prompt iteration, "
+            "and development workflows where turnaround time matters more than final quality."
         ),
-        "short_description": "Speed LoRA — reduces SD1.5 inference to 4–8 steps",
+        "short_description": "Speed LoRA for SD1.5 fast previews and ultra-fast development iteration",
         "tags": [
-            "lora", "adapter", "helper",
-            "speed", "lcm", "few_step",
+            "sd15",
+            "lora",
+            "speed",
+            "lcm",
+            "fast",
+            "preview",
+            "development",
+            "helper",
         ],
         "source_url": "https://huggingface.co/latent-consistency/lcm-lora-sdv1-5",
         "version": "1.0",
@@ -401,7 +476,65 @@ MODELS = [
             "recommended_guidance_scale": "1.0-2.0",
             "lora_strength_default": 1.0,
         },
-        "notes": "Speed LoRA for SD1.5 — use with LCMScheduler, CFG 1–2, 4–8 steps.",
+        "notes": "Primary speed LoRA for SD1.5.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000034"),
+        "model_id": "sd15-anime-lora",
+        "name": "SD1.5 Anime LoRA",
+        "preferred_name": "SD1.5 Anime LoRA",
+        "source": "huggingface",
+        "family": "lora",
+        "variant": "anime-sd15",
+        "model_type": "lora",
+        "compatible_bases": ["sd1.5"],
+        "description": (
+            "Anime / manga style LoRA for SD1.5. Intended for lightweight anime testing, stylized character prompts, "
+            "cel-shaded looks, expressive faces, and manga-flavored output."
+        ),
+        "short_description": "Anime / manga LoRA for SD1.5 fast stylized character generation",
+        "tags": [
+            "sd15",
+            "lora",
+            "anime",
+            "manga",
+            "stylized",
+            "character",
+            "illustration",
+            "style",
+        ],
+        "source_url": "https://huggingface.co/search?q=sd15+anime+lora",
+        "capabilities": ["text_to_image", "image_to_image"],
+        "notes": "Useful for lightweight stylized SD1.5 testing.",
+    },
+    {
+        "id": uuid.UUID("a0000000-0000-0000-0000-000000000035"),
+        "model_id": "sd15-nsfw-lora",
+        "name": "SD1.5 NSFW LoRA",
+        "preferred_name": "SD1.5 NSFW LoRA",
+        "source": "huggingface",
+        "family": "lora",
+        "variant": "nsfw-sd15",
+        "model_type": "lora",
+        "compatible_bases": ["sd1.5"],
+        "description": (
+            "NSFW-oriented LoRA for SD1.5 fast adult-content workflows. Intended for mature prompt testing, "
+            "adult character rendering, lingerie / nude variations, and cheap pipeline validation."
+        ),
+        "short_description": "NSFW LoRA for SD1.5 adult prompt testing and fast mature-content workflows",
+        "tags": [
+            "sd15",
+            "lora",
+            "nsfw",
+            "adult",
+            "erotic",
+            "mature",
+            "character",
+            "style",
+        ],
+        "source_url": "https://huggingface.co/search?q=sd15+nsfw+lora",
+        "capabilities": ["text_to_image", "image_to_image"],
+        "notes": "Catalog placeholder for SD1.5 adult-style workflows.",
     },
 
     # ── VAE — SD 1.5 ─────────────────────────────────────────────────────
@@ -416,13 +549,17 @@ MODELS = [
         "model_type": "vae",
         "compatible_bases": ["sd1.5"],
         "description": (
-            "Fine-tuned VAE for SD 1.5. Reduces color bleeding and edge fringing compared to "
-            "the default SD1.5 VAE, especially on skin tones and fine text. "
-            "Drop-in replacement — swaps the decoder without changing the UNet."
+            "Improved VAE for SD1.5 that reduces color bleeding, improves edge cleanliness, and produces more stable "
+            "decoded images than the default SD1.5 VAE. Recommended default VAE companion for SD1.5 pipelines."
         ),
-        "short_description": "Fine-tuned SD1.5 VAE — reduces color bleeding and fringing",
+        "short_description": "Improved SD1.5 VAE for cleaner color, fewer artifacts, and better decoding",
         "tags": [
-            "vae", "helper", "quality", "detail_recovery", "color_fix",
+            "sd15",
+            "vae",
+            "quality",
+            "color_fix",
+            "artifact_reduction",
+            "helper",
         ],
         "source_url": "https://huggingface.co/stabilityai/sd-vae-ft-mse",
         "version": "ft-mse",
@@ -436,22 +573,14 @@ MODELS = [
         "base_model": "sd1.5",
         "precision": "fp16",
         "requirements": {"requires_base_family": "sd1.5"},
-        "notes": "Recommended drop-in VAE for all SD1.5 pipelines.",
+        "notes": "Recommended default VAE for SD1.5.",
     },
 ]
 
 
 def upgrade() -> None:
-    conn = op.get_bind()
-    now = datetime.now(timezone.utc)
-    for m in MODELS:
-        conn.execute(_INSERT_SQL, _prep(m, now))
+    seed_models(MODELS)
 
 
 def downgrade() -> None:
-    conn = op.get_bind()
-    for m in MODELS:
-        conn.execute(
-            text("DELETE FROM models WHERE model_id = :id"),
-            {"id": m["model_id"]},
-        )
+    unseed_models(MODELS)

@@ -6,6 +6,7 @@ import type {
   JobSubmissionResponse,
   ModelRegistryAddRequest,
   ModelRegistryEntry,
+  ModelRegistryUpdateRequest,
   PaginatedResponse,
   SystemStatus,
 } from '../types'
@@ -206,6 +207,13 @@ export const diffusionApi = {
    */
   addModel(payload: ModelRegistryAddRequest): Promise<ModelRegistryEntry> {
     return api.post<ModelRegistryEntry>('/models/', payload).then((r) => r.data)
+  },
+
+  /**
+   * Partially update editable metadata for a registered model.
+   */
+  updateModel(modelId: string, payload: ModelRegistryUpdateRequest): Promise<ModelRegistryEntry> {
+    return api.patch<ModelRegistryEntry>(`/models/${encodeURIComponent(modelId)}`, payload).then((r) => r.data)
   },
 
   /**

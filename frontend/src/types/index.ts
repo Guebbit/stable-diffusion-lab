@@ -185,6 +185,25 @@ export interface ModelRegistryAddRequest {
 }
 
 /**
+ * Partial update payload for PATCH /api/v1/models/{model_id}.
+ */
+export interface ModelRegistryUpdateRequest {
+  name?: string
+  preferred_name?: string
+  source?: ModelSource
+  family?: string
+  variant?: string
+  model_type?: string
+  compatible_bases?: string[]
+  description?: string
+  short_description?: string
+  tags?: string[]
+  source_url?: string
+  capabilities?: string[]
+  notes?: string
+}
+
+/**
  * Typed observability event from /ws/observability stream.
  */
 export interface ObservabilityEvent {
