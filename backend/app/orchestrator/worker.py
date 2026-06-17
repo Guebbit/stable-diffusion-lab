@@ -16,7 +16,9 @@ State machine enforced by the worker:
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from uuid import UUID
@@ -24,6 +26,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.adapter_registry import AdapterRegistry
+from app.adapters.base import GenerationCancelledError
+from app.adapters.direct.pipeline_cache import PipelineCache
 from app.adapters.resource_coordinator import ResourceCoordinator
 from app.domain.events import ArtifactEvent, JobEvent, ResourceEvent
 from app.domain.enums import JobType
@@ -78,13 +82,18 @@ class JobWorker:
         session_factory: async_sessionmaker[AsyncSession],
         resource_coordinator: ResourceCoordinator,
         adapter_registry: AdapterRegistry,
+        pipeline_cache: PipelineCache | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._resource_coordinator = resource_coordinator
         self._adapter_registry = adapter_registry
+        self._pipeline_cache = pipeline_cache
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._cancelled_jobs: set[UUID] = set()
+        # Per-job threading.Event for cooperative mid-inference cancellation.
+        # Set by request_cancellation(); checked by the diffusers step callback.
+        self._cancel_events: dict[UUID, threading.Event] = {}
 
     # ── Lifecycle ────────────────────────────────────────
 
@@ -108,8 +117,17 @@ class JobWorker:
         logger.info("Job worker stopped")
 
     def request_cancellation(self, job_id: UUID) -> None:
-        """Request cancellation of a running or pending job."""
+        """
+        Request cancellation of a running or pending job.
+
+        Sets _cancelled_jobs so the next pre-execution check catches it,
+        and also fires the per-job threading.Event so the diffusers step
+        callback can raise GenerationCancelledError mid-inference.
+        """
         self._cancelled_jobs.add(job_id)
+        event = self._cancel_events.get(job_id)
+        if event is not None:
+            event.set()
 
     # ── Poll loop ────────────────────────────────────────
 
@@ -135,12 +153,12 @@ class JobWorker:
     # ── Job execution with resource locking ──────────────
 
     async def _execute_job(self, job_id: UUID, job_type: str, params: dict) -> None:
-        """Execute a single job with resource locking and error handling."""
+        """Execute a single job with resource locking, timeout, and cleanup."""
         job_id_str = str(job_id)
         correlation_id = params.get("correlation_id")
         started_at = time.monotonic()
 
-        # Check for early cancellation
+        # Check for early cancellation before doing any work
         if job_id in self._cancelled_jobs:
             self._cancelled_jobs.discard(job_id)
             await self._mark_cancelled(job_id)
@@ -156,6 +174,11 @@ class JobWorker:
 
         job_type_enum = JobType(job_type)
         needs_gpu = job_type_enum in _GPU_JOB_TYPES
+        _oom_failure = False
+
+        # Per-job cancel event for cooperative mid-inference stop
+        cancel_event = threading.Event()
+        self._cancel_events[job_id] = cancel_event
 
         try:
             await event_bus.publish_event(
@@ -171,8 +194,24 @@ class JobWorker:
             if needs_gpu:
                 await self._acquire_gpu_lock(job_id_str, correlation_id)
 
-            # Dispatch to appropriate handler
-            artifacts = await self._dispatch(job_id, job_type, params)
+            # Dispatch with optional timeout
+            settings = get_settings()
+            timeout = settings.job_timeout_seconds if settings.job_timeout_seconds > 0 else None
+            try:
+                if timeout:
+                    artifacts = await asyncio.wait_for(
+                        self._dispatch(job_id, job_type, params, cancel_event),
+                        timeout=float(timeout),
+                    )
+                else:
+                    artifacts = await self._dispatch(job_id, job_type, params, cancel_event)
+            except asyncio.TimeoutError:
+                # Signal the inference thread to stop at the next step callback
+                cancel_event.set()
+                raise TimeoutError(
+                    f"Job timed out after {timeout}s — "
+                    "increase JOB_TIMEOUT_SECONDS or reduce generation steps"
+                )
 
             # Persist any produced artifacts to the DB
             if artifacts:
@@ -206,38 +245,95 @@ class JobWorker:
                 )
             )
 
-        except Exception as exc:
-            await self._mark_failed(job_id, exc)
+        except GenerationCancelledError:
+            # Mid-inference cooperative cancellation from the step callback
+            self._cancelled_jobs.discard(job_id)
+            await self._mark_cancelled(job_id)
             await event_bus.publish_event(
                 JobEvent(
-                    event_type="job.failed",
+                    event_type="job.cancelled",
                     correlation_id=correlation_id,
                     job_id=job_id_str,
-                    level="error",
-                    message=str(exc),
-                    payload={"job_type": job_type},
+                    message="Job cancelled mid-inference",
                 )
             )
-            if "out of memory" in str(exc).lower():
+            logger.info("Job %s cancelled mid-inference", job_id)
+
+        except Exception as exc:
+            # If cancellation was requested at the same time as an exception, treat as cancel
+            if job_id in self._cancelled_jobs:
+                self._cancelled_jobs.discard(job_id)
+                await self._mark_cancelled(job_id)
                 await event_bus.publish_event(
-                    ResourceEvent(
-                        event_type="resource.oom",
+                    JobEvent(
+                        event_type="job.cancelled",
+                        correlation_id=correlation_id,
+                        job_id=job_id_str,
+                        message="Job cancelled",
+                    )
+                )
+                logger.info("Job %s cancelled (exception during cancellation: %s)", job_id, exc)
+            else:
+                _oom_failure = "out of memory" in str(exc).lower()
+                await self._mark_failed(job_id, exc)
+                await event_bus.publish_event(
+                    JobEvent(
+                        event_type="job.failed",
                         correlation_id=correlation_id,
                         job_id=job_id_str,
                         level="error",
-                        message="CUDA out-of-memory detected",
+                        message=str(exc),
+                        payload={"job_type": job_type},
                     )
                 )
-            logger.exception("Job %s failed", job_id)
+                if _oom_failure:
+                    await event_bus.publish_event(
+                        ResourceEvent(
+                            event_type="resource.oom",
+                            correlation_id=correlation_id,
+                            job_id=job_id_str,
+                            level="error",
+                            message="CUDA out-of-memory detected",
+                        )
+                    )
+                logger.exception("Job %s failed", job_id)
 
         finally:
+            self._cancel_events.pop(job_id, None)
             if needs_gpu:
                 await self._release_gpu_lock(job_id_str, correlation_id)
+                await self._gpu_cleanup(_oom_failure)
+
+    # ── GPU cleanup ─────────────────────────────────────
+
+    async def _gpu_cleanup(self, evict_pipelines: bool) -> None:
+        """
+        Release GPU memory after any GPU job (success, failure, or cancel).
+
+        On OOM, also evicts all cached pipelines — the loaded model is likely
+        the cause of memory exhaustion and must be cleared before the next job.
+        On all paths, runs gc.collect() + torch.cuda.empty_cache() to free
+        temporary tensors produced during inference.
+        """
+        if evict_pipelines and self._pipeline_cache is not None:
+            logger.warning("OOM detected — evicting all cached pipelines to free VRAM")
+            await self._pipeline_cache.evict_all()
+        try:
+            import torch
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
     # ── Dispatch routing ────────────────────────────────
 
     async def _dispatch(
-        self, job_id: UUID, job_type: str, params: dict
+        self,
+        job_id: UUID,
+        job_type: str,
+        params: dict,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         """Route a job to the correct handler based on job type."""
         job_type_enum = JobType(job_type)
@@ -246,7 +342,9 @@ class JobWorker:
             await self._model_operation_handler.handle(job_id, job_type, params)
             return []
         elif job_type_enum in _GPU_JOB_TYPES:
-            return await self._pipeline_executor.execute(job_id, job_type_enum, params)
+            return await self._pipeline_executor.execute(
+                job_id, job_type_enum, params, cancel_event=cancel_event
+            )
         else:
             raise ValueError(f"Unknown job type: {job_type}")
 

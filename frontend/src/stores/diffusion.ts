@@ -19,6 +19,8 @@ export const useDiffusionStore = defineStore('diffusion', () => {
   const generatedImages = ref<ArtifactEntry[]>([])
   /** Shared loading flag for any generation endpoint. */
   const isGenerating = ref(false)
+  /** Job ID of the currently running generation (null when idle). */
+  const currentJobId = ref<string | null>(null)
   /** User-friendly error message displayed by the UI. */
   const error = ref<string | null>(null)
 
@@ -82,6 +84,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
 
     return diffusionApi.submitTextToImage(request)
       .then((submission: JobSubmissionResponse) => {
+        currentJobId.value = submission.job_id
         notif.push('info', `Job ${submission.job_id} queued`)
         return _waitForJobCompletion(submission.job_id)
       })
@@ -102,6 +105,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       })
       .finally(() => {
         isGenerating.value = false
+        currentJobId.value = null
       })
   }
 
@@ -116,6 +120,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
 
     return diffusionApi.submitDescribe(modelId, imageFile)
       .then((submission: JobSubmissionResponse) => {
+        currentJobId.value = submission.job_id
         notif.push('info', `Job ${submission.job_id} queued`)
         return _waitForJobCompletion(submission.job_id)
       })
@@ -136,6 +141,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       })
       .finally(() => {
         isGenerating.value = false
+        currentJobId.value = null
       })
   }
 
@@ -159,6 +165,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
 
     return diffusionApi.submitRecolor(modelId, imageFile, prompt, strength)
       .then((submission: JobSubmissionResponse) => {
+        currentJobId.value = submission.job_id
         notif.push('info', `Job ${submission.job_id} queued`)
         return _waitForJobCompletion(submission.job_id)
       })
@@ -179,6 +186,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       })
       .finally(() => {
         isGenerating.value = false
+        currentJobId.value = null
       })
   }
 
@@ -213,6 +221,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       loraStrength,
     })
       .then((submission: JobSubmissionResponse) => {
+        currentJobId.value = submission.job_id
         notif.push('info', `Job ${submission.job_id} queued`)
         return _waitForJobCompletion(submission.job_id)
       })
@@ -233,6 +242,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       })
       .finally(() => {
         isGenerating.value = false
+        currentJobId.value = null
       })
   }
 
@@ -251,6 +261,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
 
     return submitFn(request)
       .then((submission: JobSubmissionResponse) => {
+        currentJobId.value = submission.job_id
         notif.push('info', `Job ${submission.job_id} queued`)
         return _waitForJobCompletion(submission.job_id)
       })
@@ -271,6 +282,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       })
       .finally(() => {
         isGenerating.value = false
+        currentJobId.value = null
       })
   }
 
@@ -308,6 +320,20 @@ export const useDiffusionStore = defineStore('diffusion', () => {
       })
       .catch(() => {
         notif.push('error', 'Failed to delete all images')
+      })
+  }
+
+  /** Request cancellation of the currently running job. */
+  function cancelCurrentJob(): Promise<void> {
+    if (!currentJobId.value) return Promise.resolve()
+    const jobId = currentJobId.value
+    const notif = useNotificationStore()
+    return diffusionApi.cancelJob(jobId)
+      .then(() => {
+        notif.push('info', 'Cancellation requested…')
+      })
+      .catch(() => {
+        notif.push('warning', 'Failed to request cancellation')
       })
   }
 
@@ -362,6 +388,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     status,
     generatedImages,
     isGenerating,
+    currentJobId,
     error,
     jobProgress,
     sseConnected,
@@ -371,6 +398,7 @@ export const useDiffusionStore = defineStore('diffusion', () => {
     imageToImage,
     recolor,
     sketchToInk,
+    cancelCurrentJob,
     refreshGallery,
     deleteImage,
     clearImages,

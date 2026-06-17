@@ -724,14 +724,24 @@ onBeforeUnmount(() => {
       </v-btn>
     </div>
 
-    <v-card-actions class="pa-4 pt-0">
+    <v-card-actions class="pa-4 pt-0 d-flex ga-2">
+      <v-btn
+          v-if="store.isGenerating"
+          color="error"
+          size="large"
+          variant="tonal"
+          prepend-icon="mdi-stop-circle-outline"
+          @click="store.cancelCurrentJob()"
+      >
+        Stop
+      </v-btn>
       <v-btn
           color="primary"
           size="large"
-          :loading="store.isGenerating || false"
-          :disabled="!formValid || false"
+          :loading="store.isGenerating"
+          :disabled="!formValid || store.isGenerating"
           prepend-icon="mdi-creation"
-          block
+          style="flex: 1"
           @click="handleGenerate"
       >
         {{ store.isGenerating ? 'Generating...' : 'Generate' }}

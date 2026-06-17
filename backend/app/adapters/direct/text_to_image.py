@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ class DirectTextToImageAdapter:
         lora_model_id: str | None = None,
         lora_strength: float = 0.8,
         on_progress: ProgressCallback | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         """
         Run text-to-image generation.
@@ -63,7 +65,7 @@ class DirectTextToImageAdapter:
 
         # Run blocking inference on thread pool to keep event loop responsive
         artifacts = await asyncio.to_thread(
-            self._run_inference, pipeline, params, output_dir, on_progress
+            self._run_inference, pipeline, params, output_dir, on_progress, cancel_event
         )
         return artifacts
 
@@ -122,6 +124,7 @@ class DirectTextToImageAdapter:
         params: GenerationParams,
         output_dir: Path,
         on_progress: ProgressCallback | None,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         """Synchronous inference execution — runs on thread pool."""
         import torch
@@ -130,8 +133,10 @@ class DirectTextToImageAdapter:
         seed = params.seed if params.seed is not None else int(time.time() * 1000) % (2**32)
         generator = torch.Generator(device=pipeline.device).manual_seed(seed)
 
-        # Step progress callback — built by shared utility
-        step_callback = build_diffusers_step_callback(on_progress, params.num_inference_steps)
+        # Step progress callback — raises GenerationCancelledError when cancel_event is set
+        step_callback = build_diffusers_step_callback(
+            on_progress, params.num_inference_steps, cancel_event=cancel_event
+        )
 
         # Run the diffusion pipeline
         result = pipeline(

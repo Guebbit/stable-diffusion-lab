@@ -49,18 +49,26 @@ from app.domain.value_objects import ArtifactReference, GenerationParams, JobPro
 StepCallback = Callable[[int, int], None]
 
 
+class GenerationCancelledError(Exception):
+    """Raised by the step callback when cooperative cancellation is requested."""
+
+
 def build_diffusers_step_callback(
     on_progress: ProgressCallback | None,
     total_steps: int,
+    cancel_event: Any = None,  # threading.Event | None — avoided circular import
 ) -> Callable[..., Any]:
     """
     Return a diffusers-compatible step callback: (pipe, step, timestep, kwargs) -> kwargs.
 
-    Forwards JobProgress on each diffusion step. Safe to call from a thread pool
-    (the ProgressCallback is invoked synchronously).
+    Forwards JobProgress on each diffusion step. Raises GenerationCancelledError
+    if cancel_event is set — this propagates out of the pipeline call cooperatively.
+    Safe to call from a thread pool (the ProgressCallback is invoked synchronously).
     """
 
     def _callback(pipe: Any, step: int, timestep: Any, kwargs: Any) -> Any:
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelledError("Generation cancelled by user")
         if on_progress is None:
             return kwargs
         on_progress(

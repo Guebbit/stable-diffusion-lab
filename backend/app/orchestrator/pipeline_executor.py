@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -39,6 +40,7 @@ class PipelineExecutor:
         job_type: str,
         params: dict,
         on_progress: None | callable = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         """
         Route a job to the correct adapter and execute it.
@@ -48,6 +50,7 @@ class PipelineExecutor:
             job_type: JobType enum value as string.
             params: Serialized job parameters.
             on_progress: Optional callback for progress updates.
+            cancel_event: threading.Event that signals the inference thread to stop.
         """
         settings = get_settings()
         correlation_id = params.get("correlation_id")
@@ -62,18 +65,18 @@ class PipelineExecutor:
 
         if job_type_enum == JobType.TEXT_TO_IMAGE:
             return await self._run_text_to_image(
-                job_id, backend, params, output_dir, progress_cb
+                job_id, backend, params, output_dir, progress_cb, cancel_event
             )
         elif job_type_enum == JobType.IMAGE_TO_IMAGE:
             return await self._run_image_to_image(
-                job_id, backend, params, output_dir, progress_cb
+                job_id, backend, params, output_dir, progress_cb, cancel_event
             )
         elif job_type_enum == JobType.IMAGE_ANALYSIS:
             await self._run_image_analysis(job_id, backend, params)
         elif job_type_enum == JobType.UPSCALE:
             return await self._run_upscale(job_id, backend, params, output_dir, progress_cb)
         elif job_type_enum == JobType.RECOLOR:
-            return await self._run_recolor(job_id, backend, params, output_dir, progress_cb)
+            return await self._run_recolor(job_id, backend, params, output_dir, progress_cb, cancel_event)
         elif job_type_enum == JobType.SKETCH_TO_INK:
             return await self._run_sketch_to_ink(job_id, backend, params, output_dir, progress_cb)
         elif job_type_enum == JobType.VIDEO_GENERATION:
@@ -96,6 +99,7 @@ class PipelineExecutor:
         params: dict,
         output_dir: Path,
         on_progress: callable,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         adapter = self._adapter_registry.get_provider(JobType.TEXT_TO_IMAGE, backend)
         gen_params = _build_gen_params(params)
@@ -106,6 +110,7 @@ class PipelineExecutor:
             lora_model_id=params.get("lora_model_id"),
             lora_strength=float(params.get("lora_strength", 0.8)),
             on_progress=on_progress,
+            cancel_event=cancel_event,
         )
 
     async def _run_image_to_image(
@@ -115,6 +120,7 @@ class PipelineExecutor:
         params: dict,
         output_dir: Path,
         on_progress: callable,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         adapter = self._adapter_registry.get_provider(JobType.IMAGE_TO_IMAGE, backend)
         gen_params = _build_gen_params(params)
@@ -125,6 +131,7 @@ class PipelineExecutor:
             output_dir,
             strength=params.get("strength", 0.75),
             on_progress=on_progress,
+            cancel_event=cancel_event,
         )
 
     async def _run_image_analysis(
@@ -175,6 +182,7 @@ class PipelineExecutor:
         params: dict,
         output_dir: Path,
         on_progress: callable,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         adapter = self._adapter_registry.get_provider(JobType.RECOLOR, backend)
         image_path = Path(params["image_path"])
@@ -186,6 +194,7 @@ class PipelineExecutor:
             output_dir,
             strength=float(params.get("strength", 0.75)),
             on_progress=on_progress,
+            cancel_event=cancel_event,
         )
 
     async def _run_sketch_to_ink(

@@ -214,6 +214,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         session_factory=session_factory,
         resource_coordinator=resource_coordinator,
         adapter_registry=adapter_registry,
+        pipeline_cache=pipeline_cache,
     )
     await worker.start()
 

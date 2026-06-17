@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,7 @@ class DirectImageToImageAdapter:
         output_dir: Path,
         strength: float = 0.75,
         on_progress: ProgressCallback | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         """
         Run image-to-image inference.
@@ -68,6 +70,7 @@ class DirectImageToImageAdapter:
             output_dir,
             strength,
             on_progress,
+            cancel_event,
         )
         return artifacts
 
@@ -119,6 +122,7 @@ class DirectImageToImageAdapter:
         output_dir: Path,
         strength: float,
         on_progress: ProgressCallback | None,
+        cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         """Synchronous img2img inference — runs on thread pool."""
         import torch
@@ -135,8 +139,10 @@ class DirectImageToImageAdapter:
         # img2img has fewer effective steps due to strength
         effective_steps = max(int(params.num_inference_steps * strength), 1)
 
-        # Step progress callback — built by shared utility
-        step_callback = build_diffusers_step_callback(on_progress, effective_steps)
+        # Step progress callback — raises GenerationCancelledError when cancel_event is set
+        step_callback = build_diffusers_step_callback(
+            on_progress, effective_steps, cancel_event=cancel_event
+        )
 
         # Run the img2img pipeline
         result = pipeline(

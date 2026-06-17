@@ -93,6 +93,7 @@ async def get_job(
 @router.post("/{job_id}/cancel", response_model=JobCancelResponse)
 async def cancel_job(
     job_id: UUID,
+    request: Request,
     service: JobService = Depends(_get_job_service),
 ) -> JobCancelResponse:
     """Request cancellation of a pending or running job."""
@@ -100,6 +101,10 @@ async def cancel_job(
         status = await service.request_cancellation(job_id)
     except Exception as exc:
         raise from_exception(exc)
+    # Notify the worker so it fires the cancel_event mid-inference
+    worker = getattr(request.app.state, "worker", None)
+    if worker is not None:
+        worker.request_cancellation(job_id)
     return JobCancelResponse(job_id=job_id, status=status, message="Cancellation requested")
 
 
