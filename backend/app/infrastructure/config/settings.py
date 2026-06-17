@@ -78,10 +78,32 @@ class Settings(BaseSettings):
     max_cached_pipelines: int = 1
     # How to place diffusion pipelines on the GPU.
     #   none           — load everything to VRAM at once (fastest, needs most VRAM).
-    #                    Job fails with a clear error if free VRAM is insufficient.
-    #   model_cpu      — offload sub-models to CPU between forward passes (~3-5 GB peak VRAM).
-    #   sequential_cpu — offload layer-by-layer (~1-2 GB peak VRAM, slowest).
+    #                    Weights stream directly from disk to VRAM — minimal CPU RAM usage.
+    #                    Job fails with a clear OOM error if VRAM is insufficient.
+    #   model_cpu      — keep the full model in CPU RAM; swap each sub-model (UNet/transformer,
+    #                    text encoder, VAE) to GPU only for its forward pass. Peak VRAM ≈
+    #                    largest single sub-model (~12 GB for FLUX transformer, ~4 GB for SDXL).
+    #                    Trade-off: ~22 GB RAM permanently occupied for FLUX.
+    #   sequential_cpu — stream each individual layer to GPU for its forward pass (~1-2 GB peak
+    #                    VRAM). Slowest, but runs FLUX on a 4 GB card.
     pipeline_offload: str = "model_cpu"
+
+    # 4-bit NF4 quantization — reduces model size in VRAM at a small quality cost.
+    # Requires: pip install bitsandbytes
+    # Incompatible with pipeline_offload=model_cpu / sequential_cpu (bitsandbytes tensors
+    # live on CUDA and cannot be CPU-offloaded). When both are set, pipeline_offload is
+    # automatically treated as "none" and a warning is logged.
+    #
+    #   none         — no quantization (default, full precision)
+    #   transformer  — quantize the main generative model only:
+    #                    FLUX transformer:  ~12 GB → ~3 GB
+    #                    SDXL UNet:          ~4 GB → ~1 GB
+    #   text_encoder — quantize T5-based text encoders only (FLUX / SD3):
+    #                    FLUX T5-XXL:        ~9 GB → ~2.5 GB
+    #                    SDXL/SD1.x: uses CLIP encoders (~250 MB) — no effect
+    #   full         — both above combined:
+    #                    FLUX: ~22 GB total → ~5.5 GB (fits on 6-8 GB VRAM cards)
+    quantize_mode: str = "none"
 
     # --- Job orchestrator ---
     # Maximum concurrent inference workers (1 = serialize GPU work)

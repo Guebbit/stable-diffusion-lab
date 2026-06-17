@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.adapters.base import apply_pipeline_to_device, build_diffusers_step_callback, estimate_pipeline_vram_mb, hf_token, resolve_model_path, save_artifacts_from_pil_images
+from app.adapters.base import build_diffusers_step_callback, estimate_pipeline_vram_mb, hf_token, load_pipeline, resolve_model_path, save_artifacts_from_pil_images
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams
@@ -79,44 +79,41 @@ class DirectImageToImageAdapter:
         """
         Build an img2img pipeline — called by PipelineCache on cache miss.
 
-        Uses AutoPipelineForImage2Image which auto-detects the correct
-        pipeline class (SD1.5, SDXL, etc.) from the model config.
+        Uses AutoPipelineForImage2Image which auto-detects the correct pipeline class
+        (SD1.5, SDXL, FLUX, etc.) from the model config. Device placement, offload
+        strategy, and quantization are all handled by load_pipeline() from base.py —
+        see that function's docstring for the three bugs this fixes vs the old inline code.
         """
         import torch
         from diffusers import AutoPipelineForImage2Image
+        from app.infrastructure.config.settings import get_settings
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cpu":
-            from app.infrastructure.config.settings import get_settings
             if not get_settings().allow_cpu_fallback:
                 raise RuntimeError(
                     "CUDA not available — img2img job aborted. "
                     "Set ALLOW_CPU_FALLBACK=true to allow CPU inference."
                 )
             logger.warning("CUDA not available — running img2img on CPU (ALLOW_CPU_FALLBACK=true)")
-        dtype = torch.float16 if device == "cuda" else torch.float32
 
-        logger.info("Building img2img pipeline: %s → %s", model_id, device)
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
-        from app.infrastructure.config.settings import get_settings
+        settings = get_settings()
         model_path = resolve_model_path(model_id)
-        offload = get_settings().pipeline_offload
+        logger.info("Building img2img pipeline: %s → %s", model_path, device)
 
-        if device == "cuda" and offload in ("model_cpu", "sequential_cpu"):
-            pipeline = AutoPipelineForImage2Image.from_pretrained(
-                model_path,
-                torch_dtype=dtype,
-                safety_checker=None,
-                device_map="balanced",
-            )
-        else:
-            pipeline = AutoPipelineForImage2Image.from_pretrained(
-                model_path,
-                torch_dtype=dtype,
-                safety_checker=None,
-                low_cpu_mem_usage=True,
-            )
-            pipeline = apply_pipeline_to_device(pipeline, device, offload)
+        pipeline = load_pipeline(
+            AutoPipelineForImage2Image,
+            model_path,
+            device,
+            dtype,
+            settings.pipeline_offload,
+            settings.quantize_mode,
+            hf_token(),
+            safety_checker=None,
+        )
+
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
         if hasattr(pipeline, "enable_attention_slicing"):
@@ -146,7 +143,7 @@ class DirectImageToImageAdapter:
         seed = params.seed if params.seed is not None else int(time.time() * 1000) % (2**32)
         generator = torch.Generator(device=pipeline.device).manual_seed(seed)
 
-        # img2img has fewer effective steps due to strength
+        # Used as the progress-callback denominator only — img2img denoises for strength*steps steps
         effective_steps = max(int(params.num_inference_steps * strength), 1)
 
         # Step progress callback — raises GenerationCancelledError when cancel_event is set

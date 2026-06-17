@@ -33,6 +33,7 @@ class PipelineExecutor:
         job_type: str,
         params: dict,
         cancel_event: threading.Event | None = None,
+        on_progress: callable | None = None,
     ) -> list[ArtifactReference]:
         """
         Route a job to the correct adapter and execute it.
@@ -42,13 +43,14 @@ class PipelineExecutor:
             job_type: JobType enum value as string.
             params: Serialized job parameters.
             cancel_event: threading.Event that signals the inference thread to stop.
+            on_progress: Optional callback invoked with JobProgress updates.
         """
         settings = get_settings()
         backend_str = params.get("backend")
         backend = InferenceBackend(backend_str) if backend_str else None
         output_dir = settings.artifacts_path / str(job_id)
 
-        progress_cb = None
+        progress_cb = on_progress
 
         job_type_enum = JobType(job_type)
 

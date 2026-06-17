@@ -23,7 +23,7 @@ onUnmounted(() => {
 // ─── Filters ──────────────────────────────────────────────────────────────
 
 const activeSource = ref<'all' | 'huggingface' | 'civitai'>('all')
-const activeFamily = ref<'all' | 'sd15' | 'sdxl' | 'flux' | 'custom'>('all')
+const activeFamily = ref<'all' | 'sd15' | 'sd2' | 'sdxl' | 'flux' | 'custom'>('all')
 const activeDownloaded = ref<'all' | 'downloaded' | 'not-downloaded'>('all')
 const activeType = ref<string>('all')
 const activeTags = ref<string[]>([])
@@ -45,13 +45,15 @@ const allTags = computed(() => modelsStore.allTags)
 
 // Maps each UI family key to the family values and compatible_bases values stored in the DB
 const FAMILY_NAMES: Record<string, string[]> = {
-  sd15: ['sd15', 'stable_diffusion_1', 'stable_diffusion_2', 'stable_diffusion_edit'],
+  sd15: ['sd15', 'stable_diffusion_1', 'stable_diffusion_edit'],
+  sd2: ['stable_diffusion_2'],
   sdxl: ['sdxl', 'stable_diffusion_xl'],
   flux: ['flux'],
   custom: ['custom'],
 }
 const FAMILY_COMPAT_BASES: Record<string, string[]> = {
-  sd15: ['sd15', 'sd1.5', 'sd1', 'sd2'],
+  sd15: ['sd15', 'sd1.5', 'sd1'],
+  sd2: ['sd2', 'sd2.x', 'sd21'],
   sdxl: ['sdxl'],
   flux: ['flux'],
 }
@@ -252,6 +254,7 @@ function handleBulkConfirm() {
 function familyColor(family: string): string {
   const colors: Record<string, string> = {
     sd15: 'blue',
+    sd2: 'cyan',
     sdxl: 'purple',
     flux: 'orange',
     custom: 'grey',
@@ -411,6 +414,7 @@ function statusChipLabel(model: ModelRegistryEntry): string {
         >
           <v-btn value="all">All families</v-btn>
           <v-btn value="sd15">SD 1.x</v-btn>
+          <v-btn value="sd2">SD 2.x</v-btn>
           <v-btn value="sdxl">SDXL</v-btn>
           <v-btn value="flux">Flux</v-btn>
         </v-btn-toggle>
@@ -834,7 +838,8 @@ function statusChipLabel(model: ModelRegistryEntry): string {
               <v-select
                 v-model="editForm.family"
                 :items="[
-                  { title: 'SD 1.x / 2.x', value: 'sd15' as ModelFamily },
+                  { title: 'SD 1.x', value: 'sd15' as ModelFamily },
+                  { title: 'SD 2.x', value: 'sd2' as ModelFamily },
                   { title: 'SDXL', value: 'sdxl' as ModelFamily },
                   { title: 'Flux', value: 'flux' as ModelFamily },
                   { title: 'Custom', value: 'custom' as ModelFamily },
@@ -946,8 +951,9 @@ function statusChipLabel(model: ModelRegistryEntry): string {
               <v-select
                 v-model="addForm.family"
                 :items="[
-                  { title: 'SD 1.x / 2.x — Classic Stable Diffusion', value: 'sd15' as ModelFamily },
-                  { title: 'SDXL — Stable Diffusion XL (high-res)', value: 'sdxl' as ModelFamily },
+                  { title: 'SD 1.x — Classic Stable Diffusion (512 px)', value: 'sd15' as ModelFamily },
+                  { title: 'SD 2.x — Stable Diffusion 2 (768 px, OpenCLIP)', value: 'sd2' as ModelFamily },
+                  { title: 'SDXL — Stable Diffusion XL (1024 px)', value: 'sdxl' as ModelFamily },
                   { title: 'Flux — Next-gen architecture (500M+ params)', value: 'flux' as ModelFamily },
                   { title: 'Custom — Unknown or modified architecture', value: 'custom' as ModelFamily },
                 ]"

@@ -1,7 +1,7 @@
 """Seed cross-family tools — upscalers, vision-language, face restore, IP-Adapter, ESRGAN.
 
-Revision ID: 006_seed_tools
-Revises: 005_seed_sd2
+Revision ID: 005_seed_tools
+Revises: 004_seed_sd15
 Create Date: 2026-06-15
 """
 
@@ -11,8 +11,8 @@ import uuid
 
 from seed_helpers import seed_models, unseed_models
 
-revision = "006_seed_tools"
-down_revision = "005_seed_sd2"
+revision = "005_seed_tools"
+down_revision = "004_seed_sd15"
 branch_labels = None
 depends_on = None
 

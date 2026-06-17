@@ -80,18 +80,19 @@ class DirectModelManager:
         """
         Synchronous model loading — runs on thread pool.
 
-        Uses DiffusionPipeline.from_pretrained as a generic loader.
-        Specific adapters will use their own loaders via PipelineCache.get_or_load()
-        with more tailored pipeline classes.
+        Uses DiffusionPipeline.from_pretrained as a generic loader (auto-detects the
+        pipeline class from model_index.json). All offload and quantization strategy
+        logic is delegated to load_pipeline() from base.py — see that function's
+        docstring for the three bugs this fixes vs the old inline loading code.
         """
         import torch
         from diffusers import DiffusionPipeline
+        from app.adapters.base import estimate_pipeline_vram_mb, hf_token, load_pipeline, resolve_model_path
+        from app.infrastructure.config.settings import get_settings
 
-        # Resolve device
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cpu":
-            from app.infrastructure.config.settings import get_settings
             if not get_settings().allow_cpu_fallback:
                 raise RuntimeError(
                     "CUDA not available — model load aborted. "
@@ -99,47 +100,20 @@ class DirectModelManager:
                 )
             logger.warning("CUDA not available — loading model on CPU (ALLOW_CPU_FALLBACK=true)")
 
-        dtype = torch.float16 if device == "cuda" else torch.float32
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
-        logger.info("Loading model: %s → %s (%s)", model_id, device, dtype)
+        settings = get_settings()
+        model_path = resolve_model_path(model_id)
+        logger.info("Loading model: %s → %s (%s)", model_path, device, dtype)
 
-        from app.adapters.base import apply_pipeline_to_device
-        from app.infrastructure.config.settings import get_settings
-        pipeline = DiffusionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=dtype,
-            safety_checker=None,
-            low_cpu_mem_usage=True,
+        pipeline = load_pipeline(
+            DiffusionPipeline,
+            model_path,
+            device,
+            dtype,
+            settings.pipeline_offload,
+            settings.quantize_mode,
+            hf_token(),
         )
-        pipeline = apply_pipeline_to_device(pipeline, device, get_settings().pipeline_offload)
 
-        # Estimate VRAM usage (rough: parameter count × bytes per param)
-        estimated_vram_mb = _estimate_pipeline_vram(pipeline, dtype)
-
-        return pipeline, estimated_vram_mb
-
-
-def _estimate_pipeline_vram(pipeline: Any, dtype: Any) -> int:
-    """
-    Estimate VRAM usage of a loaded pipeline in MB.
-
-    Uses parameter count × bytes-per-element as a rough approximation.
-    Actual usage may be higher due to activations and optimizer state,
-    but this is sufficient for cache budget decisions.
-    """
-    import torch
-
-    total_bytes = 0
-    bytes_per_element = 2 if dtype == torch.float16 else 4
-
-    # Sum parameters across all sub-models in the pipeline
-    for attr_name in dir(pipeline):
-        attr = getattr(pipeline, attr_name, None)
-        if hasattr(attr, "parameters"):
-            try:
-                param_count = sum(p.numel() for p in attr.parameters())
-                total_bytes += param_count * bytes_per_element
-            except Exception:
-                pass
-
-    return total_bytes // (1024 * 1024)  # Convert to MB
+        return pipeline, estimate_pipeline_vram_mb(pipeline)

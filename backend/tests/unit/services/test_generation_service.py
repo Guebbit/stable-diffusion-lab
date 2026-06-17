@@ -74,7 +74,10 @@ class TestSubmitTextToImage:
         await service.submit_text_to_image(params, model_id="runwayml/stable-diffusion-v1-5")
 
         mock_job_creator.create_text_to_image_job.assert_awaited_once_with(
-            params, "runwayml/stable-diffusion-v1-5", None
+            params, "runwayml/stable-diffusion-v1-5",
+            lora_model_id=None,
+            lora_strength=0.8,
+            correlation_id=None,
         )
 
     @pytest.mark.asyncio
@@ -101,7 +104,10 @@ class TestSubmitTextToImage:
         )
 
         mock_job_creator.create_text_to_image_job.assert_awaited_once_with(
-            params, "runwayml/stable-diffusion-v1-5", "corr-123"
+            params, "runwayml/stable-diffusion-v1-5",
+            lora_model_id=None,
+            lora_strength=0.8,
+            correlation_id="corr-123",
         )
 
     @pytest.mark.asyncio
@@ -113,8 +119,8 @@ class TestSubmitTextToImage:
 
         await service.submit_text_to_image(params, model_id="some-model")
 
-        call_args = mock_job_creator.create_text_to_image_job.call_args[0]
-        called_params, called_model_id, called_corr_id = call_args
+        call_args = mock_job_creator.create_text_to_image_job.call_args
+        called_params, called_model_id = call_args[0]
         assert called_params.prompt == "a beautiful sunset"
         assert called_params.negative_prompt == "blurry, low quality"
         assert called_params.width == 768
@@ -124,7 +130,7 @@ class TestSubmitTextToImage:
         assert called_params.seed == 42
         assert called_params.num_images == 2
         assert called_model_id == "some-model"
-        assert called_corr_id is None
+        assert call_args[1]["correlation_id"] is None
 
     @pytest.mark.asyncio
     async def test_passes_minimal_params_with_defaults(

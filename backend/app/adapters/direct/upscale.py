@@ -67,7 +67,10 @@ class DirectUpscaleAdapter:
                     "Set ALLOW_CPU_FALLBACK=true to allow CPU inference."
                 )
             logger.warning("CUDA not available — running upscale on CPU (ALLOW_CPU_FALLBACK=true)")
-        dtype = torch.float16 if device == "cuda" else torch.float32
+        # bfloat16 for CUDA: safer than float16 for modern models (no NaN overflow risk).
+        # The SD x4 upscaler was originally trained in float16 and works with both,
+        # but bfloat16 is the safer default for any new model loaded here.
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
         logger.info("Building upscale pipeline: %s → %s", model_id, device)
 
         try:
@@ -99,9 +102,13 @@ class DirectUpscaleAdapter:
     @staticmethod
     def _blend_weights(size: int):
         import numpy as np
+        # Triangular ramp: 0 at both edges, peaks at center
         ramp = np.minimum(np.arange(size), size - 1 - np.arange(size))
+        # Cap the ramp so the central ~50% of the tile gets uniform full weight
         plateau = max(size // 4, 1)
         ramp = np.minimum(ramp, plateau).astype(np.float32)
+        # Cosine S-curve over the ramp for perceptually smooth seams;
+        # 1e-6 prevents division-by-zero in the weight-canvas normalisation below
         return (1.0 - np.cos(np.pi * ramp / plateau)) / 2.0 + 1e-6
 
     @classmethod
@@ -130,6 +137,7 @@ class DirectUpscaleAdapter:
             for x in xs:
                 x_end = min(x + cls._TILE_SIZE, lr_w)
                 y_end = min(y + cls._TILE_SIZE, lr_h)
+                # Anchor edge tiles so they are always full-size — avoids partial tiles at boundaries
                 x_start = max(0, x_end - cls._TILE_SIZE)
                 y_start = max(0, y_end - cls._TILE_SIZE)
 
@@ -159,14 +167,14 @@ class DirectUpscaleAdapter:
                 )
                 wy = cls._blend_weights(out_h)[:, np.newaxis]
                 wx = cls._blend_weights(out_w)[np.newaxis, :]
-                weight = wy * wx
+                weight = wy * wx  # outer product → 2-D per-pixel blend weight
 
                 out_canvas[out_y:out_y + out_h, out_x:out_x + out_w] += (
                     tile_arr * weight[:, :, np.newaxis]
                 )
                 weight_canvas[out_y:out_y + out_h, out_x:out_x + out_w] += weight
 
-        weight_canvas = np.maximum(weight_canvas, 1e-6)[:, :, np.newaxis]
+        weight_canvas = np.maximum(weight_canvas, 1e-6)[:, :, np.newaxis]  # guard uncovered pixels
         result_arr = np.clip(out_canvas / weight_canvas, 0, 255).astype(np.uint8)
         return Image.fromarray(result_arr)
 

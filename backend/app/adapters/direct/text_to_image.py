@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.adapters.base import apply_pipeline_to_device, build_diffusers_step_callback, estimate_pipeline_vram_mb, hf_token, resolve_model_path, save_artifacts_from_pil_images
+from app.adapters.base import build_diffusers_step_callback, estimate_pipeline_vram_mb, hf_token, load_pipeline, resolve_model_path, save_artifacts_from_pil_images
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams
@@ -75,52 +75,50 @@ class DirectTextToImageAdapter:
         """
         Build a text-to-image pipeline — called by PipelineCache on cache miss.
 
-        Returns (pipeline_object, estimated_vram_mb) tuple.
-        Heavy imports are deferred to here to keep app startup fast.
+        All device placement, offload strategy, and quantization logic is delegated to
+        load_pipeline() in base.py, which fixes three bugs present in the old inline code:
+          1. device_map="balanced" caused T5-XXL and other sub-components to land in CPU
+             RAM even when VRAM was sufficient — filled all system RAM for FLUX (~22 GB).
+          2. float16 caused NaN overflow in FLUX attention layers; bfloat16 is now used.
+          3. sequential_cpu used device_map="sequential" (accelerate distribution mode)
+             instead of enable_sequential_cpu_offload() — a completely different mechanism
+             that actually achieves ~1-2 GB peak VRAM.
         """
         import torch
         from diffusers import DiffusionPipeline
+        from app.infrastructure.config.settings import get_settings
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cpu":
-            from app.infrastructure.config.settings import get_settings
             if not get_settings().allow_cpu_fallback:
                 raise RuntimeError(
                     "CUDA not available — text-to-image job aborted. "
                     "Set ALLOW_CPU_FALLBACK=true to allow CPU inference."
                 )
             logger.warning("CUDA not available — running text-to-image on CPU (ALLOW_CPU_FALLBACK=true)")
-        dtype = torch.float16 if device == "cuda" else torch.float32
 
+        # bfloat16 on CUDA: required for FLUX (float16 overflows its attention layers due to
+        # limited exponent range), and safe for SD1.x/SDXL on Ampere+ GPUs (RTX 3000+).
+        # CPU always uses float32 — bfloat16 ops are not accelerated on most CPUs.
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
+
+        settings = get_settings()
         model_path = resolve_model_path(model_id)
         logger.info("Building text-to-image pipeline: %s → %s", model_path, device)
 
-        from app.infrastructure.config.settings import get_settings
-        offload = get_settings().pipeline_offload
+        pipeline = load_pipeline(
+            DiffusionPipeline,
+            model_path,
+            device,
+            dtype,
+            settings.pipeline_offload,
+            settings.quantize_mode,
+            hf_token(),
+            safety_checker=None,
+        )
 
-        if device == "cuda" and offload in ("model_cpu", "sequential_cpu"):
-            # Load with device_map so each component is streamed directly to its
-            # target device as it initialises — avoids staging the full model in
-            # CPU RAM (transformer + T5 together easily exceed 16 GB and trigger
-            # the OOM killer before enable_model_cpu_offload() is even called).
-            # device_map is mutually exclusive with the manual offload helpers.
-            pipeline = DiffusionPipeline.from_pretrained(
-                model_path,
-                torch_dtype=dtype,
-                safety_checker=None,
-                token=hf_token(),
-                device_map="balanced",
-            )
-        else:
-            pipeline = DiffusionPipeline.from_pretrained(
-                model_path,
-                torch_dtype=dtype,
-                safety_checker=None,
-                token=hf_token(),
-                low_cpu_mem_usage=True,
-            )
-            pipeline = apply_pipeline_to_device(pipeline, device, offload)
-
+        # VAE tiling decodes large images tile-by-tile — avoids OOM on high-res outputs.
+        # Attention slicing processes one head at a time — reduces peak VRAM mid-step.
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
         if hasattr(pipeline, "enable_attention_slicing"):

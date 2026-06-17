@@ -118,7 +118,8 @@ class DirectSketchToInkAdapter:
                     "Set ALLOW_CPU_FALLBACK=true to allow CPU inference."
                 )
             logger.warning("CUDA not available — running sketch-to-ink on CPU (ALLOW_CPU_FALLBACK=true)")
-        dtype = torch.float16 if device == "cuda" else torch.float32
+        # bfloat16 on CUDA: required for FLUX-based models, safe for SD1.5/SDXL on Ampere+.
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
         if base_model_id and model_type == "controlnet":
             try:

@@ -30,6 +30,9 @@ services:
       CIVITAI_TOKEN: ${CIVITAI_TOKEN:-}
       INFERENCE_DEVICE: auto
       ALLOW_CPU_FALLBACK: ${ALLOW_CPU_FALLBACK:-false}
+      PIPELINE_OFFLOAD: ${PIPELINE_OFFLOAD:-none}
+      MAX_VRAM_MB: ${MAX_VRAM_MB:-0}
+      JOB_TIMEOUT_SECONDS: ${JOB_TIMEOUT_SECONDS:-0}
       # PyTorch's allocator carves out large contiguous chunks ("segments") and subdivides them.
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     deploy:

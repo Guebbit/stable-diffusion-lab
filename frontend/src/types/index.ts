@@ -19,7 +19,7 @@ export type ModelSource = 'huggingface' | 'civitai'
  * Stable Diffusion architecture family.
  * Matters for ControlNet compatibility and native resolution defaults.
  */
-export type ModelFamily = 'sd15' | 'sdxl' | 'flux' | 'custom'
+export type ModelFamily = 'sd15' | 'sd2' | 'sdxl' | 'flux' | 'custom'
 
 /**
  * Supported generation task types (matches backend JobType).

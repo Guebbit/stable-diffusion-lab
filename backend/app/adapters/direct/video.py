@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from app.adapters.base import apply_pipeline_to_device, estimate_pipeline_vram_mb
+from app.adapters.base import estimate_pipeline_vram_mb, hf_token, load_pipeline, resolve_model_path
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams, JobProgress
@@ -74,33 +74,40 @@ class DirectVideoAdapter:
         """
         Build a video generation pipeline — called by PipelineCache on cache miss.
 
-        Uses DiffusionPipeline.from_pretrained which auto-detects the pipeline type
-        (AnimateDiffPipeline, StableVideoDiffusionPipeline, etc.).
-        Applies model CPU offloading if VRAM is limited.
+        Auto-detects the pipeline type (AnimateDiffPipeline, StableVideoDiffusionPipeline,
+        CogVideoX, etc.) via DiffusionPipeline.from_pretrained. Video models can be very
+        large (CogVideoX is ~18 GB), so load_pipeline() is used instead of the old
+        from_pretrained + apply_pipeline_to_device pattern — which staged through CPU RAM
+        and would fill all system RAM for large video models in PIPELINE_OFFLOAD=none mode.
         """
         import torch
         from diffusers import DiffusionPipeline
+        from app.infrastructure.config.settings import get_settings
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cpu":
-            from app.infrastructure.config.settings import get_settings
             if not get_settings().allow_cpu_fallback:
                 raise RuntimeError(
                     "CUDA not available — video job aborted. "
                     "Set ALLOW_CPU_FALLBACK=true to allow CPU inference."
                 )
             logger.warning("CUDA not available — running video on CPU (ALLOW_CPU_FALLBACK=true)")
-        dtype = torch.float16 if device == "cuda" else torch.float32
 
-        logger.info("Building video pipeline: %s → %s", model_id, device)
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
-        pipeline = DiffusionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=dtype,
+        settings = get_settings()
+        model_path = resolve_model_path(model_id)
+        logger.info("Building video pipeline: %s → %s", model_path, device)
+
+        pipeline = load_pipeline(
+            DiffusionPipeline,
+            model_path,
+            device,
+            dtype,
+            settings.pipeline_offload,
+            settings.quantize_mode,
+            hf_token(),
         )
-
-        from app.infrastructure.config.settings import get_settings
-        pipeline = apply_pipeline_to_device(pipeline, device, get_settings().pipeline_offload)
 
         return pipeline, estimate_pipeline_vram_mb(pipeline)
 
@@ -118,6 +125,8 @@ class DirectVideoAdapter:
 
         # Resolve seed
         seed = params.seed if params.seed is not None else int(time.time() * 1000) % (2**32)
+        # CPU generator: SVD and AnimateDiff move it to the correct device internally;
+        # passing a CUDA generator causes device-mismatch errors on some pipeline versions
         generator = torch.Generator(device="cpu").manual_seed(seed)
 
         # Build pipeline kwargs

@@ -141,7 +141,7 @@ class DirectFaceRestoreAdapter:
         return [
             ArtifactReference(
                 artifact_id=artifact_id,
-                job_id=uuid.UUID(int=0),
+                job_id=uuid.UUID(int=0),  # placeholder — face restore runs inside a pipeline step, not as a standalone job
                 file_path=str(file_path),
                 media_type="image/png",
                 width=result.width,

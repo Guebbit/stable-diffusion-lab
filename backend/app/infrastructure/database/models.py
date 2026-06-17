@@ -148,6 +148,7 @@ class JobRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     progress_percent: Mapped[int] = mapped_column(Integer, default=0)
     current_step: Mapped[int] = mapped_column(Integer, default=0)
     total_steps: Mapped[int] = mapped_column(Integer, default=0)
+    message: Mapped[str] = mapped_column(Text, default="")
 
     # --- Priority and ordering ---
     priority: Mapped[int] = mapped_column(Integer, default=0)

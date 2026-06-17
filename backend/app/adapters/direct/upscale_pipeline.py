@@ -148,8 +148,7 @@ class UpscalePipeline:
                 logger.info("Step 1/3: enhancement skipped")
 
             # ── Step 2: Upscale (required) ────────────────────────────────
-            # If face restore follows, write upscale output to temp dir;
-            # otherwise write directly to the final output_dir.
+            # Route upscale output through temp so only the final artifact (post-face-restore) lands in output_dir
             step2_out = tmp / "step2_upscale" if config.face_restore_model_id else output_dir
             logger.info("Step 2/3: upscaling with %s (×%s)", config.upscale_model_id, config.scale_factor)
             refs = await self._upscale.upscale(
