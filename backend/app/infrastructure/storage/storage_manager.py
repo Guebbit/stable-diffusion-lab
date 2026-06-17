@@ -58,9 +58,7 @@ class StorageManager:
 
     def model_dir(self, source: str, model_id: str) -> Path:
         """Return the directory where a model's files are stored."""
-        # Sanitize model_id for filesystem safety (replace / with --)
-        safe_id = model_id.replace("/", "--")
-        path = self._settings.models_path / source / safe_id
+        path = self._settings.models_path / source / Path(*model_id.split("/"))
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -98,7 +96,7 @@ class StorageManager:
 
     def delete_model_files(self, source: str, model_id: str) -> None:
         """Remove all files for a model from disk."""
-        path = self.model_dir(source, model_id)
+        path = self._settings.models_path / source / Path(*model_id.split("/"))
         if path.exists():
             shutil.rmtree(path)
 

@@ -108,7 +108,7 @@ export const useModelsStore = defineStore('models', () => {
     return diffusionApi.purgeModelFiles(modelId)
       .then(() => {
         const entry = registry.value.find(m => m.model_id === modelId)
-        if (entry) entry.status = 'not_downloaded'
+        if (entry) { entry.status = 'not_downloaded'; entry.total_size_bytes = 0 }
         notif.push('success', `Files deleted for "${modelId}"`)
       })
       .catch((err: unknown) => {

@@ -45,17 +45,14 @@ def _job_to_response(j) -> JobDetailResponse:
         progress_percent=j.progress_percent,
         current_step=j.current_step,
         total_steps=j.total_steps,
-        message=j.message,
         priority=j.priority,
         attempt=j.attempt,
         max_attempts=j.max_attempts,
         params=j.params,
-        result=j.result,
         error=j.error,
         created_at=j.created_at,
         started_at=j.started_at,
         completed_at=j.completed_at,
-        timeout_at=j.timeout_at,
     )
 
 

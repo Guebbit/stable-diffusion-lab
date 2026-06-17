@@ -7,7 +7,7 @@
  * - Toast snackbar: brief auto-dismissing notification
  * - Activity log panel: live job queue / history from the backend
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDiffusionStore } from './stores/diffusion'
 import { useHistoryStore } from './stores/history'
 import { useModelsStore } from './stores/models'
@@ -101,7 +101,17 @@ const activeJobCount = computed(() =>
   jobs.value.filter(j => j.status === 'pending' || j.status === 'running').length
 )
 
+// ── Disk/storage formatting ────────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`
+  return `${(bytes / 1024).toFixed(0)} KB`
+}
+
 // ── App bootstrap ──────────────────────────────────────────────────────────
+
+let _statusInterval: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   store.fetchStatus()
@@ -110,6 +120,11 @@ onMounted(() => {
   historyStore.init()
   modelsStore.init()
   fetchJobs()
+  _statusInterval = setInterval(() => store.fetchStatus(), 30_000)
+})
+
+onUnmounted(() => {
+  if (_statusInterval) clearInterval(_statusInterval)
 })
 
 const showToast = computed({
@@ -148,18 +163,20 @@ const navItems = [
       <v-spacer />
 
       <template #append>
-        <v-chip
-          v-if="store.status"
-          :color="store.status.status === 'ok' ? 'success' : 'warning'"
-          size="small"
-          class="mr-3"
-          prepend-icon="mdi-server"
-        >
-          {{ store.status.device?.toUpperCase() ?? 'Backend' }}
-          <template v-if="store.status.models?.active_model">
-            · {{ store.status.models.active_model }}
-          </template>
-        </v-chip>
+        <template v-if="store.status">
+          <span class="text-caption text-medium-emphasis mr-2">
+            {{ formatBytes(store.status.models_disk_bytes) }} models
+            · {{ formatBytes(store.status.disk_free_bytes) }} free
+          </span>
+          <v-chip
+            :color="store.status.status === 'ok' ? 'success' : 'warning'"
+            size="small"
+            class="mr-3"
+            prepend-icon="mdi-server"
+          >
+            {{ store.status.device.toUpperCase() }}
+          </v-chip>
+        </template>
         <v-chip
           v-else
           color="error"
@@ -229,10 +246,7 @@ const navItems = [
                       <v-list-item-title class="text-body-2 font-weight-medium">
                         {{ jobLabel(job) }}
                       </v-list-item-title>
-                      <v-list-item-subtitle v-if="job.status === 'running' && job.message" class="text-caption">
-                        {{ job.message }}
-                      </v-list-item-subtitle>
-                      <v-list-item-subtitle v-else-if="job.status === 'failed' && job.error" class="text-caption text-error">
+                      <v-list-item-subtitle v-if="job.status === 'failed' && job.error" class="text-caption text-error">
                         {{ job.error }}
                       </v-list-item-subtitle>
 

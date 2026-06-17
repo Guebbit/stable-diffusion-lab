@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     max_vram_mb: int = 0
     # Maximum pipelines to keep loaded in PipelineCache simultaneously
     max_cached_pipelines: int = 1
+    # How to place diffusion pipelines on the GPU.
+    #   none           — load everything to VRAM at once (fastest, needs most VRAM).
+    #                    Job fails with a clear error if free VRAM is insufficient.
+    #   model_cpu      — offload sub-models to CPU between forward passes (~3-5 GB peak VRAM).
+    #   sequential_cpu — offload layer-by-layer (~1-2 GB peak VRAM, slowest).
+    pipeline_offload: str = "model_cpu"
 
     # --- Job orchestrator ---
     # Maximum concurrent inference workers (1 = serialize GPU work)

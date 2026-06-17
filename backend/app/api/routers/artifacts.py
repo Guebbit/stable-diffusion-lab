@@ -126,7 +126,6 @@ def _to_response(a: object) -> ArtifactResponse:
         size_bytes=a.size_bytes,  # type: ignore[attr-defined]
         width=a.width,  # type: ignore[attr-defined]
         height=a.height,  # type: ignore[attr-defined]
-        duration_seconds=a.duration_seconds,  # type: ignore[attr-defined]
         prompt=a.prompt,  # type: ignore[attr-defined]
         negative_prompt=a.negative_prompt,  # type: ignore[attr-defined]
         seed=a.seed,  # type: ignore[attr-defined]

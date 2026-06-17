@@ -89,7 +89,7 @@ class JobRepository:
         )
         await self._session.execute(stmt)
 
-    async def mark_completed(self, job_id: UUID, result: dict | None = None) -> None:
+    async def mark_completed(self, job_id: UUID) -> None:
         """Mark a job as successfully completed."""
         stmt = (
             update(JobRecord)
@@ -98,7 +98,6 @@ class JobRepository:
                 status="completed",
                 progress_percent=100,
                 completed_at=datetime.now(timezone.utc),
-                result=result or {},
             )
         )
         await self._session.execute(stmt)

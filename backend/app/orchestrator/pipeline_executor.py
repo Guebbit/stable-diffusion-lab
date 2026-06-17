@@ -8,22 +8,15 @@ adapter's generate/caption method.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.adapters.adapter_registry import AdapterRegistry
 from app.domain.enums import InferenceBackend, JobType
-from app.domain.value_objects import GenerationParams
+from app.domain.value_objects import ArtifactReference, GenerationParams
 from app.infrastructure.config.settings import get_settings
-
-from app.domain.value_objects import ArtifactReference
-
-if TYPE_CHECKING:
-    from app.domain.value_objects import JobProgress
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +32,6 @@ class PipelineExecutor:
         job_id: UUID,
         job_type: str,
         params: dict,
-        on_progress: None | callable = None,
         cancel_event: threading.Event | None = None,
     ) -> list[ArtifactReference]:
         """
@@ -49,17 +41,14 @@ class PipelineExecutor:
             job_id: The job UUID (used for output paths).
             job_type: JobType enum value as string.
             params: Serialized job parameters.
-            on_progress: Optional callback for progress updates.
             cancel_event: threading.Event that signals the inference thread to stop.
         """
         settings = get_settings()
-        correlation_id = params.get("correlation_id")
         backend_str = params.get("backend")
         backend = InferenceBackend(backend_str) if backend_str else None
-        _loop = asyncio.get_running_loop()
         output_dir = settings.artifacts_path / str(job_id)
 
-        progress_cb = on_progress or _make_dummy_progress(correlation_id, job_id)
+        progress_cb = None
 
         job_type_enum = JobType(job_type)
 
@@ -259,16 +248,8 @@ class PipelineExecutor:
         return []
 
 
+
 # ── Module-level helpers ────────────────────────────────────────────────
-
-def _make_dummy_progress(correlation_id: str | None, job_id: UUID) -> callable:
-    """Return a no-op progress callback."""
-
-    def _no_op(progress: "JobProgress") -> None:
-        pass
-
-    return _no_op
-
 
 def _build_gen_params(params: dict, default_steps: int = 20) -> GenerationParams:
     """Extract GenerationParams from a serialized params dict."""

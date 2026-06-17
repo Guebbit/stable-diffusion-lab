@@ -17,6 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from app.adapters.base import apply_pipeline_to_device, estimate_pipeline_vram_mb
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams, JobProgress
@@ -43,22 +44,12 @@ class DirectVideoAdapter:
         output_dir: Path,
         source_image_path: Path | None = None,
         on_progress: ProgressCallback | None = None,
-    ) -> ArtifactReference:
+    ) -> list[ArtifactReference]:
         """
         Run video generation inference.
 
         Loads the video pipeline via PipelineCache, generates frames,
-        encodes to MP4, and returns an artifact reference.
-
-        Args:
-            params: Generation parameters (prompt, steps, etc.).
-            model_id: HuggingFace model ID for the video pipeline.
-            output_dir: Directory to save the output video file.
-            source_image_path: Optional source image for image-to-video.
-            on_progress: Optional callback for progress reporting.
-
-        Returns:
-            ArtifactReference pointing to the generated video file.
+        encodes to MP4, and returns a single-element artifact list.
         """
         # Get video pipeline from cache
         pipeline = await self._cache.get_or_load(
@@ -76,7 +67,7 @@ class DirectVideoAdapter:
             source_image_path,
             on_progress,
         )
-        return artifact
+        return [artifact]
 
     @staticmethod
     def _build_pipeline(model_id: str) -> tuple[Any, int]:
@@ -108,19 +99,10 @@ class DirectVideoAdapter:
             torch_dtype=dtype,
         )
 
-        # Video pipelines are huge — use CPU offloading if on GPU
-        # This moves sub-models to GPU only during their forward pass
-        if device == "cuda":
-            pipeline.enable_model_cpu_offload()
-        else:
-            pipeline = pipeline.to(device)
+        from app.infrastructure.config.settings import get_settings
+        pipeline = apply_pipeline_to_device(pipeline, device, get_settings().pipeline_offload)
 
-        # Estimate VRAM (video models are large: 8-24 GB with offloading)
-        total_params = sum(p.numel() for p in pipeline.unet.parameters())
-        bytes_per_param = 2 if dtype == torch.float16 else 4
-        estimated_vram_mb = (total_params * bytes_per_param) // (1024 * 1024)
-
-        return pipeline, estimated_vram_mb
+        return pipeline, estimate_pipeline_vram_mb(pipeline)
 
     @staticmethod
     def _run_inference(
@@ -129,7 +111,7 @@ class DirectVideoAdapter:
         output_dir: Path,
         source_image_path: Path | None,
         on_progress: ProgressCallback | None,
-    ) -> ArtifactReference:
+    ) -> ArtifactReference:  # single artifact; generate() wraps it in a list
         """Synchronous video inference — runs on thread pool."""
         import torch
         from diffusers.utils import export_to_video

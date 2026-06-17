@@ -20,6 +20,8 @@ from app.domain.enums import InferenceBackend, JobType
 from app.domain.protocols import (
     ImageToImageProvider,
     LLMProvider,
+    RecolorProvider,
+    SketchToInkProvider,
     TextToImageProvider,
     UpscaleProvider,
     VideoProvider,
@@ -38,6 +40,8 @@ _PROTOCOL_MAP: dict[JobType, type[Any]] = {
     JobType.VIDEO_GENERATION: VideoProvider,
     JobType.LLM_INFERENCE: LLMProvider,
     JobType.UPSCALE: UpscaleProvider,
+    JobType.RECOLOR: RecolorProvider,
+    JobType.SKETCH_TO_INK: SketchToInkProvider,
 }
 
 

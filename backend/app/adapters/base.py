@@ -139,6 +139,69 @@ def build_step_callback(
     return _callback
 
 
+class InsufficientVRAMError(RuntimeError):
+    """Raised when free VRAM is too low to load a pipeline with PIPELINE_OFFLOAD=none."""
+
+
+def estimate_pipeline_vram_mb(pipeline: Any) -> int:
+    """
+    Estimate VRAM usage in MB for a diffusers pipeline.
+
+    Checks .transformer first (FLUX, DiT-based) then .unet (SD 1.x/2.x/XL).
+    Returns 0 if neither attribute is found.
+    """
+    component = getattr(pipeline, "transformer", None) or getattr(pipeline, "unet", None)
+    if component is None:
+        return 0
+    param_bytes = sum(p.numel() * p.element_size() for p in component.parameters())
+    return (param_bytes * 2) // (1024 * 1024)
+
+
+def apply_pipeline_to_device(pipeline: Any, device: str, offload_strategy: str) -> Any:
+    """
+    Move a diffusers pipeline to the target device using the configured offload strategy.
+
+    Called after from_pretrained() (model still on CPU) — safe to estimate VRAM here.
+
+    Strategies (set via PIPELINE_OFFLOAD env var):
+      none           — move entire pipeline to VRAM; raises InsufficientVRAMError if it won't fit.
+      model_cpu      — stream sub-models to GPU one at a time (~3-5 GB peak VRAM).
+      sequential_cpu — stream layer-by-layer (~1-2 GB peak VRAM, slowest).
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if device != "cuda":
+        return pipeline.to(device)
+
+    if offload_strategy == "none":
+        import torch
+        needed_mb = estimate_pipeline_vram_mb(pipeline)
+        if needed_mb > 0:
+            free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+            free_mb = free_bytes // (1024 * 1024)
+            total_mb = total_bytes // (1024 * 1024)
+            if free_mb < needed_mb:
+                raise InsufficientVRAMError(
+                    f"Not enough VRAM to load pipeline: need ~{needed_mb} MB, "
+                    f"only {free_mb} MB free of {total_mb} MB total. "
+                    "Free GPU memory (stop other jobs or models) or set "
+                    "PIPELINE_OFFLOAD=model_cpu in your .env."
+                )
+            logger.info(
+                "VRAM check passed: need ~%d MB, %d MB free — loading to GPU", needed_mb, free_mb
+            )
+        return pipeline.to(device)
+
+    if offload_strategy == "sequential_cpu":
+        pipeline.enable_sequential_cpu_offload()
+        return pipeline
+
+    # Default: model_cpu
+    pipeline.enable_model_cpu_offload()
+    return pipeline
+
+
 def save_artifacts_from_bytes(
     image_bytes_list: list[bytes],
     output_dir: Path,

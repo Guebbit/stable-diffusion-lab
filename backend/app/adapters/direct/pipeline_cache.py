@@ -236,19 +236,30 @@ class PipelineCache:
             return
         self._last_unload_at = datetime.now(timezone.utc)
 
-        # Delete the pipeline object and force Python GC before clearing CUDA cache.
-        # Without gc.collect(), the object's reference count may not drop to zero
-        # immediately, leaving tensors pinned in VRAM when empty_cache() runs.
-        del entry.pipeline
+        # When loaded with device_map (accelerate), dispatch hooks on every
+        # submodule hold references to CPU tensors. remove_hook_from_module()
+        # must be called before del so that gc.collect() can actually drop the
+        # refcount to zero and release CPU RAM.
         try:
             import gc
 
             import torch
+            from accelerate.hooks import remove_hook_from_module
 
+            pipeline = entry.pipeline
+            if hasattr(pipeline, "hf_device_map"):
+                for component in vars(pipeline).values():
+                    if hasattr(component, "parameters"):
+                        remove_hook_from_module(component, recurse=True)
+            del pipeline
+        except Exception:
+            pass
+        del entry.pipeline
+        try:
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-        except ImportError:
+        except Exception:
             pass
 
         logger.info(

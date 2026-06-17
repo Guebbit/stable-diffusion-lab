@@ -68,8 +68,12 @@ class ArtifactStatus(BaseModel):
 class StatusResponse(BaseModel):
     """System status with model statistics."""
 
+    status: str = "ok"
+    device: str = "cpu"
     total_models: int = 0
     models_by_family: dict[str, int] = Field(default_factory=dict)
+    models_disk_bytes: int = 0
+    disk_free_bytes: int = 0
 
 
 class HealthResponse(BaseModel):

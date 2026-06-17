@@ -5,6 +5,12 @@ import type { ModelFamily, ModelRegistryAddRequest, ModelRegistryEntry, ModelReg
 
 const modelsStore = useModelsStore()
 
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`
+  return `${(bytes / 1024).toFixed(0)} KB`
+}
+
 onMounted(() => {
   modelsStore.fetchRegistry()
   modelsStore.connectSSE()
@@ -571,9 +577,10 @@ function statusChipLabel(model: ModelRegistryEntry): string {
                 v-if="model.total_size_bytes"
                 size="x-small"
                 variant="tonal"
-                prepend-icon="mdi-database"
+                :prepend-icon="model.status === 'downloaded' ? 'mdi-harddisk' : 'mdi-download-outline'"
+                :color="model.status === 'downloaded' ? 'success' : undefined"
               >
-                {{ Math.round(model.total_size_bytes / 1024 / 1024) }} MB
+                {{ model.status === 'downloaded' ? '' : '~' }}{{ formatBytes(model.total_size_bytes) }}
               </v-chip>
               <v-btn
                 v-if="model.source_url"

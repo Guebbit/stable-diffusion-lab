@@ -111,7 +111,7 @@ class ModelService:
             raise ValueError(f"Model {model_id} not found")
 
         self._storage.delete_model_files(model.source, model_id)
-        await self._model_repo.update_status(model_id, ModelStatus.NOT_DOWNLOADED)
+        await self._model_repo.update_status(model_id, ModelStatus.NOT_DOWNLOADED, total_size_bytes=0)
         logger.info("Purged files for model: %s", model_id)
 
     async def delete_model(self, model_id: str) -> None:

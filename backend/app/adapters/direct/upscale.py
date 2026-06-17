@@ -12,6 +12,7 @@ import logging
 import uuid
 from pathlib import Path
 
+from app.adapters.base import apply_pipeline_to_device, estimate_pipeline_vram_mb
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference
@@ -70,15 +71,16 @@ class DirectUpscaleAdapter:
         logger.info("Building upscale pipeline: %s → %s", model_id, device)
 
         try:
+            from app.infrastructure.config.settings import get_settings
             pipeline = StableDiffusionUpscalePipeline.from_pretrained(
-                model_id, torch_dtype=dtype
-            ).to(device)
+                model_id, torch_dtype=dtype, low_cpu_mem_usage=True
+            )
+            pipeline = apply_pipeline_to_device(pipeline, device, get_settings().pipeline_offload)
             # VAE tiling decodes in tiles to avoid OOM on large upscaled outputs.
             # Attention slicing reduces peak VRAM during UNet forward passes.
             pipeline.enable_vae_tiling()
             pipeline.enable_attention_slicing()
-            param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())
-            return pipeline, (param_bytes * 2) // (1024 * 1024)
+            return pipeline, estimate_pipeline_vram_mb(pipeline)
         except (ValueError, OSError):
             # Model is not a dedicated upscaler (missing low_res_scheduler / watermarker).
             # Fall back to PIL-only upscaling — no ML pipeline needed.

@@ -91,8 +91,8 @@ class VideoProvider(Protocol):
         output_dir: Path,
         source_image_path: Path | None = None,
         on_progress: ProgressCallback | None = None,
-    ) -> ArtifactReference:
-        """Run video generation. Returns reference to saved video file."""
+    ) -> list[ArtifactReference]:
+        """Run video generation. Returns list with a single video artifact reference."""
         ...
 
 
@@ -111,6 +111,49 @@ class UpscaleProvider(Protocol):
         on_progress: ProgressCallback | None = None,
     ) -> list[ArtifactReference]:
         """Upscale the image and return references to saved artifacts."""
+        ...
+
+
+# --- Recolor ---
+
+@runtime_checkable
+class RecolorProvider(Protocol):
+    """Re-colorizes an image guided by a text prompt via img2img diffusion."""
+
+    async def generate(
+        self,
+        params: GenerationParams,
+        model_id: str,
+        source_image_path: Path,
+        output_dir: Path,
+        strength: float = 0.75,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[ArtifactReference]:
+        """Run recolor inference."""
+        ...
+
+
+# --- Sketch-to-Ink ---
+
+@runtime_checkable
+class SketchToInkProvider(Protocol):
+    """Converts sketch / line-art images to styled ink-look outputs."""
+
+    async def generate(
+        self,
+        params: GenerationParams,
+        model_id: str,
+        source_image_path: Path,
+        output_dir: Path,
+        strength: float = 0.9,
+        base_model_id: str | None = None,
+        model_type: str | None = None,
+        adapter_conditioning_scale: float = 0.9,
+        lora_model_id: str | None = None,
+        lora_strength: float = 0.8,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[ArtifactReference]:
+        """Run sketch-to-ink inference."""
         ...
 
 

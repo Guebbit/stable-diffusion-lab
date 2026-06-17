@@ -9,13 +9,14 @@ efficient model lifecycle management.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
-from app.adapters.base import build_diffusers_step_callback, hf_token, resolve_model_path, save_artifacts_from_pil_images
+from app.adapters.base import apply_pipeline_to_device, build_diffusers_step_callback, estimate_pipeline_vram_mb, hf_token, resolve_model_path, save_artifacts_from_pil_images
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams
@@ -94,12 +95,32 @@ class DirectTextToImageAdapter:
         model_path = resolve_model_path(model_id)
         logger.info("Building text-to-image pipeline: %s → %s", model_path, device)
 
-        pipeline = DiffusionPipeline.from_pretrained(
-            model_path,
-            torch_dtype=dtype,
-            safety_checker=None,
-            token=hf_token(),
-        ).to(device)
+        from app.infrastructure.config.settings import get_settings
+        offload = get_settings().pipeline_offload
+
+        if device == "cuda" and offload in ("model_cpu", "sequential_cpu"):
+            # Load with device_map so each component is streamed directly to its
+            # target device as it initialises — avoids staging the full model in
+            # CPU RAM (transformer + T5 together easily exceed 16 GB and trigger
+            # the OOM killer before enable_model_cpu_offload() is even called).
+            # device_map is mutually exclusive with the manual offload helpers.
+            pipeline = DiffusionPipeline.from_pretrained(
+                model_path,
+                torch_dtype=dtype,
+                safety_checker=None,
+                token=hf_token(),
+                device_map="balanced",
+            )
+        else:
+            pipeline = DiffusionPipeline.from_pretrained(
+                model_path,
+                torch_dtype=dtype,
+                safety_checker=None,
+                token=hf_token(),
+                low_cpu_mem_usage=True,
+            )
+            pipeline = apply_pipeline_to_device(pipeline, device, offload)
+
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
         if hasattr(pipeline, "enable_attention_slicing"):
@@ -112,11 +133,7 @@ class DirectTextToImageAdapter:
             if hasattr(pipeline, "fuse_lora"):
                 pipeline.fuse_lora(lora_scale=lora_strength)
 
-        # Estimate VRAM: count parameters × bytes per element
-        param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())
-        estimated_vram_mb = (param_bytes * 2) // (1024 * 1024)  # ×2 for activations
-
-        return pipeline, estimated_vram_mb
+        return pipeline, estimate_pipeline_vram_mb(pipeline)
 
     @staticmethod
     def _run_inference(
@@ -131,24 +148,32 @@ class DirectTextToImageAdapter:
 
         # Resolve seed (deterministic if provided, random-ish otherwise)
         seed = params.seed if params.seed is not None else int(time.time() * 1000) % (2**32)
-        generator = torch.Generator(device=pipeline.device).manual_seed(seed)
+        # pipeline.device can be 'meta' when CPU offload is active; fall back to cuda/cpu
+        gen_device = pipeline.device if str(pipeline.device) != "meta" else (
+            torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        )
+        generator = torch.Generator(device=gen_device).manual_seed(seed)
 
         # Step progress callback — raises GenerationCancelledError when cancel_event is set
         step_callback = build_diffusers_step_callback(
             on_progress, params.num_inference_steps, cancel_event=cancel_event
         )
 
-        # Run the diffusion pipeline
-        result = pipeline(
-            prompt=params.prompt,
-            negative_prompt=params.negative_prompt or None,
-            width=params.width,
-            height=params.height,
-            num_inference_steps=params.num_inference_steps,
-            guidance_scale=params.guidance_scale,
-            num_images_per_prompt=params.num_images,
-            generator=generator,
-            callback_on_step_end=step_callback,
-        )
+        # Filter kwargs to only what this pipeline's __call__ actually accepts.
+        # Some models (e.g. FLUX) omit negative_prompt and guidance_scale.
+        supported = set(inspect.signature(pipeline.__call__).parameters)
+        all_kwargs: dict[str, Any] = {
+            "prompt": params.prompt,
+            "negative_prompt": params.negative_prompt or None,
+            "width": params.width,
+            "height": params.height,
+            "num_inference_steps": params.num_inference_steps,
+            "guidance_scale": params.guidance_scale,
+            "num_images_per_prompt": params.num_images,
+            "generator": generator,
+            "callback_on_step_end": step_callback,
+        }
+        call_kwargs = {k: v for k, v in all_kwargs.items() if k in supported}
+        result = pipeline(**call_kwargs)
 
         return save_artifacts_from_pil_images(result.images, output_dir, params)

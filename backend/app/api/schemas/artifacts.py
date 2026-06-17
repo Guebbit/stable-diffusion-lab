@@ -39,7 +39,6 @@ class ArtifactResponse(BaseModel):
     size_bytes: int = 0
     width: int = 0
     height: int = 0
-    duration_seconds: float | None = None
     prompt: str = ""
     negative_prompt: str = ""
     seed: int = 0

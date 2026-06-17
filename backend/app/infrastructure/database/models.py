@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text
 from sqlalchemy import ForeignKey, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -148,7 +148,6 @@ class JobRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     progress_percent: Mapped[int] = mapped_column(Integer, default=0)
     current_step: Mapped[int] = mapped_column(Integer, default=0)
     total_steps: Mapped[int] = mapped_column(Integer, default=0)
-    message: Mapped[str] = mapped_column(Text, default="")
 
     # --- Priority and ordering ---
     priority: Mapped[int] = mapped_column(Integer, default=0)
@@ -160,13 +159,9 @@ class JobRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
-    timeout_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
 
     # --- Parameters (stored as JSON for flexibility across job types) ---
     params: Mapped[dict] = mapped_column(JSONB, default=dict)
-    result: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str] = mapped_column(Text, default="")
 
     # --- Retry tracking ---
@@ -242,12 +237,12 @@ class ArtifactRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     # --- File info ---
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    # TODO: generate thumbnails for image artifacts
     thumbnail_path: Mapped[str] = mapped_column(String(1024), default="")
     media_type: Mapped[str] = mapped_column(String(100), default="image/png")
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     width: Mapped[int] = mapped_column(Integer, default=0)
     height: Mapped[int] = mapped_column(Integer, default=0)
-    duration_seconds: Mapped[float | None] = mapped_column(Float, default=None)
 
     # --- Generation metadata (denormalized for fast gallery queries) ---
     prompt: Mapped[str] = mapped_column(Text, default="")

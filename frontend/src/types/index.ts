@@ -1,16 +1,13 @@
 /**
  * System state snapshot from /api/v1/system/status.
- * Comprehensive health + resource info from the observability service.
  */
 export interface SystemStatus {
   status: string
-  version: string
   device: string
-  runtime: { app_name: string; uptime_seconds: number; inference_backend: string }
-  gpu: { busy: boolean; active_job_id: string | null; cuda_allocated_mb: number; cuda_reserved_mb: number }
-  models: { cache_size: number; max_cached: number; active_model: string | null; loaded_models: string[] }
-  jobs: { pending: number; running: number; failed: number; oldest_pending_age_seconds: number }
-  health: { status: string; warnings: string[]; blockers: string[]; recommendations: string[] }
+  total_models: number
+  models_by_family: Record<string, number>
+  models_disk_bytes: number
+  disk_free_bytes: number
 }
 
 /**
@@ -76,9 +73,7 @@ export interface JobStatusResponse {
   progress_percent: number
   current_step: number
   total_steps: number
-  message: string
   params: Record<string, unknown>
-  result: Record<string, unknown>
   error: string
   created_at: string
   started_at: string | null

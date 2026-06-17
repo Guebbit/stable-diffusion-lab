@@ -19,8 +19,10 @@ import time
 from pathlib import Path
 
 from app.adapters.base import (
+    apply_pipeline_to_device,
     build_diffusers_step_callback,
     build_legacy_diffusers_step_callback,
+    estimate_pipeline_vram_mb,
     hf_token,
     resolve_model_path,
     save_artifacts_from_pil_images,
@@ -131,18 +133,18 @@ class DirectSketchToInkAdapter:
                 controlnet = ControlNetModel.from_pretrained(
                     resolve_model_path(model_id), torch_dtype=dtype, token=hf_token()
                 )
+                from app.infrastructure.config.settings import get_settings
                 pipeline = StableDiffusionControlNetPipeline.from_pretrained(
                     resolve_model_path(base_model_id),
                     controlnet=controlnet,
                     torch_dtype=dtype,
                     safety_checker=None,
                     token=hf_token(),
-                ).to(device)
-                _apply_lora(pipeline, lora_model_id, lora_strength)
-                param_bytes = sum(
-                    p.numel() * p.element_size() for p in pipeline.unet.parameters()
+                    low_cpu_mem_usage=True,
                 )
-                return (_CONTROLNET, pipeline), (param_bytes * 2) // (1024 * 1024)
+                pipeline = apply_pipeline_to_device(pipeline, device, get_settings().pipeline_offload)
+                _apply_lora(pipeline, lora_model_id, lora_strength)
+                return (_CONTROLNET, pipeline), estimate_pipeline_vram_mb(pipeline)
             except Exception as exc:
                 logger.warning(
                     "ControlNet loading failed (%s); falling back to img2img", exc
@@ -161,17 +163,17 @@ class DirectSketchToInkAdapter:
                 adapter = T2IAdapter.from_pretrained(
                     resolve_model_path(model_id), torch_dtype=dtype, token=hf_token()
                 )
+                from app.infrastructure.config.settings import get_settings
                 pipeline = StableDiffusionXLAdapterPipeline.from_pretrained(
                     resolve_model_path(base_model_id),
                     adapter=adapter,
                     torch_dtype=dtype,
                     token=hf_token(),
-                ).to(device)
-                _apply_lora(pipeline, lora_model_id, lora_strength)
-                param_bytes = sum(
-                    p.numel() * p.element_size() for p in pipeline.unet.parameters()
+                    low_cpu_mem_usage=True,
                 )
-                return (_T2I_ADAPTER, pipeline), (param_bytes * 2) // (1024 * 1024)
+                pipeline = apply_pipeline_to_device(pipeline, device, get_settings().pipeline_offload)
+                _apply_lora(pipeline, lora_model_id, lora_strength)
+                return (_T2I_ADAPTER, pipeline), estimate_pipeline_vram_mb(pipeline)
             except Exception as exc:
                 logger.warning(
                     "T2I adapter loading failed (%s); falling back to img2img", exc
@@ -183,15 +185,17 @@ class DirectSketchToInkAdapter:
         fallback_model = base_model_id or model_id
         fallback_path = resolve_model_path(fallback_model)
         logger.info("Building img2img fallback sketch pipeline: %s → %s", fallback_path, device)
+        from app.infrastructure.config.settings import get_settings
         pipeline = AutoPipelineForImage2Image.from_pretrained(
             fallback_path,
             torch_dtype=dtype,
             safety_checker=None,
             token=hf_token(),
-        ).to(device)
+            low_cpu_mem_usage=True,
+        )
+        pipeline = apply_pipeline_to_device(pipeline, device, get_settings().pipeline_offload)
         _apply_lora(pipeline, lora_model_id, lora_strength)
-        param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())
-        return (_IMG2IMG, pipeline), (param_bytes * 2) // (1024 * 1024)
+        return (_IMG2IMG, pipeline), estimate_pipeline_vram_mb(pipeline)
 
     @staticmethod
     def _run_inference(

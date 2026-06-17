@@ -39,17 +39,14 @@ class JobDetailResponse(BaseModel):
     progress_percent: int = 0
     current_step: int = 0
     total_steps: int = 0
-    message: str = ""
     priority: int = 0
     attempt: int = 1
     max_attempts: int = 1
     params: dict[str, Any] = {}
-    result: dict[str, Any] = {}
     error: str = ""
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    timeout_at: datetime | None = None
 
 
 class JobEventResponse(BaseModel):

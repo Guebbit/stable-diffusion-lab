@@ -231,10 +231,6 @@ export const diffusionApi = {
     return api.post(`/models/${encodeURIComponent(modelId)}/purge-files`).then(() => undefined)
   },
 
-  removeModelData(modelId: string): Promise<void> {
-    return api.delete(`/models-data/${encodeURIComponent(modelId)}`).then(() => undefined)
-  },
-
   purgeAllModelFiles(): Promise<void> {
     return api.delete('/models-data/').then(() => undefined)
   },

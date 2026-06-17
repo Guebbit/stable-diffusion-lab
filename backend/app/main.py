@@ -36,7 +36,6 @@ from app.adapters.direct import (
     DirectFaceRestoreAdapter,
     DirectImageToImageAdapter,
     DirectLLMAdapter,
-    DirectModelManager,
     DirectSketchToInkAdapter,
     DirectTextToImageAdapter,
     DirectUpscaleAdapter,
@@ -91,9 +90,9 @@ def _build_adapter_registry(
     registry.register(JobType.TEXT_TO_IMAGE, InferenceBackend.DIRECT_PYTHON, direct_txt2img)
     registry.register(JobType.IMAGE_TO_IMAGE, InferenceBackend.DIRECT_PYTHON, direct_img2img)
     registry.register(JobType.IMAGE_ANALYSIS, InferenceBackend.DIRECT_PYTHON, direct_vision)
-    registry.register(JobType.UPSCALE, InferenceBackend.DIRECT_PYTHON, upscale_pipeline, validate_protocol=False)
-    registry.register(JobType.RECOLOR, InferenceBackend.DIRECT_PYTHON, direct_img2img, validate_protocol=False)
-    registry.register(JobType.SKETCH_TO_INK, InferenceBackend.DIRECT_PYTHON, direct_sketch, validate_protocol=False)
+    registry.register(JobType.UPSCALE, InferenceBackend.DIRECT_PYTHON, upscale_pipeline)
+    registry.register(JobType.RECOLOR, InferenceBackend.DIRECT_PYTHON, direct_img2img)
+    registry.register(JobType.SKETCH_TO_INK, InferenceBackend.DIRECT_PYTHON, direct_sketch)
     registry.register(JobType.VIDEO_GENERATION, InferenceBackend.DIRECT_PYTHON, direct_video)
     registry.register(JobType.LLM_INFERENCE, InferenceBackend.DIRECT_PYTHON, direct_llm)
 
@@ -105,7 +104,6 @@ def _build_adapter_registry(
             BentoMLLLMAdapter,
             BentoMLTextToImageAdapter,
             BentoMLVideoAdapter,
-            BentoMLVisionAdapter,
         )
 
         bento_client = BentoMLClient(base_url=settings.bentoml_url)  # type: ignore[attr-defined]
@@ -189,9 +187,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Build adapter registry ---
     adapter_registry = _build_adapter_registry(pipeline_cache, settings)
 
-    # --- Build model manager ---
-    model_manager = DirectModelManager(pipeline_cache)
-
     # --- Connect event bus to SSE hub ---
     event_bus.subscribe_typed(sse_hub.broadcast_typed)
 
@@ -225,7 +220,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.pipeline_cache = pipeline_cache
     app.state.resource_coordinator = resource_coordinator
     app.state.adapter_registry = adapter_registry
-    app.state.model_manager = model_manager
     app.state.worker = worker
     app.state.metrics_registry = metrics_registry
     app.state.observability = observability

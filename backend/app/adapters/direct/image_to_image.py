@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.adapters.base import build_diffusers_step_callback, hf_token, resolve_model_path, save_artifacts_from_pil_images
+from app.adapters.base import apply_pipeline_to_device, build_diffusers_step_callback, estimate_pipeline_vram_mb, hf_token, resolve_model_path, save_artifacts_from_pil_images
 from app.adapters.direct.pipeline_cache import PipelineCache
 from app.domain.protocols import ProgressCallback
 from app.domain.value_objects import ArtifactReference, GenerationParams
@@ -98,21 +98,31 @@ class DirectImageToImageAdapter:
 
         logger.info("Building img2img pipeline: %s → %s", model_id, device)
 
-        pipeline = AutoPipelineForImage2Image.from_pretrained(
-            model_id,
-            torch_dtype=dtype,
-            safety_checker=None,
-        ).to(device)
+        from app.infrastructure.config.settings import get_settings
+        model_path = resolve_model_path(model_id)
+        offload = get_settings().pipeline_offload
+
+        if device == "cuda" and offload in ("model_cpu", "sequential_cpu"):
+            pipeline = AutoPipelineForImage2Image.from_pretrained(
+                model_path,
+                torch_dtype=dtype,
+                safety_checker=None,
+                device_map="balanced",
+            )
+        else:
+            pipeline = AutoPipelineForImage2Image.from_pretrained(
+                model_path,
+                torch_dtype=dtype,
+                safety_checker=None,
+                low_cpu_mem_usage=True,
+            )
+            pipeline = apply_pipeline_to_device(pipeline, device, offload)
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
         if hasattr(pipeline, "enable_attention_slicing"):
             pipeline.enable_attention_slicing()
 
-        # Estimate VRAM from UNet parameters (main VRAM consumer)
-        param_bytes = sum(p.numel() * p.element_size() for p in pipeline.unet.parameters())
-        estimated_vram_mb = (param_bytes * 2) // (1024 * 1024)
-
-        return pipeline, estimated_vram_mb
+        return pipeline, estimate_pipeline_vram_mb(pipeline)
 
     @staticmethod
     def _run_inference(

@@ -32,7 +32,7 @@ class BentoMLVideoAdapter:
         output_dir: Path,
         source_image_path: Path | None = None,
         on_progress: ProgressCallback | None = None,
-    ) -> ArtifactReference:
+    ) -> list[ArtifactReference]:
         """
         Request video generation from BentoML service.
 
@@ -71,7 +71,7 @@ class BentoMLVideoAdapter:
         video_bytes = base64.b64decode(response["video_data"])
         file_path.write_bytes(video_bytes)
 
-        return ArtifactReference(
+        return [ArtifactReference(
             artifact_id=artifact_id,
             job_id=uuid.UUID(int=0),
             file_path=str(file_path),
@@ -79,4 +79,4 @@ class BentoMLVideoAdapter:
             width=params.width,
             height=params.height,
             size_bytes=len(video_bytes),
-        )
+        )]

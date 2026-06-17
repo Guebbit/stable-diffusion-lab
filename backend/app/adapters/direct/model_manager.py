@@ -103,11 +103,15 @@ class DirectModelManager:
 
         logger.info("Loading model: %s → %s (%s)", model_id, device, dtype)
 
+        from app.adapters.base import apply_pipeline_to_device
+        from app.infrastructure.config.settings import get_settings
         pipeline = DiffusionPipeline.from_pretrained(
             model_id,
             torch_dtype=dtype,
             safety_checker=None,
-        ).to(device)
+            low_cpu_mem_usage=True,
+        )
+        pipeline = apply_pipeline_to_device(pipeline, device, get_settings().pipeline_offload)
 
         # Estimate VRAM usage (rough: parameter count × bytes per param)
         estimated_vram_mb = _estimate_pipeline_vram(pipeline, dtype)

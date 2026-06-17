@@ -174,6 +174,7 @@ class JobWorker:
 
         job_type_enum = JobType(job_type)
         needs_gpu = job_type_enum in _GPU_JOB_TYPES
+        gpu_lock_acquired = False
         _oom_failure = False
 
         # Per-job cancel event for cooperative mid-inference stop
@@ -193,6 +194,7 @@ class JobWorker:
 
             if needs_gpu:
                 await self._acquire_gpu_lock(job_id_str, correlation_id)
+                gpu_lock_acquired = True
 
             # Dispatch with optional timeout
             settings = get_settings()
@@ -300,7 +302,7 @@ class JobWorker:
 
         finally:
             self._cancel_events.pop(job_id, None)
-            if needs_gpu:
+            if gpu_lock_acquired:
                 await self._release_gpu_lock(job_id_str, correlation_id)
                 await self._gpu_cleanup(_oom_failure)
 
